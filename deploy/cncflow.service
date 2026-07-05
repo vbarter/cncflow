@@ -1,0 +1,13 @@
+[Unit]
+Description=cncflow backend (Flask via gunicorn)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/root/dev/cncflow/backend
+ExecStart=/root/dev/cncflow/backend/.venv/bin/gunicorn -w 2 -b 127.0.0.1:5001 'app:create_app()'
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
