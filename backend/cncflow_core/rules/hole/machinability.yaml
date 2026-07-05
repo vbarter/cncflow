@@ -1,0 +1,117 @@
+# 孔可加工性判定规则（前置风控层）
+# 来源：《1、孔是否可加工_加工工艺图》模块一
+# 区间约定：band 的 min 含（>=）、max 不含（<）。原文档"5~10"等模糊边界在此定死。
+# level 对应四级判定：1=可加工 2=高风险可加工 3=需特殊工艺 4=不建议加工
+version: 1
+
+levels:
+  1: Manufacturable
+  2: Manufacturable with high risk
+  3: Special process required
+  4: Not recommended
+
+checks:
+  # ── 1.2.1 深径比检查【核心必查项】 ──
+  - id: HOLE-GEO-HD
+    layer: geometry
+    name: 深径比检查
+    metric: h_over_d
+    bands:
+      - max: 5
+        grade: 常规孔
+        level: 1
+        risk: 排屑、冷却正常
+        process_stage: 一次钻削成型
+        clamping: 无需特殊装夹；常规钻头，一次装夹完成
+      - min: 5
+        max: 10
+        grade: 深孔
+        level: 2
+        risk: 排屑困难，轻微摆动
+        process_stage: 需分段啄钻（G83）
+        clamping: 常规装夹；需换刀，采用内冷深孔钻
+      - min: 10
+        max: 20
+        grade: 超深孔
+        level: 3
+        risk: 冷却不足，断刀风险高
+        process_stage: 强制采用枪钻或循环深孔钻
+        clamping: 需专用高压冷却装夹；必须换刀，采用枪钻或专用深孔钻系统
+      - min: 20
+        grade: 极限深孔
+        level: 4
+        risk: 常规设备刀具无法满足
+        process_stage: 需定制设备或特种加工（如EDM）
+        clamping: 非标装夹方案；需换刀，且必须使用特制加长刀具
+
+  # ── 1.2.2 小孔检查（D<1mm）──
+  - id: HOLE-GEO-SMALL
+    layer: geometry
+    name: 小孔检查
+    metric: diameter_mm
+    bands:
+      - max: 1
+        grade: 微孔
+        level: 3
+        risk: 常规设备不可加工；专用微孔设备可加工（高成本、高风险）
+        process_stage: 必须采用微孔电火花或超高速钻削中心
+        clamping: 需高精度气动装夹避免径向力；必须换刀，采用微钻或电极，需配备刀具破损检测
+
+  # ── 1.2.3 超大孔检查（D>80mm）──
+  - id: HOLE-GEO-LARGE
+    layer: geometry
+    name: 超大孔检查
+    metric: diameter_mm
+    bands:
+      - min: 80
+        exclusive_min: true          # 原文 D>80
+        grade: 超大孔
+        level: 3
+        risk: 常规立加设备不可加工；镗床+专用夹具可加工
+        process_stage: 粗镗→半精镗→精镗
+        clamping: 需专用支撑夹具防止振动；需换刀，依次使用粗镗刀、精镗刀
+
+  # ── 1.6 材料风险检查 ──
+  - id: HOLE-MAT
+    layer: material
+    name: 材料风险检查
+    metric: material
+    cases:
+      不锈钢:
+        level: 2
+        risk: 粘刀、排屑差
+        process_stage: 需强化冷却，使用锋利的钻尖几何
+        clamping: 常规装夹；需换刀，采用不锈钢专用钻头
+      钛合金:
+        level: 2
+        risk: 刀损快、热量集中
+        process_stage: 降低转速、进给，采用摆线切削策略
+        clamping: 高刚性装夹；需换刀，采用钛合金专用刀具
+      # 淬硬钢(HRC>50) 常规工艺不可加工（level 3），不在本期材料枚举内，接入时补充
+
+  # ── 1.5.1 基础钻孔精度限制（IT≤7 必须追加精加工）──
+  - id: HOLE-PREC-IT7
+    layer: precision
+    name: 基础钻孔精度限制
+    metric: tolerance_it
+    bands:
+      - max: 8                      # IT≤7，即 tolerance_it < 8
+        level: 2
+        risk: 单一钻孔工艺不可达标，必须追加精加工工序
+        process_stage: 工艺链必须增加铰孔或镗孔阶段
+        clamping: 精加工阶段需要换刀，更换铰刀或镗刀
+
+  # ── 1.5.2 深孔+高精度冲突判定（H/D>10 且 IT≤6）──
+  - id: HOLE-PREC-DEEP-CONFLICT
+    layer: precision
+    name: 深孔高精度冲突判定
+    all_of:                          # 组合条件：全部满足才命中
+      - metric: h_over_d
+        min: 10
+        exclusive_min: true
+      - metric: tolerance_it
+        max: 7                       # IT≤6
+    level: 3
+    risk: 极高风险加工，不建议常规工艺承接
+    process_stage: 必须采用"钻→半精镗→精镗"多阶段工艺，或改用磨削/珩磨
+    clamping: 需精密装夹，多次换刀，且需在线测量补偿

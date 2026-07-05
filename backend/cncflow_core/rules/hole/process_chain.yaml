@@ -1,0 +1,68 @@
+# 孔工艺链生成规则（后置生产层）
+# 来源：《1、孔是否可加工_加工工艺图》模块二 Step1~9 + 《2-给定工艺链…SKU范围》速查表
+# 区间约定：min 含、max 不含，除非标注 exclusive/inclusive
+version: 1
+
+# Step0 主钻孔方式选择（文档2速查表：D≤30 钻头；D>30 U钻）
+primary_drill:
+  u_drill_min_d: 30              # D>30 → U钻（exclusive）
+
+# Step2 点钻添加判定（触发任一条件即添加，作为第一道工序）
+spot_drill_triggers:
+  surfaces: [inclined, curved]   # 倾斜面、曲面
+  max_diameter: 3                # 小孔 D<3
+  max_tolerance_it: 7            # 高精度定位 IT≤7，即 tolerance_it <= 7
+  materials: [不锈钢, 钛合金]      # 易跑偏材质
+
+# Step3/4 深孔切换判定（文档1：H/D>5 禁普通钻改 G83 内冷；H/D>10 改枪钻）
+deep_hole:
+  g83_min_hd: 5                  # H/D>5（exclusive）→ 深孔钻 + G83
+  gun_drill_min_hd: 10           # H/D>10（exclusive）→ 枪钻
+
+# 钻削循环指令（文档4 §5.2：按 L/D 定循环，与刀具结构切换阈值是两回事）
+drill_cycle:
+  g81_max_ld: 3                  # L/D≤3 → G81
+  g83_peck_depth_mm: "5~10"      # G83 每次啄深
+
+# Step5 高精度精加工工序判定
+finishing:
+  bore_min_d: 20                 # D≥20 + IT≤7 → 镗孔路径（半精镗→精镗），替代铰孔
+  bore_max_it: 7
+  ream_max_it: 7                 # IT≤7（中小孔径）→ 铰孔
+  ream_max_ra: 1.6
+  semi_bore_max_it: 8            # IT≤8 → 增加半精镗修正孔形
+
+# Step6 粗糙度专项工艺判定
+roughness:
+  - max_ra: 0.4                  # Ra≤0.4 放弃切削采用磨削
+    action: grind
+  - max_ra: 0.8                  # Ra≤0.8 强制精镗
+    action: fine_bore
+  - max_ra: 1.6                  # Ra≤1.6 强制铰孔
+    action: ream
+  # Ra>1.6（如3.2）钻孔阶段即可，无额外动作
+
+# Step7 螺纹加工工艺判定
+thread:
+  tap_max_d: 16                  # D≤16 常规螺纹 → 攻牙
+  thread_mill_materials: [不锈钢]  # 不锈钢 → 螺纹铣
+  thread_mill_min_hd: 5          # 深孔螺纹 → 螺纹铣
+
+# Step8 孔底形状（盲孔平底 → 立铣刀修底）
+bottom:
+  flat_requires_mill: true
+
+# Step9 辅助工序：所有孔完工后倒角（去锐边、防划伤，最终阶段）
+chamfer_always: true
+
+# 工序 → 循环指令映射（文档4 §5.2）
+cycles:
+  ream: G85
+  rough_bore: G86
+  semi_bore: G86
+  fine_bore: G76
+
+# 超大孔（D>80，文档1 §1.2.3）：常规立加不可钻，走 粗镗→半精镗→精镗 路径
+large_hole:
+  min_d: 80                      # exclusive
+  chain: [rough_bore, semi_bore, fine_bore]

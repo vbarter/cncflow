@@ -1,0 +1,96 @@
+# 加工参数知识库（材料 × 刀具维度，跨特征共用）
+# 来源：《4-加工参数知识库（RAG优化版）》
+# 策略：stable=稳定模式（保守，首次试切）；aggressive=激进模式（高效，批量生产）
+# 注意：文档公式表写 π 取 3.14，但全部算例数值按真实 π 舍入（如 D10 Vc150 → 4775rpm），
+#       代码实现取 math.pi 以对齐文档算例。
+version: 1
+
+# ── 一、线速度 Vc 基准表 (m/min)，按 刀具基材 × 工件材料 × 策略 ──
+vc:
+  硬质合金:
+    铝合金: {stable: 150, aggressive: 250}
+    普通碳钢: {stable: 100, aggressive: 160}
+    不锈钢: {stable: 70, aggressive: 110}
+    钛合金: {stable: 45, aggressive: 70}
+    铸铁: {stable: 80, aggressive: 120}
+    铜合金: {stable: 120, aggressive: 200}
+  高速钢:
+    铝合金: {stable: 80, aggressive: 120}
+    普通碳钢: {stable: 30, aggressive: 45}
+    不锈钢: {stable: 18, aggressive: 28}
+    铸铁: {stable: 25, aggressive: 40}
+    # 高速钢×钛合金/铜合金 原文未提供 → 查不到时 fail fast
+
+# 1.3 特殊规则：铰刀/丝锥 Vc = 同材料同基材钻头 Vc × 系数
+vc_factor:
+  ream: {stable: 0.5, aggressive: 0.6}      # 铰刀 40%~60%，稳定取50%、激进取60%
+  tap: {stable: 0.3, aggressive: 0.5}       # 丝锥 30%~50%
+
+# ── 三、每转进给量 fr 基准表 (mm/rev)，按 刀具类型 × 直径分档 × 策略 ──
+# 区间：min 不含、max 含（对齐原文 "3<D≤6" 写法）
+feed_per_rev:
+  drill:                          # 钻头（含U钻/枪钻）
+    - {max_d: 3, stable: 0.02, aggressive: 0.04}
+    - {min_d: 3, max_d: 6, stable: 0.05, aggressive: 0.10}
+    - {min_d: 6, max_d: 10, stable: 0.08, aggressive: 0.15}
+    - {min_d: 10, max_d: 16, stable: 0.12, aggressive: 0.22}
+    - {min_d: 16, max_d: 25, stable: 0.16, aggressive: 0.28}
+    - {min_d: 25, max_d: 40, stable: 0.18, aggressive: 0.32}
+    - {min_d: 40, max_d: 50, stable: 0.20, aggressive: 0.36}
+    - {min_d: 50, max_d: 65, stable: 0.25, aggressive: 0.42}
+    - {min_d: 65, max_d: 80, stable: 0.30, aggressive: 0.50}
+  ream:
+    - {max_d: 6, stable: 0.03, aggressive: 0.06}
+    - {min_d: 6, max_d: 12, stable: 0.06, aggressive: 0.12}
+    - {min_d: 12, max_d: 20, stable: 0.10, aggressive: 0.18}
+    - {min_d: 20, max_d: 30, stable: 0.12, aggressive: 0.22}
+    - {min_d: 30, max_d: 40, stable: 0.14, aggressive: 0.25}
+    - {min_d: 40, max_d: 50, stable: 0.15, aggressive: 0.28}
+    - {min_d: 50, max_d: 65, stable: 0.18, aggressive: 0.32}
+  bore:
+    - {max_d: 20, stable: 0.05, aggressive: 0.10}
+    - {min_d: 20, max_d: 50, stable: 0.08, aggressive: 0.15}
+    - {min_d: 50, max_d: 100, stable: 0.10, aggressive: 0.20}
+    - {min_d: 100, stable: 0.12, aggressive: 0.25}
+
+# 3.4 材料修正系数（fr 查表值 × 系数；铜合金原文未列，取 1.0）
+material_feed_factor:
+  铝合金: 1.0
+  普通碳钢: 0.9
+  不锈钢: 0.7
+  钛合金: 0.7
+  铸铁: 0.85
+  铜合金: 1.0
+
+# ── 四、切削深度 ap ──
+cutting_depth:
+  drill: 全径
+  u_drill: 全径
+  gun_drill: 全径
+  ream:                           # 单边余量；推荐值：铝 0.10~0.15，钢件 0.05~0.10
+    铝合金: "0.15 (单边)"
+    default: "0.10 (单边)"
+  rough_bore: "0.5~2.0 (单边)"     # 粗镗（D>80 路径）
+  semi_bore: "0.5~2.0 (单边)"      # 粗/半精镗
+  fine_bore: "0.15 (单边)"         # 精镗 0.05~0.20，取 0.15
+  spot_drill: 定位锪窝
+  tap: 螺纹全牙
+  thread_mill: 螺纹全牙
+  flat_bottom_mill: 修底余量
+  chamfer: 倒角规格
+
+# ── 五、冷却方式 ──
+coolant:
+  u_drill: 高压内冷 (≥30 bar)
+  gun_drill: 高压内冷 (≥30 bar)
+  drill_deep: 高压内冷 (≥30 bar)   # 深孔钻（H/D>5 内冷结构时）
+  drill: 乳化液外冷/内冷
+  ream: 乳化液外冷（建议内冷）
+  rough_bore: 乳化液外冷或气冷
+  semi_bore: 乳化液外冷或气冷
+  fine_bore: 乳化液外冷或气冷
+  spot_drill: 乳化液外冷
+  tap: 乳化液/攻丝油
+  thread_mill: 乳化液外冷
+  flat_bottom_mill: 乳化液外冷
+  chamfer: 乳化液外冷

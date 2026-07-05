@@ -1,0 +1,72 @@
+# 单刀 5 项硬性属性推算规则
+# 来源：《2-给定工艺链（换刀顺序）+ 材料，输出每把刀可用的SKU范围》
+version: 1
+
+# 1. 刀具公称直径：粗加工刀具 = 成品孔径 - 精加工余量；精加工刀具 = 成品孔径
+# 余量标准取区间下限（D≤30 留 0.3~0.5 → 0.3；D>30 留 0.5~1.0 → 0.5）
+finishing_allowance:
+  - max_d: 30                    # D≤30（inclusive）
+    inclusive_max: true
+    allowance_mm: 0.3
+  - min_d: 30
+    allowance_mm: 0.5
+
+# 2. 刀具结构类型（按 H/D，边界与工艺链切换阈值一致）
+structure_by_hd:
+  - max_hd: 5                    # H/D≤5（inclusive）→ 标准
+    inclusive_max: true
+    structure: 标准
+  - min_hd: 5
+    max_hd: 10
+    inclusive_max: true          # 5<H/D≤10 → 内冷
+    structure: 内冷
+  - min_hd: 10                   # H/D>10 → 深孔专用（枪钻/加长）
+    structure: 枪钻
+
+# 3. 刀具基材（普通钢原文"高速钢 或 硬质合金"，取速查表口径：高速钢；铸铁原文未列，取行业默认硬质合金）
+base_material_by_material:
+  铝合金: 硬质合金
+  铜合金: 硬质合金
+  普通碳钢: 高速钢
+  不锈钢: 硬质合金
+  钛合金: 硬质合金
+  铸铁: 硬质合金
+
+# 4. 表层涂层（铸铁原文未列，取 TiN；钛合金归入"不锈钢/钛合金"类 → TiAlN）
+coating_by_material:
+  铝合金: 无涂层
+  铜合金: 无涂层
+  普通碳钢: TiN
+  不锈钢: TiAlN
+  钛合金: TiAlN
+  铸铁: TiN
+
+# 5. 刀具精度等级（按图纸 IT；粗加工刀具一律"普通"，精加工刀具按此表）
+precision_by_it:
+  - max_it: 6                    # IT5~6 → 超精密（需微调镗刀或PCD铰刀）
+    inclusive_max: true
+    grade: 超精密
+  - min_it: 7
+    max_it: 8
+    inclusive_max: true          # IT7~8 → 高精度（H7/H6 公差带）
+    grade: 高精度
+  - min_it: 9                    # IT9 及以上 → 普通
+    grade: 普通
+
+# 工序 → 刀具大类映射（category 与 tools 表对齐）
+process_category:
+  spot_drill: 中心钻
+  drill: 钻头
+  u_drill: U钻
+  gun_drill: 枪钻
+  ream: 铰刀
+  rough_bore: 镗刀
+  semi_bore: 镗刀
+  fine_bore: 镗刀
+  tap: 丝锥
+  thread_mill: 螺纹铣刀
+  flat_bottom_mill: 平底立铣刀
+  chamfer: 倒角刀
+
+# 倒角刀/中心钻直径"不限定，按孔口规格选型"→ SKU 匹配时放宽直径与精度条件
+relaxed_match_processes: [chamfer, spot_drill]
