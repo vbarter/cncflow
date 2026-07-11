@@ -9,7 +9,9 @@ from pathlib import Path
 from flask import Flask, jsonify, request
 
 from cncflow_core.common.db import get_conn, init_schema
+from cncflow_core.common.materials import list_materials, seed_material_catalog
 from cncflow_core.features.hole import pipeline as hole_pipeline
+from data.seed_tool_specs import seed_tool_specs
 
 # 特征分发注册表：feature_type → pipeline 函数（二期：FEATURE_PIPELINES["face"] = face_pipeline.run）
 FEATURE_PIPELINES = {"hole": hole_pipeline.run}
@@ -34,6 +36,8 @@ def create_app(db_path=None) -> Flask:
 
     conn = get_conn(db_path)
     init_schema(conn)
+    seed_material_catalog(conn)
+    seed_tool_specs(conn)
     conn.close()
 
     @app.post("/api/v1/process-plan")
@@ -73,6 +77,20 @@ def create_app(db_path=None) -> Flask:
     @app.get("/api/v1/health")
     def health():
         return jsonify({"status": "ok", "features": sorted(FEATURE_PIPELINES)})
+
+    @app.get("/api/v1/materials")
+    def materials_catalog():
+        conn = get_conn(app.config["DB_PATH"])
+        try:
+            items = list_materials(
+                conn,
+                family=request.args.get("family"),
+                planning_status=request.args.get("planning_status"),
+                query=request.args.get("q"),
+            )
+            return jsonify({"items": items, "count": len(items)})
+        finally:
+            conn.close()
 
     return app
 

@@ -1,0 +1,205 @@
+version: 1
+
+sources:
+  cncflow_verified:
+    title: cncflow 文档1-4材料族规则
+    source_type: internal_rules
+    authority: verified_rule
+    revision: v1
+  cnc_quote_rag_mit:
+    title: cnc-quote-rag-system material knowledge base
+    source_type: third_party_mit
+    authority: community_unverified
+    locator: /Users/caijunjie/Dev/cnc-quote-rag-system
+    license: MIT
+    revision: 58c3243
+
+materials:
+  - code: AL-UNSPEC
+    name: 铝合金（牌号未指定）
+    family: 铝合金
+    aliases: [铝合金, 铝材, 铝]
+    planning_status: enabled_family_fallback
+    verification_status: verified
+    source_id: cncflow_verified
+  - code: CARBON-STEEL-UNSPEC
+    name: 普通碳钢（牌号未指定）
+    family: 普通碳钢
+    aliases: [普通碳钢, 碳钢, 普通钢]
+    planning_status: enabled_family_fallback
+    verification_status: verified
+    source_id: cncflow_verified
+  - code: STAINLESS-UNSPEC
+    name: 不锈钢（牌号未指定）
+    family: 不锈钢
+    aliases: [不锈钢]
+    planning_status: enabled_family_fallback
+    verification_status: verified
+    source_id: cncflow_verified
+  - code: TI-UNSPEC
+    name: 钛合金（牌号未指定）
+    family: 钛合金
+    aliases: [钛合金]
+    planning_status: enabled_family_fallback
+    verification_status: verified
+    source_id: cncflow_verified
+  - code: CAST-IRON-UNSPEC
+    name: 铸铁（牌号未指定）
+    family: 铸铁
+    aliases: [铸铁]
+    planning_status: enabled_family_fallback
+    verification_status: verified
+    source_id: cncflow_verified
+  - code: COPPER-UNSPEC
+    name: 铜合金（牌号未指定）
+    family: 铜合金
+    aliases: [铜合金]
+    planning_status: enabled_family_fallback
+    verification_status: verified
+    source_id: cncflow_verified
+
+  - code: AL-6061-T6
+    name: 铝合金 6061-T6
+    family: 铝合金
+    grade: 6061
+    condition: T6
+    aliases: [6061, AL6061, 铝6061, 铝合金6061, 6061-T6, LD30]
+    density: 2.70
+    hardness: HB 90-95
+    machinability_rating: 5
+    k_time: 1.0
+    k_risk: 1.0
+    tool_wear_cost: 0
+    planning_status: enabled_family_fallback
+    verification_status: community_unverified
+    source_id: cnc_quote_rag_mit
+    advisory:
+      summary: 易切削，薄壁件需注意变形，适合阳极氧化。
+      precision_limit: IT7-IT8
+  - code: AL-7075-T6
+    name: 铝合金 7075
+    family: 铝合金
+    grade: 7075
+    aliases: [7075, AL7075, 铝合金7075]
+    density: 2.80
+    planning_status: enabled_family_fallback
+    verification_status: community_unverified
+    source_id: cnc_quote_rag_mit
+  - code: SUS-304
+    name: 304 不锈钢
+    family: 不锈钢
+    grade: 304
+    aliases: [304, SUS304, 304不锈钢, 不锈钢304, 0Cr18Ni9]
+    density: 7.93
+    hardness: HB 185-187
+    machinability_rating: 2
+    k_time: 1.45
+    k_risk: 1.15
+    tool_wear_cost: 12
+    planning_status: enabled_family_fallback
+    verification_status: community_unverified
+    source_id: cnc_quote_rag_mit
+    advisory:
+      summary: 加工硬化显著、导热差，建议TiAlN刀具并强化冷却。
+      precision_limit: IT7
+  - code: STEEL-45
+    name: 45号钢
+    family: 普通碳钢
+    grade: 45#钢
+    aliases: [45#钢, 45号钢, 45钢]
+    density: 7.85
+    hardness: HB 170-217
+    machinability_rating: 4
+    k_time: 1.10
+    k_risk: 1.0
+    tool_wear_cost: 5
+    planning_status: enabled_family_fallback
+    verification_status: community_unverified
+    source_id: cnc_quote_rag_mit
+  - code: TI-6AL4V
+    name: 钛合金 TC4 (Ti6Al4V)
+    family: 钛合金
+    grade: TC4
+    aliases: [TC4, Ti6Al4V, Ti-6Al-4V]
+    density: 4.43
+    hardness: HRC 30-36
+    machinability_rating: 1
+    k_time: 2.0
+    k_risk: 1.35
+    tool_wear_cost: 35
+    planning_status: enabled_family_fallback
+    verification_status: community_unverified
+    source_id: cnc_quote_rag_mit
+    advisory:
+      summary: 导热性低且刀具损耗高，建议高压内冷和专用刀具。
+      precision_limit: IT7
+  - code: BRASS-H59
+    name: 黄铜 H59
+    family: 铜合金
+    grade: H59
+    aliases: [H59, 黄铜, 黄铜H59]
+    density: 8.50
+    hardness: HB 80-90
+    machinability_rating: 5
+    k_time: 0.90
+    k_risk: 1.0
+    tool_wear_cost: 3
+    planning_status: enabled_family_fallback
+    verification_status: community_unverified
+    source_id: cnc_quote_rag_mit
+  - code: COPPER-T2
+    name: 紫铜 T2
+    family: 铜合金
+    grade: T2
+    aliases: [T2, 紫铜, 紫铜T2]
+    density: 8.90
+    hardness: HB 35-45
+    machinability_rating: 3
+    k_time: 1.15
+    k_risk: 1.05
+    tool_wear_cost: 5
+    planning_status: enabled_family_fallback
+    verification_status: community_unverified
+    source_id: cnc_quote_rag_mit
+  - code: ABS
+    name: ABS 工程塑料
+    family: 工程塑料
+    grade: ABS
+    aliases: [ABS, ABS塑料, ABS工程塑料]
+    density: 1.05
+    hardness: HR R100-110
+    machinability_rating: 5
+    k_time: 0.50
+    k_risk: 1.0
+    tool_wear_cost: 0
+    planning_status: unsupported
+    verification_status: community_unverified
+    source_id: cnc_quote_rag_mit
+  - code: POM
+    name: POM 聚甲醛
+    family: 工程塑料
+    grade: POM
+    aliases: [POM, 聚甲醛, 赛钢]
+    density: 1.42
+    hardness: HR M80-94
+    machinability_rating: 5
+    k_time: 0.55
+    k_risk: 1.0
+    tool_wear_cost: 0
+    planning_status: unsupported
+    verification_status: community_unverified
+    source_id: cnc_quote_rag_mit
+  - code: PA66
+    name: 尼龙 PA66
+    family: 工程塑料
+    grade: PA66
+    aliases: [PA66, 尼龙, Nylon]
+    density: 1.15
+    hardness: HR R118
+    machinability_rating: 4
+    k_time: 0.60
+    k_risk: 1.0
+    tool_wear_cost: 0
+    planning_status: unsupported
+    verification_status: community_unverified
+    source_id: cnc_quote_rag_mit

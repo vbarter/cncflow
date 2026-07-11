@@ -26,12 +26,37 @@ class ToolAttrs:
 
 
 @dataclass
+class ToolRequirement:
+    """工序对刀具的可接受范围；preferred_attrs 用于保持旧接口和首选排序。"""
+
+    preferred_attrs: ToolAttrs
+    diameter_min_mm: Optional[float]
+    diameter_max_mm: Optional[float]
+    allowed_base_materials: list
+    allowed_coatings: list
+    hard_constraints: list = field(default_factory=list)
+    selection_notes: list = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        return {
+            "preferred": self.preferred_attrs.to_dict(),
+            "diameter_min_mm": self.diameter_min_mm,
+            "diameter_max_mm": self.diameter_max_mm,
+            "allowed_base_materials": self.allowed_base_materials,
+            "allowed_coatings": self.allowed_coatings,
+            "hard_constraints": self.hard_constraints,
+            "selection_notes": self.selection_notes,
+        }
+
+
+@dataclass
 class CuttingParams:
     vc_m_min: float
     spindle_rpm: int
     feed_per_rev_mm: float
     cutting_depth: str
     coolant: str
+    feed_rate_mm_min: Optional[float] = None
 
     def to_dict(self) -> dict:
         return {
@@ -40,6 +65,7 @@ class CuttingParams:
             "feed_per_rev_mm": self.feed_per_rev_mm,
             "cutting_depth": self.cutting_depth,
             "coolant": self.coolant,
+            "feed_rate_mm_min": self.feed_rate_mm_min,
         }
 
 

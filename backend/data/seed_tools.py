@@ -53,7 +53,7 @@ def build_rows() -> list:
         if sku in seen:
             return
         seen.add(sku)
-        rows.append((sku, cat, d, structure, base, coat, prec, 1, None))
+        rows.append((sku, cat, d, structure, base, coat, prec, 1, None, 1, "generated_mock"))
 
     drill_ds = sorted({*FINISHED_DS, *(_rough_d(fd) for fd in FINISHED_DS)})
     u_drill_ds = sorted({fd for fd in FINISHED_DS if fd > 30} | {_rough_d(fd) for fd in FINISHED_DS if fd > 30})
@@ -94,7 +94,7 @@ def seed(conn) -> int:
     conn.execute("DELETE FROM tools")
     conn.executemany(
         "INSERT INTO tools (sku, category, diameter_mm, structure, base_material, coating, "
-        "precision_grade, in_stock, extra_attrs) VALUES (?,?,?,?,?,?,?,?,?)",
+        "precision_grade, in_stock, extra_attrs, is_mock, source) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
         build_rows(),
     )
     conn.commit()

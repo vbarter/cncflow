@@ -87,5 +87,6 @@ def calc_params(process: str, material: str, base_material: str, diameter_mm: fl
             feed_per_rev_mm=fr,
             cutting_depth=_cutting_depth(process, material),
             coolant=_coolant(process, deep),
+            feed_rate_mm_min=round(spindle_rpm(vc, diameter_mm) * fr, 1),
         )
     return result
