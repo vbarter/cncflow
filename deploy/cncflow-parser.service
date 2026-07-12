@@ -6,6 +6,7 @@ After=network.target
 Type=simple
 WorkingDirectory=/root/dev/cncflow/backend
 Environment=CNCFLOW_FILE_STORAGE=/var/lib/cncflow/files
+ExecStartPre=/root/dev/cncflow/backend/.venv-parser/bin/python -c "import cadquery; from OCP.gp import gp_Pnt"
 ExecStart=/root/dev/cncflow/backend/.venv-parser/bin/python -m cncflow_core.ingestion.worker
 Restart=always
 RestartSec=3

@@ -15,14 +15,20 @@ fi
 backend/.venv/bin/pip install -q -r backend/requirements.txt
 backend/.venv/bin/python deploy/seed_if_empty.py
 
-if ! command -v tesseract >/dev/null 2>&1 || ! tesseract --list-langs 2>/dev/null | grep -q '^chi_sim$'; then
+# CadQuery/OCP 在无桌面 Linux 上仍会动态加载 libGL.so.1；缺失时 Python
+# 包虽然安装成功，但直到真正解析 STP 才会报 ImportError。
+if ! ldconfig -p 2>/dev/null | grep -q 'libGL\.so\.1' \
+   || ! command -v tesseract >/dev/null 2>&1 \
+   || ! tesseract --list-langs 2>/dev/null | grep -q '^chi_sim$'; then
   apt-get update -qq
-  apt-get install -y -qq tesseract-ocr tesseract-ocr-chi-sim tesseract-ocr-eng
+  apt-get install -y -qq libgl1 libglib2.0-0 tesseract-ocr tesseract-ocr-chi-sim tesseract-ocr-eng
 fi
 if [ ! -d backend/.venv-parser ]; then
   "${PARSER_PYTHON:-python3}" -m venv backend/.venv-parser
 fi
 backend/.venv-parser/bin/pip install -q -r backend/requirements-parser.txt
+# 部署阶段就验证原生依赖，避免 Worker 看似在线、收到任务后才失败。
+backend/.venv-parser/bin/python -c "import cadquery; from OCP.gp import gp_Pnt"
 
 install -m 0644 deploy/cncflow.service /etc/systemd/system/cncflow.service
 install -m 0644 deploy/cncflow-parser.service /etc/systemd/system/cncflow-parser.service
@@ -32,6 +38,7 @@ systemctl enable cncflow-parser >/dev/null
 
 systemctl restart cncflow-parser
 systemctl restart cncflow
+systemctl is-active --quiet cncflow-parser
 nginx -t
 systemctl reload nginx
 

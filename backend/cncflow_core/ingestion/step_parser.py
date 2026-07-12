@@ -39,7 +39,7 @@ def parse_step(path: str) -> dict:
     try:
         import cadquery as cq
     except ImportError as exc:
-        raise RuntimeError("解析Worker未安装CadQuery/OCP") from exc
+        raise RuntimeError(f"CadQuery/OCP加载失败：{exc}") from exc
 
     imported = cq.importers.importStep(path)
     values = imported.vals()
