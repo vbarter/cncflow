@@ -51,7 +51,11 @@ class TestHappyPath:
 
     def test_health(self, client):
         resp = client.get("/api/v1/health")
-        assert resp.get_json() == {"status": "ok", "features": ["hole"]}
+        body = resp.get_json()
+        assert body["status"] == "degraded"  # 测试环境未启动独立解析Worker
+        assert body["features"] == ["hole"]
+        assert body["parser"]["queued"] >= 0
+        assert body["parser"]["available"] is False
 
 
 class TestValidation:

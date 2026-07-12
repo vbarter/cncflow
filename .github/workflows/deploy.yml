@@ -17,10 +17,42 @@ jobs:
       - name: Run tests
         run: cd backend && pytest
 
-  deploy:
-    needs: test
+  frontend:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Build frontend
+        run: cd frontend && npm ci && npm run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+
+  parser-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install parser dependencies
+        run: pip install -r backend/requirements-parser.txt
+      - name: Import parser modules
+        run: cd backend && python -c "import cadquery, pdfplumber; from cncflow_core.ingestion.step_parser import parse_step"
+
+  deploy:
+    needs: [test, frontend, parser-smoke]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend-dist
       - name: Setup SSH key
         run: |
           mkdir -p ~/.ssh
@@ -30,5 +62,6 @@ jobs:
       - name: Deploy to server
         # 先同步代码再执行部署脚本，保证跑的是本次 push 的最新 deploy.sh
         run: |
+          scp -i ~/.ssh/deploy_key -r frontend-dist root@107.173.154.11:/tmp/cncflow-frontend-dist
           ssh -i ~/.ssh/deploy_key root@107.173.154.11 \
-            'cd /root/dev/cncflow && git fetch origin main && git reset --hard origin/main && bash deploy/deploy.sh'
+            'cd /root/dev/cncflow && git fetch origin main && git reset --hard origin/main && rm -rf frontend/dist && mkdir -p frontend/dist && cp -a /tmp/cncflow-frontend-dist/. frontend/dist/ && rm -rf /tmp/cncflow-frontend-dist && bash deploy/deploy.sh'

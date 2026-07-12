@@ -1,0 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;600&display=swap');
+@tailwind base; @tailwind components; @tailwind utilities;
+:root{--background:60 9% 97%;--foreground:240 6% 6%;--border:240 6% 90%;--muted:240 5% 96%;--primary:240 6% 6%}
+*{box-sizing:border-box}html{overflow-x:hidden;background:#f7f7f5}body{margin:0;min-width:320px;overflow-x:hidden;font-family:'IBM Plex Sans','Noto Sans SC',sans-serif;-webkit-font-smoothing:antialiased}button,input,select{font:inherit}::selection{background:#18181b;color:#fff}
+@media(max-width:640px){h1,h2,p{overflow-wrap:anywhere;word-break:break-word}}

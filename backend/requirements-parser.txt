@@ -1,0 +1,8 @@
+-r requirements.txt
+cadquery>=2.5,<3
+trimesh>=4.4,<5
+pdfplumber>=0.11,<1
+pypdfium2>=4.30,<5
+pytesseract>=0.3.13,<1
+openai>=1.50,<2
+Pillow>=10,<13

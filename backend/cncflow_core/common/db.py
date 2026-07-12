@@ -135,6 +135,54 @@ CREATE TABLE IF NOT EXISTS knowledge_chunks (
   authority TEXT NOT NULL,
   FOREIGN KEY (source_id) REFERENCES material_sources(source_id)
 );
+
+CREATE TABLE IF NOT EXISTS parse_jobs (
+  job_id TEXT PRIMARY KEY,
+  status TEXT NOT NULL DEFAULT 'queued',
+  stage TEXT NOT NULL DEFAULT 'queued',
+  progress INTEGER NOT NULL DEFAULT 0,
+  options_json TEXT,
+  result_json TEXT,
+  confirmed_json TEXT,
+  plans_json TEXT,
+  error TEXT,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  worker_id TEXT,
+  started_at TEXT,
+  heartbeat_at TEXT,
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_parse_jobs_queue ON parse_jobs(status, created_at);
+
+CREATE TABLE IF NOT EXISTS uploaded_files (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  job_id TEXT NOT NULL,
+  role TEXT NOT NULL,
+  original_name TEXT NOT NULL,
+  storage_path TEXT NOT NULL,
+  sha256 TEXT NOT NULL,
+  size_bytes INTEGER NOT NULL,
+  detected_type TEXT NOT NULL,
+  created_at TEXT DEFAULT (datetime('now')),
+  UNIQUE(job_id, role),
+  FOREIGN KEY (job_id) REFERENCES parse_jobs(job_id)
+);
+
+CREATE TABLE IF NOT EXISTS parser_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  job_id TEXT NOT NULL,
+  stage TEXT NOT NULL,
+  message TEXT,
+  created_at TEXT DEFAULT (datetime('now')),
+  FOREIGN KEY (job_id) REFERENCES parse_jobs(job_id)
+);
+
+CREATE TABLE IF NOT EXISTS parser_workers (
+  worker_id TEXT PRIMARY KEY,
+  parser_version TEXT NOT NULL,
+  heartbeat_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 """
 
 

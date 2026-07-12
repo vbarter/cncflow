@@ -6,12 +6,13 @@ import json
 import subprocess
 from pathlib import Path
 
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, send_from_directory
 
 from cncflow_core.common.db import get_conn, init_schema
 from cncflow_core.common.materials import list_materials, seed_material_catalog
 from cncflow_core.features.hole import pipeline as hole_pipeline
 from data.seed_tool_specs import seed_tool_specs
+from cncflow_core.ingestion.api import bp as ingestion_bp
 
 # 特征分发注册表：feature_type → pipeline 函数（二期：FEATURE_PIPELINES["face"] = face_pipeline.run）
 FEATURE_PIPELINES = {"hole": hole_pipeline.run}
@@ -30,15 +31,24 @@ def _rules_version() -> str:
 
 
 def create_app(db_path=None) -> Flask:
-    app = Flask(__name__)
+    frontend_dist = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+    app = Flask(__name__, static_folder=None)
     app.config["DB_PATH"] = db_path
     app.config["RULES_VERSION"] = _rules_version()
+    app.config["MAX_CONTENT_LENGTH"] = 150 * 1024 * 1024
 
     conn = get_conn(db_path)
     init_schema(conn)
     seed_material_catalog(conn)
     seed_tool_specs(conn)
     conn.close()
+    app.register_blueprint(ingestion_bp)
+    # 便于本地直接访问构建时base=/cncflow/的前端；生产Nginx会先剥离此前缀。
+    app.register_blueprint(ingestion_bp, url_prefix="/cncflow", name="ingestion_prefixed")
+
+    @app.errorhandler(413)
+    def upload_too_large(_exc):
+        return jsonify({"error": "单次上传总大小不能超过150MB"}), 413
 
     @app.post("/api/v1/process-plan")
     def process_plan():
@@ -75,10 +85,23 @@ def create_app(db_path=None) -> Flask:
         return jsonify(result)
 
     @app.get("/api/v1/health")
+    @app.get("/cncflow/api/v1/health")
     def health():
-        return jsonify({"status": "ok", "features": sorted(FEATURE_PIPELINES)})
+        conn = get_conn(app.config["DB_PATH"])
+        queued = conn.execute("SELECT COUNT(*) FROM parse_jobs WHERE status='queued'").fetchone()[0]
+        worker = conn.execute(
+            "SELECT worker_id,parser_version,heartbeat_at FROM parser_workers "
+            "WHERE heartbeat_at>=datetime('now','-10 seconds') ORDER BY heartbeat_at DESC LIMIT 1"
+        ).fetchone()
+        conn.close()
+        return jsonify({"status": "ok" if worker else "degraded", "features": sorted(FEATURE_PIPELINES),
+                        "parser": {"available": bool(worker), "queued": queued,
+                                   "worker_id": worker["worker_id"] if worker else None,
+                                   "version": worker["parser_version"] if worker else None,
+                                   "last_heartbeat": worker["heartbeat_at"] if worker else None}})
 
     @app.get("/api/v1/materials")
+    @app.get("/cncflow/api/v1/materials")
     def materials_catalog():
         conn = get_conn(app.config["DB_PATH"])
         try:
@@ -91,6 +114,18 @@ def create_app(db_path=None) -> Flask:
             return jsonify({"items": items, "count": len(items)})
         finally:
             conn.close()
+
+    @app.get("/")
+    @app.get("/cncflow/")
+    def frontend_index():
+        if (frontend_dist / "index.html").exists():
+            return send_from_directory(frontend_dist, "index.html")
+        return jsonify({"service": "cncflow", "message": "frontend not built"})
+
+    @app.get("/assets/<path:filename>")
+    @app.get("/cncflow/assets/<path:filename>")
+    def frontend_assets(filename):
+        return send_from_directory(frontend_dist / "assets", filename)
 
     return app
 

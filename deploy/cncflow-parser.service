@@ -1,12 +1,12 @@
 [Unit]
-Description=cncflow backend (Flask via gunicorn)
+Description=cncflow engineering file parser
 After=network.target
 
 [Service]
 Type=simple
 WorkingDirectory=/root/dev/cncflow/backend
 Environment=CNCFLOW_FILE_STORAGE=/var/lib/cncflow/files
-ExecStart=/root/dev/cncflow/backend/.venv/bin/gunicorn -w 2 -b 127.0.0.1:5001 'app:create_app()'
+ExecStart=/root/dev/cncflow/backend/.venv-parser/bin/python -m cncflow_core.ingestion.worker
 Restart=always
 RestartSec=3
 
