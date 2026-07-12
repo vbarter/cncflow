@@ -24,7 +24,7 @@ def detect_type(filename: str, prefix: bytes) -> str:
         return "step"
     if ext in PDF_EXTENSIONS and prefix.startswith(b"%PDF-"):
         return "pdf"
-    raise ValueError("文件扩展名与实际内容不匹配；MVP仅支持有效的 STEP/STP 和 PDF")
+    raise ValueError("文件扩展名与实际内容不匹配；MVP仅支持有效的 STP 和 PDF")
 
 
 def store_upload(file_storage, job_id: str, role: str) -> dict:

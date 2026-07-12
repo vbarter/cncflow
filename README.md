@@ -7,7 +7,7 @@
 - `POST /api/v1/process-plan`：生成孔加工方案。兼容材料族名称，也支持 `material_code`、`strategy` 和可选 `machine_profile`。
 - `GET /api/v1/materials`：查询规范化材料目录，支持 `q`、`family`、`planning_status`。
 - `GET /api/v1/health`：健康检查。
-- `POST /api/v1/parse-jobs`：上传 STEP/STP/PDF 并创建异步解析任务。
+- `POST /api/v1/parse-jobs`：上传 STP/PDF 并创建异步解析任务。
 - `GET /api/v1/parse-jobs/{job_id}`：查询解析进度及制造特征候选。
 - `POST /api/v1/parse-jobs/{job_id}/confirm`：确认孔特征并生成加工方案。
 

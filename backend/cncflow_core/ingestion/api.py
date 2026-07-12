@@ -32,7 +32,7 @@ def upload_job():
     step = request.files.get("step_file")
     drawing = request.files.get("drawing_file")
     if step is None and drawing is None:
-        return jsonify({"error": "至少上传一个STEP/STP或PDF文件"}), 400
+        return jsonify({"error": "至少上传一个STP或PDF文件"}), 400
     conn = _conn()
     provisional_id = os.urandom(16).hex()
     files = []
