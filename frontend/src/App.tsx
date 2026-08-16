@@ -20,7 +20,7 @@ export function App(){
   const [seg,id] = hash.split("/")
   return <main className="min-h-screen bg-[#f8fafc] text-slate-900">
     <header className="border-b border-[#e2e8f0] bg-white"><div className="mx-auto flex h-14 max-w-[1440px] items-center justify-between px-5">
-      <button className="flex items-center gap-3" onClick={()=>go("")}><div className="grid h-8 w-8 place-items-center bg-blue-600 font-mono text-[11px] font-semibold leading-none text-white" style={{clipPath:"polygon(0 0,100% 0,100% 72%,72% 100%,0 100%)"}}>C/</div><div className="text-left"><div className="text-sm font-semibold">C/AI CNC</div><div className="text-[10px] tracking-[.18em] text-slate-500">报价助手</div></div></button>
+      <button className="flex items-center gap-3" onClick={()=>go("")}><div className="grid h-8 w-8 place-items-center bg-blue-600 font-mono text-[11px] font-semibold leading-none text-white" style={{clipPath:"polygon(0 0,100% 0,100% 72%,72% 100%,0 100%)"}}>C/</div><div className="text-left leading-tight"><div className="text-[10px] tracking-[.16em] text-slate-400">AI CNC</div><div className="text-sm font-semibold text-slate-900">报价助手</div></div></button>
       <nav className="flex items-center gap-2 text-sm">
         <button className={`h-14 rounded-none border-b-2 px-3 ${seg===""||seg==="new"||seg==="parsing"||seg==="inquiry"||seg==="part"?"border-blue-600 text-blue-600":"border-transparent text-slate-600"}`} onClick={()=>go("")}>报价</button>
         <button className={`h-14 rounded-none border-b-2 px-3 ${seg==="factory"?"border-blue-600 text-blue-600":"border-transparent text-slate-600"}`} onClick={()=>go("factory")}>工厂配置</button>
