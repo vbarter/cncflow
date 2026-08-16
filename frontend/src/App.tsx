@@ -22,11 +22,11 @@ export function App(){
     <header className="border-b border-[#e2e8f0] bg-white"><div className="mx-auto flex h-14 max-w-[1440px] items-center justify-between px-5">
       <button className="flex items-center gap-3" onClick={()=>go("")}><div className="grid h-8 w-8 place-items-center bg-blue-600 font-mono text-[11px] font-semibold leading-none text-white" style={{clipPath:"polygon(0 0,100% 0,100% 72%,72% 100%,0 100%)"}}>C/</div><div className="text-left"><div className="text-sm font-semibold">C/AI CNC</div><div className="text-[10px] tracking-[.18em] text-slate-500">报价助手</div></div></button>
       <nav className="flex items-center gap-2 text-sm">
-        <button className={`h-14 px-3 ${seg===""||seg==="new"||seg==="parsing"||seg==="inquiry"||seg==="part"?"border-b-2 border-blue-600 text-blue-600":"text-slate-600"}`} onClick={()=>go("")}>报价</button>
-        <button className={`h-14 px-3 ${seg==="factory"?"border-b-2 border-blue-600 text-blue-600":"text-slate-600"}`} onClick={()=>go("factory")}>工厂配置</button>
+        <button className={`h-14 rounded-none border-b-2 px-3 ${seg===""||seg==="new"||seg==="parsing"||seg==="inquiry"||seg==="part"?"border-blue-600 text-blue-600":"border-transparent text-slate-600"}`} onClick={()=>go("")}>报价</button>
+        <button className={`h-14 rounded-none border-b-2 px-3 ${seg==="factory"?"border-blue-600 text-blue-600":"border-transparent text-slate-600"}`} onClick={()=>go("factory")}>工厂配置</button>
         <Button variant="ghost" size="sm" onClick={()=>go("new")}>新建</Button>
-        <button className="px-2 text-xs text-slate-400 hover:text-slate-600" onClick={()=>go("parse")}>解析子流</button>
-        <Badge className={parser?"border-emerald-200 bg-emerald-50 text-emerald-700":"border-zinc-200"}>{parser?"解析在线":"解析离线"}</Badge>
+        <Button variant="ghost" className="text-slate-500" onClick={()=>go("parse")}>解析子流</Button>
+        <Badge className={parser?"border-emerald-200 bg-emerald-50 text-emerald-700":"border-slate-200"}>{parser?"解析在线":"解析离线"}</Badge>
       </nav>
     </div></header>
     <div className="mx-auto max-w-[1440px] px-5 py-8">

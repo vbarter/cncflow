@@ -27,7 +27,7 @@ export function ParseLegacy(){
   const holes=useMemo(()=>job?.result?.features.filter(f=>f.type==="hole")??[],[job])
   function reset(){setFiles({});setJob(null);setError("")}
 
-  return <div className="bg-[#f8fafc] text-slate-900">
+  return <div className="text-slate-900">
     <div className="mx-auto max-w-[1440px] px-5 py-8 lg:px-10 lg:py-12">
       <section className="mb-8 grid min-w-0 gap-5 lg:grid-cols-[1fr_auto] lg:items-end"><div className="min-w-0"><div className="mb-3 font-mono text-[10px] uppercase tracking-[.14em] text-slate-500 sm:text-xs sm:tracking-[.18em]">MVP / Engineering file intake</div><h1 className="max-w-4xl break-words text-[2rem] font-semibold leading-[1.08] tracking-[-.035em] md:text-5xl">上传工程文件，<br className="hidden md:block"/>直接获得可确认的制造特征。</h1></div><p className="max-w-md text-sm leading-6 text-slate-600">STP 提供真实几何，PDF 补充材料、公差与技术要求。识别结果确认后生成孔加工工艺、刀具和参数。</p></section>
       {!job&&<Card className="overflow-hidden shadow-[0_24px_70px_rgba(0,0,0,.06)]">
