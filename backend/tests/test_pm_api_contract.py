@@ -119,3 +119,21 @@ def test_pm_new_quote_through_hole_contract(client, seeded_db_path):
     locked = client.patch(f"/api/v1/parts/{pid}", json={"slider": "激进"})
     assert locked.status_code == 409
 
+
+def test_geometry_parse_api_contract(client):
+    data = {"step_file": (BytesIO(MINIMAL_STEP), "plate_hole_d8.step")}
+    resp = client.post("/api/v1/geometry/parse", data=data, content_type="multipart/form-data")
+    assert resp.status_code != 500, resp.get_data(as_text=True)
+    body = resp.get_json()
+    plugins = body.get("plugins") or []
+    names = [item["name"] if isinstance(item, dict) else item for item in plugins]
+    assert names == ["hole", "slot", "face"]
+    by_name = {item["name"]: item for item in plugins if isinstance(item, dict)}
+    assert by_name["hole"]["version"] == "hole-v3"
+    assert by_name["slot"]["accepted"] is False
+    assert by_name["face"]["accepted"] is False
+    if "feature_count" in by_name["slot"]:
+        assert by_name["slot"]["feature_count"] == 0
+        assert by_name["face"]["feature_count"] == 0
+    assert body.get("feature_schema") == "hole-v3"
+

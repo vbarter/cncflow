@@ -118,7 +118,7 @@ def test_isolated_parse_inline(monkeypatch, tmp_path):
     step.write_bytes(MINIMAL_STEP)
     def fake_step(path):
         return {"geometry": {"ok": True}, "features": [], "warnings": [path]}
-    monkeypatch.setattr(worker, "parse_step", fake_step)
+    monkeypatch.setattr(worker, "parse_step_file", fake_step)
     out = worker.isolated_parse("step", str(step), {})
     assert out["geometry"]["ok"] is True
     assert str(step) in out["warnings"]
