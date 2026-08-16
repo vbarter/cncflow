@@ -14,8 +14,27 @@ THROUGH_SPAN = 0.88
 RECESS_MM = 2.0
 
 
+def _xyz(value):
+    """Accept CadQuery Vector, OCP gp_Pnt, tuple/list, or {x,y,z}."""
+    if value is None:
+        raise TypeError("xyz is None")
+    if isinstance(value, dict):
+        return (float(value["x"]), float(value["y"]), float(value["z"]))
+    if isinstance(value, (tuple, list)) and len(value) >= 3:
+        return (float(value[0]), float(value[1]), float(value[2]))
+    if hasattr(value, "x"):
+        return (float(value.x), float(value.y), float(value.z))
+    if hasattr(value, "X"):
+        x = value.X
+        if callable(x):
+            return (float(value.X()), float(value.Y()), float(value.Z()))
+        return (float(value.X), float(value.Y), float(value.Z))
+    raise TypeError("cannot read xyz from %r" % type(value))
+
+
 def _point(value):
-    return {"x": round(value.x, 4), "y": round(value.y, 4), "z": round(value.z, 4)}
+    x, y, z = _xyz(value)
+    return {"x": round(x, 4), "y": round(y, 4), "z": round(z, 4)}
 
 
 def _bbox(box):
@@ -131,8 +150,8 @@ def _cylinder_axis_and_span(face):
         return None, origin, None, None
     projections = []
     for vertex in face.Vertices():
-        pt = vertex.Center()
-        projections.append(_project((pt.x, pt.y, pt.z), axis))
+        pt = _xyz(vertex.Center())
+        projections.append(_project(pt, axis))
     try:
         fb = face.BoundingBox()
         for dx in (fb.xmin, fb.xmax):
@@ -147,21 +166,21 @@ def _cylinder_axis_and_span(face):
 
 
 def _radial_at_center(face, axis, origin):
-    c = face.Center()
-    vec = (c.x - origin[0], c.y - origin[1], c.z - origin[2])
+    c = _xyz(face.Center())
+    vec = (c[0] - origin[0], c[1] - origin[1], c[2] - origin[2])
     t = _dot(vec, axis)
     closest = (origin[0] + t * axis[0], origin[1] + t * axis[1], origin[2] + t * axis[2])
-    return (c.x - closest[0], c.y - closest[1], c.z - closest[2])
+    return (c[0] - closest[0], c[1] - closest[1], c[2] - closest[2])
 
 
 def _face_normal(face):
     try:
         n = face.normalAt()
-        vec = (float(n.x), float(n.y), float(n.z))
+        vec = _xyz(n)
     except Exception:
         try:
             n = face.normalAt(None)
-            vec = (float(n.x), float(n.y), float(n.z))
+            vec = _xyz(n)
         except Exception:
             return None
     try:
@@ -218,8 +237,8 @@ def _entry_is_curved(faces, axis, cyl_min, cyl_max, radius):
             continue
         if kind not in ("SPHERE", "TORUS", "CONE", "BSPLINE", "BEZIER"):
             continue
-        c = face.Center()
-        t = _project((c.x, c.y, c.z), axis)
+        c = _xyz(face.Center())
+        t = _project(c, axis)
         if min(abs(t - cyl_min), abs(t - cyl_max)) < max(1.5, radius * 0.4):
             return True
     return False
@@ -392,8 +411,8 @@ def parse_step(path: str) -> dict:
             if axis is None or cyl_min is None:
                 unknown.append(_candidate(index, radius, max(fb.xlen, fb.ylen, fb.zlen), _point(location)))
                 continue
-            center = (location.x, location.y, location.z)
-            side = classify_side(solids, center, axis, origin, radius, _face_normal(face))
+            face_center = _xyz(location)
+            side = classify_side(solids, face_center, axis, origin, radius, _face_normal(face))
             solid_min, solid_max = _solid_span_on_axis(bbox, axis)
             if side is None and likely_plate_hole(
                 radius * 2, cyl_min, cyl_max, solid_min, solid_max,

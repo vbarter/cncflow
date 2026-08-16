@@ -172,3 +172,17 @@ def test_plate_through_cylinder_is_hole():
 def test_short_span_plate_still_hole():
     assert likely_plate_hole(8, 0, 10, 0, 12, (80, 60, 12)) is True
     assert likely_plate_hole(8, 0, 5, 0, 12, (80, 60, 12)) is False
+
+
+
+def test_point_accepts_tuple_and_dict():
+    from cncflow_core.ingestion.step_parser import _point, _xyz
+    assert _xyz((1.23456, 2, 3)) == (1.23456, 2.0, 3.0)
+    assert _point((1.23456, 2, 3)) == {"x": 1.2346, "y": 2.0, "z": 3.0}
+    assert _point({"x": 1, "y": 2, "z": 3}) == {"x": 1.0, "y": 2.0, "z": 3.0}
+
+    class Vec:
+        def __init__(self):
+            self.x, self.y, self.z = 4.0, 5.0, 6.0
+
+    assert _point(Vec()) == {"x": 4.0, "y": 5.0, "z": 6.0}
