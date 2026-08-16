@@ -18,6 +18,7 @@ from cncflow_core.features.surface import pipeline as surface_pipeline
 from cncflow_core.features.fixture import pipeline as fixture_pipeline
 from cncflow_core.factory.api import bp as factory_bp
 from cncflow_core.quoting.api import bp as quoting_bp
+from cncflow_core.inquiries.api import bp as inquiries_bp
 from cncflow_core.factory.store import seed_factory
 from data.seed_tool_specs import seed_tool_specs
 from cncflow_core.ingestion.api import bp as ingestion_bp
@@ -69,6 +70,8 @@ def create_app(db_path=None) -> Flask:
     app.register_blueprint(factory_bp, url_prefix="/cncflow", name="factory_prefixed")
     app.register_blueprint(quoting_bp)
     app.register_blueprint(quoting_bp, url_prefix="/cncflow", name="quoting_prefixed")
+    app.register_blueprint(inquiries_bp)
+    app.register_blueprint(inquiries_bp, url_prefix="/cncflow", name="inquiries_prefixed")
 
     @app.errorhandler(413)
     def upload_too_large(_exc):
