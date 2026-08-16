@@ -9,7 +9,8 @@ from cncflow_core.features.hole.process_chain import generate_chain
 from cncflow_core.ingestion.jobs import finish_job
 from cncflow_core.ingestion.step_parser import (
     classify_by_containment, classify_cylinder_side, classify_position,
-    classify_through_blind, likely_plate_hole, through_cut_depth,
+    classify_through_blind, classify_through_by_ends, is_quote_hole,
+    likely_plate_hole, through_cut_depth,
 )
 from cncflow_core.inquiries.api import _hole_for_pipeline, _review_and_quote_features
 
@@ -172,3 +173,29 @@ def test_plate_through_cylinder_is_hole():
 def test_short_span_plate_still_hole():
     assert likely_plate_hole(8, 0, 10, 0, 12, (80, 60, 12)) is True
     assert likely_plate_hole(8, 0, 5, 0, 12, (80, 60, 12)) is False
+
+
+def test_through_by_open_ends():
+    assert classify_through_by_ends(False, False) == "through"
+    assert classify_through_by_ends(True, False) == "blind"
+    assert classify_through_by_ends(None, False) is None
+
+
+def test_o8_plate_acceptance():
+    assert through_cut_depth(8, 12, "through") == 14.4
+    assert is_quote_hole(8, 12, "through", (80, 60, 12)) is True
+    assert likely_plate_hole(8, 0, 12, 0, 12, (80, 60, 12)) is True
+
+
+def test_zn010_acceptance_fields():
+    extents = (50, 50, 44)
+    assert through_cut_depth(3.30, 26, "through") == 26.99
+    assert is_quote_hole(3.30, 26, "through", extents) is True
+    assert is_quote_hole(50, 44, "through", extents) is False
+    assert is_quote_hole(33.40, 18, "blind", extents) is False
+    hole = _hole_for_pipeline({
+        "type": "hole", "diameter_mm": 3.30, "depth_mm": 26,
+        "hole_type": "through", "position_type": "垂直",
+    }, "hole-0")
+    assert hole["cut_depth_mm"] == 26.99
+    assert hole["surface"] == "top"

@@ -111,6 +111,32 @@ def likely_plate_hole(diameter, cyl_min, cyl_max, solid_min, solid_max, extents)
     return diameter < shortest * 0.95 and depth >= shortest * 0.7
 
 
+def classify_through_by_ends(lo_inside, hi_inside):
+    """两端都在实体外 → 通孔（含打穿到型腔）；一端在实体内 → 盲孔。"""
+    if lo_inside is None or hi_inside is None:
+        return None
+    if (not lo_inside) and (not hi_inside):
+        return "through"
+    if lo_inside != hi_inside:
+        return "blind"
+    return None
+
+
+def is_quote_hole(diameter, depth, hole_type, extents):
+    """ZN-010：Ø50 外圆、Ø33.4 浅盲腔不当孔；小通孔要进链。"""
+    if not extents or diameter <= 0 or depth <= 0:
+        return False
+    shortest = min(extents)
+    longest = max(extents)
+    if diameter >= shortest * 0.9:
+        return False
+    if hole_type == "blind" and diameter > max(depth * 1.2, 20):
+        return False
+    if diameter > longest * 0.45 and hole_type != "through":
+        return False
+    return True
+
+
 def _axis_from_face(face):
     cylinder = face._geomAdaptor().Cylinder()
     direction = cylinder.Axis().Direction()
@@ -276,7 +302,7 @@ def _hole_feature(group, bbox, all_faces, index):
     diameter = item["diameter_mm"]
     axis = item["axis_t"]
     solid_min, solid_max = item["solid_min"], item["solid_max"]
-    hole_type = classify_through_blind(cyl_min, cyl_max, solid_min, solid_max)
+    hole_type = item.get("hole_type") or classify_through_blind(cyl_min, cyl_max, solid_min, solid_max)
     recessed = is_recessed(cyl_min, cyl_max, solid_min, solid_max)
     curved = any(
         _entry_is_curved(all_faces, g["axis_t"], g["cyl_min"], g["cyl_max"], diameter / 2)
@@ -412,6 +438,28 @@ def parse_step(path: str) -> dict:
                 "location": _point(location),
                 "helix": _has_helix(face),
             }
+            ht = classify_through_blind(cyl_min, cyl_max, solid_min, solid_max)
+            lo = (
+                origin[0] + axis[0] * (cyl_min - 0.4),
+                origin[1] + axis[1] * (cyl_min - 0.4),
+                origin[2] + axis[2] * (cyl_min - 0.4),
+            )
+            hi = (
+                origin[0] + axis[0] * (cyl_max + 0.4),
+                origin[1] + axis[1] * (cyl_max + 0.4),
+                origin[2] + axis[2] * (cyl_max + 0.4),
+            )
+            end_ht = None
+            for solid in solids:
+                end_ht = classify_through_by_ends(_point_inside(solid, lo), _point_inside(solid, hi))
+                if end_ht:
+                    break
+            if end_ht:
+                ht = end_ht
+            rec["hole_type"] = ht
+            extents = (bbox.xlen, bbox.ylen, bbox.zlen)
+            if side == "inner" and not is_quote_hole(radius * 2, cyl_max - cyl_min, ht, extents):
+                side = None
             if side == "inner":
                 inner.append(rec)
             elif side == "outer":
