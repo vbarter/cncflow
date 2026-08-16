@@ -92,6 +92,23 @@ def _pocket_for_pipeline(feat, fid):
     }
 
 
+
+def _face_for_pipeline(feat, fid):
+    dim = feat.get("dimensions") or {}
+    length = feat.get("length") if feat.get("length") is not None else dim.get("length")
+    width = feat.get("width") if feat.get("width") is not None else dim.get("width")
+    if not length or not width:
+        return None
+    pos = feat.get("face_position") or dim.get("face_position") or "顶面"
+    return {
+        "type": "face",
+        "feature_id": fid,
+        "length": float(length),
+        "width": float(width),
+        "face_position": pos,
+    }
+
+
 def _review_and_quote_features(parsed_feats, selected_ids, L, W):
     review = []
     quoted = []
@@ -113,6 +130,10 @@ def _review_and_quote_features(parsed_feats, selected_ids, L, W):
                 quoted.append(mapped)
         elif feat.get("type") in {"pocket", "slot"}:
             mapped = _pocket_for_pipeline(feat, fid)
+            if mapped:
+                quoted.append(mapped)
+        elif feat.get("type") == "face":
+            mapped = _face_for_pipeline(feat, fid)
             if mapped:
                 quoted.append(mapped)
     features = quoted

@@ -14,7 +14,7 @@ def test_geometry_contract_lists_plugins(client):
     assert ids == ["hole", "slot", "face"]
     assert body["plugins"][0]["status"] == "active"
     assert body["plugins"][1]["status"] == "active"
-    assert body["plugins"][2]["status"] == "stub"
+    assert body["plugins"][2]["status"] == "active"
 
 
 def test_geometry_contract_lists_hole_fields(client):
@@ -36,7 +36,10 @@ def test_geometry_contract_lists_hole_fields(client):
             assert name in hole["fields"]
         assert output["features"]["slot"]["status"] == "active"
         assert output["features"]["slot"].get("accepted") is True
-        assert output["features"]["face"]["status"] == "stub"
+        assert output["features"]["face"]["status"] == "active"
+        assert output["features"]["face"].get("accepted") is True
+        for name in ("length", "width", "face_position"):
+            assert name in output["features"]["face"]["fields"]
         for name in ("pocket_type", "length", "width", "depth", "corner_radius"):
             assert name in output["features"]["slot"]["fields"]
 

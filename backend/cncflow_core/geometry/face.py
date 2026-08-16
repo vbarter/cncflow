@@ -1,0 +1,113 @@
+"""平面 B-Rep 识别：外轮廓平面，产出 L / W / face_position。"""
+from cncflow_core.ingestion.step_parser import _face_normal, _norm, _point, _xyz
+from cncflow_core.geometry.slot import _face_on_bbox, _is_hole_bottom
+
+
+def _face_position(normal, center, bbox, thick_axis):
+    lo = (bbox.xmin, bbox.ymin, bbox.zmin)[thick_axis]
+    hi = (bbox.xmax, bbox.ymax, bbox.zmax)[thick_axis]
+    if abs(normal[thick_axis]) >= 0.85:
+        if abs(center[thick_axis] - hi) <= abs(center[thick_axis] - lo):
+            return "顶面"
+        return "底面"
+    return "侧面"
+
+
+def _measure_lw(fb):
+    dims = sorted((fb.xlen, fb.ylen, fb.zlen), reverse=True)
+    return dims[0], dims[1]
+
+
+def detect_faces(path: str) -> list:
+    try:
+        import cadquery as cq
+    except ImportError:
+        return []
+
+    try:
+        imported = cq.importers.importStep(path)
+        values = imported.vals()
+        if not values:
+            return []
+        compound = cq.Compound.makeCompound(values) if len(values) > 1 else values[0]
+        if not compound.Solids():
+            return []
+    except Exception:
+        return []
+
+    bbox = compound.BoundingBox()
+    extents = (bbox.xlen, bbox.ylen, bbox.zlen)
+    thick_axis = min(range(3), key=lambda i: extents[i])
+    candidates = []
+    for index, face in enumerate(compound.Faces()):
+        if face.geomType() != "PLANE":
+            continue
+        if _is_hole_bottom(face):
+            continue
+        fb = face.BoundingBox()
+        if not _face_on_bbox(fb, bbox):
+            continue
+        normal = _face_normal(face)
+        if not normal:
+            continue
+        n, mag = _norm(normal)
+        if mag < 1e-9:
+            continue
+        length, width = _measure_lw(fb)
+        area = float(face.Area())
+        if width < 2 or area < 50:
+            continue
+        candidates.append({
+            "index": index,
+            "fb": fb,
+            "c": _xyz(face.Center()),
+            "n": n,
+            "area": area,
+            "length": length,
+            "width": width,
+        })
+
+    if not candidates:
+        return []
+    max_area = max(item["area"] for item in candidates)
+    floor = max(80.0, 0.2 * max_area)
+    found = []
+    for item in candidates:
+        if item["area"] < floor:
+            continue
+        pos = _face_position(item["n"], item["c"], bbox, thick_axis)
+        length = round(item["length"], 4)
+        width = round(item["width"], 4)
+        found.append({
+            "feature_id": "face-%d" % len(found),
+            "type": "face",
+            "subtype": "recognized_face",
+            "selected": pos == "顶面",
+            "length": length,
+            "width": width,
+            "face_position": pos,
+            "dimensions": {
+                "length": length,
+                "width": width,
+                "face_position": pos,
+            },
+            "location": _point(item["c"]),
+            "axis": {
+                "x": round(item["n"][0], 6),
+                "y": round(item["n"][1], 6),
+                "z": round(item["n"][2], 6),
+            },
+            "occurrences": 1,
+            "confidence": 0.8,
+            "evidence": [
+                "outer-plane",
+                "L=%.3f" % length,
+                "W=%.3f" % width,
+                pos,
+            ],
+            "warnings": [],
+        })
+    if found and not any(f["selected"] for f in found):
+        biggest = max(found, key=lambda f: f["length"] * f["width"])
+        biggest["selected"] = True
+    return found

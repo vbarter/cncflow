@@ -55,7 +55,7 @@ def test_parse_step_file_uses_hole_v3_and_stubs(monkeypatch, tmp_path):
     assert ids == ["hole", "slot", "face"]
     assert result["plugins"][0]["status"] == "active"
     assert result["plugins"][1]["status"] == "active"
-    assert result["plugins"][2]["status"] == "stub"
+    assert result["plugins"][2]["status"] == "active"
     hole = result["features"][0]
     for name in HOLE_FEATURE_FIELDS:
         assert name in hole
@@ -99,7 +99,7 @@ def test_process_claimed_emits_geometry_parse_event(client, seeded_db_path, monk
             "plugins": [
                 {"id": "hole", "status": "active", "version": "hole-v3"},
                 {"id": "slot", "status": "active", "version": "slot-v1"},
-                {"id": "face", "status": "stub", "version": None},
+                {"id": "face", "status": "active", "version": "face-v1"},
             ],
         }
 
