@@ -33,6 +33,7 @@ def contract():
         "notes": [
             "询价 parse-job 进程内调用 geometry service，Ø8/ZN-010 仍走现网 parse-jobs",
             "Ø8 / ZN-010 hole-v3 不得回退",
+            "槽本轮验收；孔五字段不回退",
             "槽腔最小集 pocket_type/L/W/H/R 本轮验收；平面仍留桩",
         ],
     }
