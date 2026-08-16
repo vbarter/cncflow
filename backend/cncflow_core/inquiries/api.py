@@ -24,6 +24,47 @@ def _bbox_lwh(part, geometry):
     return L, W, H
 
 
+_POS_TO_SURFACE = {
+    "垂直": "top", "倾斜": "inclined", "曲面": "curved", "侧向": "side", "深腔": "top",
+    "top": "top", "inclined": "inclined", "curved": "curved", "side": "side",
+    "vertical": "top",
+}
+_HOLE_TYPE = {"through": "through", "blind": "blind", "通孔": "through", "盲孔": "blind"}
+_BOTTOM = {"cone": "cone", "flat": "flat", "锥底": "cone", "conical": "cone", "平底": "flat"}
+
+
+def _hole_for_pipeline(feat, fid):
+    dim = feat.get("dimensions") or {}
+    d = dim.get("diameter_mm") or feat.get("diameter_mm")
+    depth = dim.get("depth_mm") or feat.get("depth_mm")
+    if not d or not depth:
+        return None
+    hole_type = _HOLE_TYPE.get(str(feat.get("hole_type") or dim.get("hole_type") or "through"), "through")
+    pos = feat.get("position_type") or feat.get("surface") or "垂直"
+    surface = _POS_TO_SURFACE.get(str(pos), feat.get("surface") or "top")
+    if surface not in {"top", "side", "inclined", "curved"}:
+        surface = "top"
+    bottom = _BOTTOM.get(str(feat.get("bottom_shape") or "cone"), "cone")
+    thread = feat.get("thread")
+    if thread is not None and not isinstance(thread, dict):
+        thread = None
+    cut = feat.get("cut_depth_mm")
+    if cut is None:
+        cut = float(depth) + (0.3 * float(d) if hole_type == "through" else 0.0)
+    return {
+        "type": "hole",
+        "diameter_mm": d,
+        "depth_mm": depth,
+        "cut_depth_mm": cut,
+        "hole_type": hole_type,
+        "surface": surface,
+        "position_type": pos if pos in _POS_TO_SURFACE else None,
+        "bottom_shape": bottom,
+        "thread": thread,
+        "feature_id": fid,
+    }
+
+
 def _review_and_quote_features(parsed_feats, selected_ids, L, W):
     review = []
     holes = []
@@ -38,11 +79,9 @@ def _review_and_quote_features(parsed_feats, selected_ids, L, W):
         item = {**feat, "feature_id": fid, "selected": on}
         review.append(item)
         if feat.get("type") == "hole" and on:
-            dim = feat.get("dimensions") or {}
-            d = dim.get("diameter_mm") or feat.get("diameter_mm")
-            depth = dim.get("depth_mm") or feat.get("depth_mm")
-            if d and depth:
-                holes.append({"type": "hole", "diameter_mm": d, "depth_mm": depth, "hole_type": "through", "feature_id": fid})
+            mapped = _hole_for_pipeline(feat, fid)
+            if mapped:
+                holes.append(mapped)
     features = holes + [{"type": "face", "length": L, "width": W, "depth": 1}]
     return review, features
 

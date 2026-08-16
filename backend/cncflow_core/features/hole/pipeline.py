@@ -192,7 +192,18 @@ def run(payload: dict, conn) -> dict:
     return {
         "machinability": result.to_dict(),
         "material_profile": material_profile.to_dict(),
+        "process_chain": chain,
         "tool_chain": tool_steps,
+        "hole": {
+            "diameter_mm": hole.diameter_mm,
+            "depth_mm": hole.depth_mm,
+            "cut_depth_mm": hole.cut_depth_mm,
+            "h_over_d": hole.h_over_d,
+            "hole_type": hole.hole_type,
+            "surface": hole.surface,
+            "bottom_shape": hole.bottom_shape,
+            "position_type": feature.get("position_type"),
+        },
         "case_references": case_refs,
         "evidence": evidence,
         "warnings": top_warnings,
