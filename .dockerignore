@@ -1,0 +1,6 @@
+.git
+frontend
+cloudflare/node_modules
+**/__pycache__
+.pytest_cache
+*.md

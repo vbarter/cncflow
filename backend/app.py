@@ -7,6 +7,7 @@ import subprocess
 from pathlib import Path
 
 from flask import Flask, jsonify, request, send_from_directory
+import os
 
 from cncflow_core.common.db import get_conn, init_schema
 from cncflow_core.common.materials import list_materials, seed_material_catalog
@@ -22,6 +23,31 @@ from cncflow_core.inquiries.api import bp as inquiries_bp
 from cncflow_core.factory.store import seed_factory
 from data.seed_tool_specs import seed_tool_specs
 from cncflow_core.ingestion.api import bp as ingestion_bp
+
+
+def _install_cors(app: Flask) -> None:
+    """Pages 与 API 不同源时放开浏览器预检。未配置则保持同域（VPS nginx）。"""
+    allowed = [item.strip() for item in os.environ.get("CNCFLOW_CORS_ORIGINS", "").split(",") if item.strip()]
+
+    def _apply(resp):
+        origin = request.headers.get("Origin")
+        if origin and ("*" in allowed or origin in allowed):
+            resp.headers["Access-Control-Allow-Origin"] = origin
+            resp.headers["Vary"] = "Origin"
+            resp.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+            resp.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+            resp.headers["Access-Control-Max-Age"] = "86400"
+        return resp
+
+    @app.before_request
+    def _cors_preflight():
+        if request.method == "OPTIONS" and allowed:
+            return _apply(app.make_response(("", 204)))
+
+    @app.after_request
+    def _cors_headers(resp):
+        return _apply(resp) if allowed else resp
+
 
 FEATURE_PIPELINES = {
     "hole": hole_pipeline.run,
@@ -51,8 +77,8 @@ def create_app(db_path=None) -> Flask:
     app.config["DB_PATH"] = db_path
     app.config["RULES_VERSION"] = _rules_version()
     app.config["MAX_CONTENT_LENGTH"] = 150 * 1024 * 1024
+    _install_cors(app)
 
-    import os
     persist = os.environ.get("CNCFLOW_REQUIRE_PERSISTENT_DB") == "1"
     resolved = Path(db_path or os.environ.get("CNCFLOW_DB_PATH") or "")
     if persist and not str(resolved).startswith("/data"):

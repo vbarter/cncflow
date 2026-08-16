@@ -17,3 +17,7 @@
 工艺案例通过 `python -m data.import_process_cases cases.json` 受控导入，只有 `verified` 案例参与相似检索。
 
 生产环境不会自动灌入模拟 SKU；如需演示，显式设置 `CNCFLOW_SEED_MOCK_TOOLS=1`。
+
+## Cloudflare
+
+生产目标是 Pages（前端）+ Container（Flask 与解析进程）+ R2（STP/PDF 与 SQLite 检查点）。细节见 `cloudflare/README.md`。VPS SSH 发布仍可用。

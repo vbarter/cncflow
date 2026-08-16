@@ -9,3 +9,5 @@ venv/
 frontend/node_modules/
 frontend/dist/
 frontend/*.tsbuildinfo
+cloudflare/node_modules/
+cloudflare/.wrangler/
