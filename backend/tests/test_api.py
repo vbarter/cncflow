@@ -27,7 +27,7 @@ class TestHappyPath:
         body = resp.get_json()
         assert body["machinability"]["level"] == 2          # IT7 追加精加工 → 二级
         processes = [s["process"] for s in body["tool_chain"]]
-        assert processes == ["spot_drill", "u_drill", "semi_bore", "fine_bore", "chamfer"]
+        assert processes == ["spot_drill", "u_drill", "semi_bore", "fine_bore", "chamfer", "chamfer"]
         u_drill = body["tool_chain"][1]
         assert u_drill["tool_attrs"]["nominal_diameter_mm"] == 49.5
         assert u_drill["match_status"] == "matched"

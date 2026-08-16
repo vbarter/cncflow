@@ -15,17 +15,17 @@ class TestPrimaryDrillSelection:
     def test_alu_d50_it7_bore_path(self):
         # 铝合金 D50 IT7：IT≤7 触发点钻；D>30 → U钻；D≥20+IT≤7 → 镗孔路径
         chain = generate_chain(hole(50, 200), "铝合金", 7)
-        assert procs(chain) == ["spot_drill", "u_drill", "semi_bore", "fine_bore", "chamfer"]
+        assert procs(chain) == ["spot_drill", "u_drill", "semi_bore", "fine_bore", "chamfer", "chamfer"]
 
     def test_small_hole_uses_drill(self):
         chain = generate_chain(hole(10, 20), "铝合金", 11)
-        assert procs(chain) == ["drill", "chamfer"]
+        assert procs(chain) == ["drill", "chamfer", "chamfer"]
         assert chain[0]["cycle"] == "G81"                 # L/D=2 ≤3
 
     def test_deep_hole_g83(self):
         # 不锈钢 D10 H80：H/D=8 → 深孔钻 G83；不锈钢触发点钻
         chain = generate_chain(hole(10, 80), "不锈钢", 11)
-        assert procs(chain) == ["spot_drill", "drill", "chamfer"]
+        assert procs(chain) == ["spot_drill", "drill", "chamfer", "chamfer"]
         drill = chain[1]
         assert drill["cycle"] == "G83"
 
@@ -35,7 +35,7 @@ class TestPrimaryDrillSelection:
 
     def test_large_hole_bore_only_path(self):
         chain = generate_chain(hole(90, 90), "铝合金", 11)    # D>80 不可钻
-        assert procs(chain) == ["rough_bore", "semi_bore", "fine_bore", "chamfer"]
+        assert procs(chain) == ["rough_bore", "semi_bore", "fine_bore", "chamfer", "chamfer"]
 
 
 class TestFinishing:
@@ -77,3 +77,16 @@ class TestThreadAndBottom:
         for spec in [hole(10, 20), hole(50, 100), hole(90, 90)]:
             chain = generate_chain(spec, "铝合金", 11)
             assert procs(chain)[-1] == "chamfer"
+
+
+    def test_through_hole_two_chamfers(self):
+        chain = generate_chain(hole(8, 12, hole_type="through"), "铝合金", 11)
+        ch = [s for s in chain if s["process"] == "chamfer"]
+        assert [s.get("side") for s in ch] == ["entry", "exit"]
+        assert [s.get("name") for s in ch] == ["入口倒角", "出口倒角"]
+
+    def test_blind_hole_one_chamfer(self):
+        chain = generate_chain(hole(8, 12, hole_type="blind"), "铝合金", 11)
+        ch = [s for s in chain if s["process"] == "chamfer"]
+        assert len(ch) == 1
+        assert ch[0].get("side") is None

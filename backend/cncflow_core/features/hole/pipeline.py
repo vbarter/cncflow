@@ -97,6 +97,10 @@ def run(payload: dict, conn) -> dict:
     for idx, step in enumerate(chain, start=1):
         proc = step["process"]
         entry = {"step": idx, "process": proc, "cycle": step["cycle"]}
+        if step.get("name"):
+            entry["name"] = step["name"]
+        if step.get("side"):
+            entry["side"] = step["side"]
 
         if proc in _NO_TOOL_PROCESSES:
             entry.update(
@@ -189,6 +193,12 @@ def run(payload: dict, conn) -> dict:
     top_warnings = [] if machine_profile else ["未提供机床档案，参数未经过设备能力校核"]
     if any(step.get("selected_candidate", {}).get("is_mock") for step in tool_steps):
         top_warnings.append("方案包含模拟 SKU，投产前必须替换为已确认的真实库存")
+    deep_rules = load_rules("hole/process_chain.yaml")["deep_hole"]
+    risk_tags = []
+    if hole.h_over_d > deep_rules["gun_drill_min_hd"]:
+        risk_tags.append("超深孔高风险")
+    elif hole.h_over_d > deep_rules["g83_min_hd"]:
+        risk_tags.append("深孔高风险")
     return {
         "machinability": result.to_dict(),
         "material_profile": material_profile.to_dict(),
@@ -207,5 +217,6 @@ def run(payload: dict, conn) -> dict:
         "case_references": case_refs,
         "evidence": evidence,
         "warnings": top_warnings,
+        "risk_tags": risk_tags,
         "match_status": "全匹配成功" if not missing else "部分匹配失败：" + "；".join(missing),
     }

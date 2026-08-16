@@ -219,3 +219,28 @@ def test_nonstandard_d33_picks_nearest_sku(client, seeded_db_path):
     assert seq
     assert all(s.get("sku") for s in seq), seq
     assert any(s.get("process") == "drill" for s in seq)
+
+
+def test_zn010_deep_hole_risk_and_double_chamfer(client, seeded_db_path):
+    inq = client.post("/api/v1/inquiries", json={"customer": "华科"}).get_json()
+    pid = client.post(f"/api/v1/inquiries/{inq['id']}/parts", json={"name": "ZN-010", "material": "钢"}).get_json()["id"]
+    data = {"step_file": (BytesIO(MINIMAL_STEP), "part.step"), "part_id": pid}
+    job_id = client.post("/api/v1/parse-jobs", data=data, content_type="multipart/form-data").get_json()["job_id"]
+    conn = get_conn(seeded_db_path)
+    finish_job(conn, job_id, {
+        "geometry": {"volume_cm3": 12.5, "bounding_box_mm": {"x": 50, "y": 50, "z": 44}},
+        "features": [{
+            "type": "hole", "feature_id": "h0", "subtype": "recognized_hole", "selected": True,
+            "diameter_mm": 3.30, "depth_mm": 26, "hole_type": "through",
+            "position_type": "垂直", "cut_depth_mm": 26.99,
+        }],
+        "drawing": None, "warnings": [],
+    })
+    conn.close()
+    part = client.get(f"/api/v1/parts/{pid}").get_json()
+    q = part["quote"]
+    tags = (q.get("risk") or {}).get("tags") or []
+    assert "深孔高风险" in tags
+    assert q["risk"]["level"] == "high"
+    ch = [s for s in q["process_sequence"] if s.get("process") == "chamfer"]
+    assert [s.get("name") for s in ch] == ["入口倒角", "出口倒角"]

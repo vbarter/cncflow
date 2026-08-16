@@ -27,7 +27,11 @@ def generate_chain(hole: HoleSpec, material: str, tolerance_it: int, roughness_r
     if d > large["min_d"]:
         for proc in large["chain"]:
             chain.append({"process": proc, "cycle": rules["cycles"].get(proc)})
-        chain.append({"process": "chamfer", "cycle": None})
+        if hole.hole_type == "through":
+            chain.append({"process": "chamfer", "cycle": None, "name": "入口倒角", "side": "entry"})
+            chain.append({"process": "chamfer", "cycle": None, "name": "出口倒角", "side": "exit"})
+        else:
+            chain.append({"process": "chamfer", "cycle": None, "name": "倒角"})
         return chain
 
     # ── Step2 点钻判定（触发任一条件，作为第一道工序）──
@@ -94,8 +98,12 @@ def generate_chain(hole: HoleSpec, material: str, tolerance_it: int, roughness_r
         else:
             chain.append({"process": "tap", "cycle": None})
 
-    # ── Step9 倒角（最终阶段，去锐边防划伤）──
+    # ── Step9 倒角（通孔双面，盲孔单面）──
     if rules["chamfer_always"]:
-        chain.append({"process": "chamfer", "cycle": None})
+        if hole.hole_type == "through":
+            chain.append({"process": "chamfer", "cycle": None, "name": "入口倒角", "side": "entry"})
+            chain.append({"process": "chamfer", "cycle": None, "name": "出口倒角", "side": "exit"})
+        else:
+            chain.append({"process": "chamfer", "cycle": None, "name": "倒角"})
 
     return chain
