@@ -9,6 +9,7 @@ from ..common.db import get_conn
 from ..features.hole import pipeline as hole_pipeline
 from .jobs import create_job, get_job
 from .storage import MAX_JOB_BYTES, store_upload
+from . import r2
 
 
 bp = Blueprint("ingestion", __name__)
@@ -23,7 +24,7 @@ def capabilities():
     return jsonify({
         "formats": ["step", "stp", "pdf"], "max_file_mb": 100, "max_job_mb": 150,
         "max_files": 2, "external_ai_available": bool(os.environ.get("VISION_API_KEY")),
-        "retention": "local_archive", "confirmation_required": True,
+        "retention": "r2" if r2.configured() else "local_archive", "confirmation_required": True,
     })
 
 

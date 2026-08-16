@@ -1,0 +1,16 @@
+{
+  "name": "cncflow-api",
+  "private": true,
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev"
+  },
+  "dependencies": {
+    "@cloudflare/containers": "^0.0.28"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250815.0",
+    "typescript": "^5.7.2",
+    "wrangler": "^4.28.0"
+  }
+}

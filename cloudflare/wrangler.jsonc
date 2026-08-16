@@ -1,0 +1,29 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "cncflow-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-16",
+  "containers": [
+    {
+      "class_name": "CncflowContainer",
+      "image": "../Dockerfile",
+      "instance_type": "standard-4",
+      "max_instances": 1,
+      "min_instances": 1
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      { "name": "CNCFLOW", "class_name": "CncflowContainer" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["CncflowContainer"] }
+  ],
+  "r2_buckets": [
+    { "binding": "FILES", "bucket_name": "cncflow-files" }
+  ],
+  "vars": {
+    "CNCFLOW_R2_BUCKET": "cncflow-files"
+  }
+}

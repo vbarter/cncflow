@@ -1,8 +1,9 @@
-"""工程文件本地内容寻址存储。"""
+"""工程文件存储：本地内容寻址，可选镜像到 Cloudflare R2。"""
 import hashlib
 import os
 from pathlib import Path
 
+from . import r2
 
 STEP_EXTENSIONS = {"step", "stp"}
 PDF_EXTENSIONS = {"pdf"}
@@ -25,6 +26,10 @@ def detect_type(filename: str, prefix: bytes) -> str:
     if ext in PDF_EXTENSIONS and prefix.startswith(b"%PDF-"):
         return "pdf"
     raise ValueError("文件扩展名与实际内容不匹配；MVP仅支持有效的 STP 和 PDF")
+
+
+def _object_key(digest: str) -> str:
+    return f"{digest[:2]}/{digest}"
 
 
 def store_upload(file_storage, job_id: str, role: str) -> dict:
@@ -57,10 +62,28 @@ def store_upload(file_storage, job_id: str, role: str) -> dict:
             temp.unlink()
         else:
             os.replace(temp, destination)
+        storage_path = str(destination)
+        if r2.configured():
+            r2.put_object(_object_key(digest), destination.read_bytes())
+            storage_path = f"r2://{r2.bucket()}/{_object_key(digest)}"
         return {
-            "role": role, "original_name": file_storage.filename, "storage_path": str(destination),
+            "role": role, "original_name": file_storage.filename, "storage_path": storage_path,
             "sha256": digest, "size_bytes": size, "detected_type": detected,
         }
     except Exception:
         temp.unlink(missing_ok=True)
         raise
+
+
+def materialize(storage_path: str) -> str:
+    """解析器需要本地路径。R2 URI 会下载到内容寻址缓存。"""
+    if not storage_path.startswith("r2://"):
+        return storage_path
+    _bucket, key = r2.parse_uri(storage_path)
+    digest = key.rsplit("/", 1)[-1]
+    cached = storage_root() / digest[:2] / digest
+    if cached.exists():
+        return str(cached)
+    cached.parent.mkdir(parents=True, exist_ok=True)
+    cached.write_bytes(r2.get_object(key))
+    return str(cached)

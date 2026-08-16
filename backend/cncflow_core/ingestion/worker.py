@@ -8,6 +8,7 @@ from ..common.db import get_conn, init_schema
 from .jobs import claim_job, fail_job, finish_job, recover_stale, update_job
 from .pdf_parser import parse_pdf
 from .step_parser import parse_step
+from .storage import materialize
 
 
 PARSER_TIMEOUT_SECONDS = int(os.environ.get("CNCFLOW_PARSER_TIMEOUT", "300"))
@@ -45,13 +46,13 @@ def process_claimed(conn, job):
     for file in job["files"]:
         if file["detected_type"] == "step":
             update_job(conn, job["job_id"], stage="step_geometry", progress=20, message="正在解析STEP实体")
-            parsed = isolated_parse("step", file["storage_path"], job["options"])
+            parsed = isolated_parse("step", materialize(file["storage_path"]), job["options"])
             result["geometry"] = parsed["geometry"]
             result["features"].extend(parsed["features"])
             result["warnings"].extend(parsed["warnings"])
         elif file["detected_type"] == "pdf":
             update_job(conn, job["job_id"], stage="pdf_drawing", progress=65, message="正在识别PDF图纸")
-            result["drawing"] = isolated_parse("pdf", file["storage_path"], job["options"])
+            result["drawing"] = isolated_parse("pdf", materialize(file["storage_path"]), job["options"])
             result["warnings"].extend(result["drawing"].get("warnings", []))
     if result["geometry"] is None:
         result["warnings"].append("未上传STEP，无法获得真实体积、表面积和B-Rep制造特征")
