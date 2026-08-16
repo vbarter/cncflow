@@ -27,6 +27,7 @@ function featDims(f: any) {
   const ht = f.hole_type === "through" ? "通孔" : f.hole_type === "blind" ? "盲孔" : f.hole_type
   if (ht) bits.push(ht)
   if (f.position_type) bits.push(f.position_type)
+  if (f.cut_depth_mm != null) bits.push(`cut=${f.cut_depth_mm}`)
   if (f.length != null && f.width != null) bits.push(`${f.length}×${f.width}`)
   return bits.join(" ")
 }
@@ -62,7 +63,7 @@ export function PartDetail({ id, go }: { id: string; go: (h: string) => void }) 
   const locked = part.status === "confirmed"
   const recommend = risk.customer_forbidden ? "建议暂缓" : (risk.level === "high" ? "存在工艺风险" : "建议接单")
   const maxCost = Math.max(1, ...Object.values(ui).map((v: any) => Number(v) || 0))
-  const reviewFeats = q.review_features || q.features || []
+  const reviewFeats = q.review_features || q.features || part.parsed_features || []
   const materials = MATERIALS.includes(part.material_code) || !part.material_code
     ? MATERIALS
     : [part.material_code, ...MATERIALS]
