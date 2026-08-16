@@ -5,9 +5,11 @@ import time
 import multiprocessing as mp
 
 from ..common.db import get_conn, init_schema
+from ..geometry import FEATURE_SCHEMA
+from ..geometry.plugins import plugin_names
+from ..geometry.service import parse_step_file
 from .jobs import claim_job, fail_job, finish_job, recover_stale, update_job
 from .pdf_parser import parse_pdf
-from .step_parser import parse_step
 from .storage import materialize
 
 
@@ -17,7 +19,7 @@ PARSER_TIMEOUT_SECONDS = int(os.environ.get("CNCFLOW_PARSER_TIMEOUT", "300"))
 def _parse_in_child(detected_type, path, options, output):
     try:
         if detected_type == "step":
-            output.put({"ok": True, "value": parse_step(path)})
+            output.put({"ok": True, "value": parse_step_file(path)})
         else:
             output.put({"ok": True, "value": parse_pdf(path, options.get("allow_external_ai", False))})
     except Exception as exc:
@@ -26,7 +28,7 @@ def _parse_in_child(detected_type, path, options, output):
 
 def _parse_inline(detected_type, path, options):
     if detected_type == "step":
-        return parse_step(path)
+        return parse_step_file(path)
     return parse_pdf(path, options.get("allow_external_ai", False))
 
 
@@ -65,11 +67,19 @@ def process_claimed(conn, job):
     for file in job["files"]:
         suffix = ".step" if file["detected_type"] == "step" else ".pdf"
         if file["detected_type"] == "step":
-            update_job(conn, job["job_id"], stage="step_geometry", progress=20, message="正在解析STEP实体")
+            names = ",".join(plugin_names())
+            update_job(
+                conn, job["job_id"], stage="geometry_parse", progress=20,
+                message=f"geometry-service {FEATURE_SCHEMA} plugins={names}",
+            )
             parsed = isolated_parse("step", materialize(file["storage_path"], suffix=suffix), job["options"])
             result["geometry"] = parsed["geometry"]
-            result["features"].extend(parsed["features"])
-            result["warnings"].extend(parsed["warnings"])
+            result["features"].extend(parsed.get("features") or [])
+            result["warnings"].extend(parsed.get("warnings") or [])
+            result["plugins"] = parsed.get("plugins")
+            result["feature_schema"] = parsed.get("feature_schema") or FEATURE_SCHEMA
+            result["parser"] = parsed.get("parser") or "geometry-service"
+            result["parser_version"] = parsed.get("parser_version") or FEATURE_SCHEMA
         elif file["detected_type"] == "pdf":
             update_job(conn, job["job_id"], stage="pdf_drawing", progress=65, message="正在识别PDF图纸")
             result["drawing"] = isolated_parse("pdf", materialize(file["storage_path"], suffix=suffix), job["options"])

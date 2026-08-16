@@ -118,7 +118,50 @@ def test_isolated_parse_inline(monkeypatch, tmp_path):
     step.write_bytes(MINIMAL_STEP)
     def fake_step(path):
         return {"geometry": {"ok": True}, "features": [], "warnings": [path]}
-    monkeypatch.setattr(worker, "parse_step", fake_step)
+    monkeypatch.setattr(worker, "parse_step_file", fake_step)
     out = worker.isolated_parse("step", str(step), {})
     assert out["geometry"]["ok"] is True
     assert str(step) in out["warnings"]
+
+
+def test_process_claimed_geometry_parse_event(client, seeded_db_path, monkeypatch):
+    import json
+    from cncflow_core.ingestion import worker as worker_mod
+    from cncflow_core.ingestion.jobs import get_job
+
+    job_id = upload(client, step_file=(MINIMAL_STEP, "part.step")).get_json()["job_id"]
+    conn = get_conn(seeded_db_path)
+    conn.execute(
+        "UPDATE parse_jobs SET status='running',stage='starting' WHERE job_id=?",
+        (job_id,),
+    )
+    files = [dict(r) for r in conn.execute("SELECT * FROM uploaded_files WHERE job_id=?", (job_id,))]
+    options = json.loads(conn.execute("SELECT options_json FROM parse_jobs WHERE job_id=?", (job_id,)).fetchone()[0] or "{}")
+    claimed = {"job_id": job_id, "files": files, "options": options}
+
+    def fake_parse(path):
+        return {
+            "parser": "geometry-service",
+            "parser_version": "hole-v3",
+            "feature_schema": "hole-v3",
+            "geometry": {"volume_cm3": 1},
+            "features": [],
+            "warnings": [],
+            "plugins": [
+                {"id": "hole", "status": "active", "version": "hole-v3"},
+                {"id": "slot", "status": "stub", "version": None},
+                {"id": "face", "status": "stub", "version": None},
+            ],
+        }
+
+    monkeypatch.setattr(worker_mod, "parse_step_file", fake_parse)
+    monkeypatch.setenv("CNCFLOW_PARSE_INLINE", "1")
+    worker_mod.process_claimed(conn, claimed)
+    job = get_job(conn, job_id)
+    conn.close()
+    geo = [event for event in job["events"] if event["stage"] == "geometry_parse"]
+    assert geo, job["events"]
+    message = geo[0]["message"]
+    assert "geometry-service" in message
+    assert "hole-v3" in message
+    assert "hole" in message and "slot" in message and "face" in message

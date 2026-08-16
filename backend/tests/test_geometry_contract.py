@@ -1,4 +1,6 @@
-"""几何特征服务契约：STEP 进、features 出；询价本轮不接线。"""
+"""几何特征服务契约：STEP 进、features 出；询价走 parse-jobs 接线。"""
+
+HOLE_FIELDS = ("diameter_mm", "depth_mm", "hole_type", "position_type", "cut_depth_mm")
 
 
 def test_geometry_contract_lists_plugins(client):
@@ -13,6 +15,27 @@ def test_geometry_contract_lists_plugins(client):
     assert body["plugins"][0]["status"] == "active"
     assert body["plugins"][1]["status"] == "stub"
     assert body["plugins"][2]["status"] == "stub"
+
+
+def test_geometry_contract_lists_hole_fields(client):
+    body = client.get("/api/v1/geometry/contract").get_json()
+    output = body["output"]
+    fields = output.get("feature_fields")
+    if not fields:
+        features = output.get("features")
+        if isinstance(features, dict):
+            fields = (features.get("hole") or {}).get("fields")
+    assert fields, output
+    for name in HOLE_FIELDS:
+        assert name in fields
+    hole = output["features"]["hole"] if isinstance(output.get("features"), dict) else None
+    if hole:
+        assert hole["status"] == "active"
+        assert hole["version"] == "hole-v3"
+        for name in HOLE_FIELDS:
+            assert name in hole["fields"]
+        assert output["features"]["slot"]["status"] == "stub"
+        assert output["features"]["face"]["status"] == "stub"
 
 
 def test_geometry_parse_requires_step(client):
