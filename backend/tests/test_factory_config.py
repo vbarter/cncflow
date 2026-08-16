@@ -31,7 +31,7 @@ def test_put_roundtrip(client):
     again = client.get("/api/v1/factory-config").get_json()
     assert again["settings"]["ignore_available_machines"] is True
     skus = [t["sku"] for t in again["tools"]]
-    assert any("DR-00300" in s for s in skus)
+    assert any(s == "TK-001" for s in skus)
 
 
 def test_get_seeds_machines_and_material_prices(client, seeded_db_path):
@@ -46,8 +46,13 @@ def test_get_seeds_machines_and_material_prices(client, seeded_db_path):
     assert "VMC850E" in ids
     assert "VM-3AX" not in ids
     prices = {r["material_code"]: r["price_per_kg"] for r in body["material_prices"]}
-    assert prices["AL6061-T6"] == 28
-    assert prices["铝合金"] == 25
+    assert prices["AL-01"] == 22
+    assert prices["ST-01"] == 5.5
+    assert prices["铝合金"] == 22
+    assert prices["钢"] == 5.5
+    assert {p["material_code"] for p in body["material_prices"] if p.get("tier") == "common"} >= {
+        "AL-01", "AL-02", "ST-01", "ST-02", "SS-01", "SS-02", "TI-01", "CU-01", "CU-02", "FE-01"
+    }
 
 
 
@@ -73,20 +78,29 @@ def test_get_machines_seed_travel_and_power(client, seeded_db_path):
 def test_get_tools_from_tools_catalog(client):
     body = client.get("/api/v1/factory-config").get_json()
     skus = [t["sku"] for t in body["tools"]]
-    assert any("DR-00300" in s for s in skus)
-    assert any("DR-00800" in s for s in skus)
+    assert "TK-001" in skus
+    assert "TK-038" in skus
+    assert "TK-039" in skus
+    assert not any(s.startswith("SKU-") for s in skus)
+    assert not any(t.get("is_mock") for t in body["tools"])
+    tk001 = next(t for t in body["tools"] if t["sku"] == "TK-001")
+    assert tk001["tool_type"] == "麻花钻"
+    assert tk001["spec"] == "Ø3"
+    assert tk001["flutes"] == 2
 
 
 def test_put_material_density_roundtrip(client):
     resp = client.put("/api/v1/factory-config", json={
         "material_prices": [
-            {"material_code": "AL6061-T6", "price_per_kg": 28, "scrap_price_per_kg": 8, "density_g_cm3": 2.71, "enabled": 1},
+            {"material_code": "AL-01", "display_name": "6061-T6铝合金", "price_per_kg": 28, "scrap_price_per_kg": 8, "density_g_cm3": 2.71, "recycle_rate": 0.8, "enabled": 1},
         ],
     })
     assert resp.status_code == 200
     again = client.get("/api/v1/factory-config").get_json()
-    got = next(p for p in again["material_prices"] if p["material_code"] == "AL6061-T6")
+    got = next(p for p in again["material_prices"] if p["material_code"] == "AL-01")
     assert got["density_g_cm3"] == 2.71
+    assert got["recycle_rate"] == 0.8
+    assert got["display_name"] == "6061-T6铝合金"
 
 
 def test_put_add_tool_and_delete_machine_persists(client):
@@ -133,3 +147,39 @@ def test_catalog_groups_rate_types_and_material_family(client, seeded_db_path):
     assert "工程塑料" in families
     steel = next(p for p in body["material_prices"] if p["material_code"] == "钢")
     assert steel["family"] == "普通碳钢"
+    assert steel.get("alias_of") == "ST-01"
+    ext = [p for p in body["material_prices"] if p.get("tier") == "extended"]
+    assert len(ext) == 8
+    assert all(p.get("warning") == "报价前确认" for p in ext)
+
+
+def test_0815_catalog_and_tk_quote_sku(client):
+    body = client.get("/api/v1/factory-config").get_json()
+    assert len([m for m in body["machines"] if m["id"] in {
+        "VMC850E", "VMC1160", "VMC1370", "VMC1580", "VMC1813",
+        "VMC850E+HRV160A", "VMC1160+HRV210A", "TV855S",
+        "U600", "MU-S600", "DMU65",
+        "HWC500", "HWC630", "HWC800",
+        "GMC2012", "GMC3018", "GMC4022",
+        "GF-C30", "Sodick-ALN40S", "EDS40S",
+        "CK6150", "CK6180", "CTX1250",
+    }]) == 23
+    common = [p for p in body["material_prices"] if p.get("tier") == "common"]
+    assert {p["material_code"] for p in common} == {
+        "AL-01", "AL-02", "ST-01", "ST-02", "SS-01", "SS-02", "TI-01", "CU-01", "CU-02", "FE-01"
+    }
+    skus = {t["sku"] for t in body["tools"]}
+    assert {f"TK-{i:03d}" for i in range(1, 40)} <= skus
+    assert not any(s.startswith("SKU-") for s in skus)
+
+
+def test_steel_alias_resolves_to_st01_price(client):
+    from cncflow_core.factory.store import resolve_material_code
+    from cncflow_core.quoting.engine import _price
+    assert resolve_material_code("钢") == "ST-01"
+    assert resolve_material_code("铝合金") == "AL-01"
+    body = client.get("/api/v1/factory-config").get_json()
+    price, scrap, eta = _price("钢", body, {"material_code": "钢"})
+    assert price == 5.5
+    assert scrap == 1.8
+    assert eta == 0.90

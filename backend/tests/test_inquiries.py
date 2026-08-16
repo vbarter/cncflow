@@ -194,6 +194,10 @@ def test_steel_alias_quotes_hole_with_sku(client, seeded_db_path):
     seq = part["quote"]["process_sequence"]
     assert seq, part["quote"].get("features")
     assert any(s.get("sku") for s in seq), seq
+    skus = [s.get("sku") for s in seq if s.get("sku")]
+    assert skus
+    assert all(not str(s).startswith("SKU-") and not str(s).startswith("DOC") for s in skus), seq
+    assert any(str(s).startswith("TK-") for s in skus), seq
     assert not any((f.get("plan") or {}).get("error") for f in part["quote"].get("features") or [])
 
 
