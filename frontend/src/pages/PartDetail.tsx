@@ -24,6 +24,9 @@ function featDims(f: any) {
   const bits: string[] = []
   if (d != null) bits.push(`Ø${d}`)
   if (depth != null) bits.push(`深${depth}`)
+  const ht = f.hole_type === "through" ? "通孔" : f.hole_type === "blind" ? "盲孔" : f.hole_type
+  if (ht) bits.push(ht)
+  if (f.position_type) bits.push(f.position_type)
   if (f.length != null && f.width != null) bits.push(`${f.length}×${f.width}`)
   return bits.join(" ")
 }

@@ -23,6 +23,12 @@ class HoleSpec:
     def h_over_d(self) -> float:
         return self.depth_mm / self.diameter_mm
 
+    @property
+    def cut_depth_mm(self) -> float:
+        """通孔钻深 = 几何 H + 0.3D（文档钻尖附加）；H/D 仍用几何 H。"""
+        extra = 0.3 * self.diameter_mm if self.hole_type == "through" else 0.0
+        return self.depth_mm + extra
+
     @classmethod
     def from_dict(cls, feature: dict) -> "HoleSpec":
         """从请求体 feature 构造并校验，非法输入抛 ValueError（fail fast，含上下文）。"""
