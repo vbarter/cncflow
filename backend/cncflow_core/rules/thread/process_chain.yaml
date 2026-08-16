@@ -1,0 +1,7 @@
+version: 1
+chains:
+  D1: [{op: tap, tool_type: tap}]
+  D2: [{op: drill, tool_type: drill}, {op: tap, tool_type: tap}]
+  D3: [{op: drill, tool_type: drill}, {op: thread_mill, tool_type: thread_mill}]
+  NA: [{op: review, tool_type: custom}]
+  default: [{op: tap, tool_type: tap}]

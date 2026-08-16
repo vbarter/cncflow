@@ -1,0 +1,38 @@
+version: 1
+checks:
+  - id: FACE-AREA
+    name: 平面面积
+    metric: area
+    bands:
+      - max: 20000
+        level: D1
+      - min: 20000
+        max: 80000
+        level: D2
+      - min: 80000
+        level: D3
+  - id: FACE-IT
+    name: 公差
+    metric: tolerance_it
+    bands:
+      - min: 10
+        level: D1
+      - min: 7
+        max: 10
+        level: D2
+      - min: 5
+        max: 7
+        level: D3
+      - max: 5
+        level: D4
+  - id: FACE-RA
+    name: 粗糙度
+    metric: roughness_ra
+    bands:
+      - min: 1.6
+        level: D1
+      - min: 0.8
+        max: 1.6
+        level: D2
+      - max: 0.8
+        level: D3

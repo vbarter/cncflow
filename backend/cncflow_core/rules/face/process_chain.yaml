@@ -1,0 +1,7 @@
+version: 1
+chains:
+  D1: [{op: face_mill, tool_type: face_mill}]
+  D2: [{op: rough_face, tool_type: face_mill}, {op: finish_face, tool_type: face_mill}]
+  D3: [{op: rough_face, tool_type: face_mill}, {op: semi_face, tool_type: face_mill}, {op: finish_face, tool_type: face_mill}]
+  D4: [{op: rough_face, tool_type: face_mill}, {op: semi_face, tool_type: face_mill}, {op: finish_face, tool_type: finish_mill}]
+  default: [{op: face_mill, tool_type: face_mill}]

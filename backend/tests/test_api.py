@@ -53,7 +53,7 @@ class TestHappyPath:
         resp = client.get("/api/v1/health")
         body = resp.get_json()
         assert body["status"] == "degraded"  # 测试环境未启动独立解析Worker
-        assert body["features"] == ["hole"]
+        assert "hole" in body["features"] and "face" in body["features"]
         assert body["parser"]["queued"] >= 0
         assert body["parser"]["available"] is False
 
@@ -65,7 +65,7 @@ class TestValidation:
         assert "material" in resp.get_json()["error"]
 
     def test_unsupported_feature_type_400(self, client):
-        resp = post(client, make_payload(feature={"type": "face", "diameter_mm": 1, "depth_mm": 1}))
+        resp = post(client, make_payload(feature={"type": "unknown", "diameter_mm": 1, "depth_mm": 1}))
         assert resp.status_code == 400
         assert "暂不支持" in resp.get_json()["error"]
 

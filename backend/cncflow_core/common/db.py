@@ -1,8 +1,9 @@
 """SQLite 连接与 schema。数据文件默认在 backend/data/cncflow.db。"""
+import os
 import sqlite3
 from pathlib import Path
 
-DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "cncflow.db"
+DEFAULT_DB_PATH = Path(os.environ["CNCFLOW_DB_PATH"]) if os.environ.get("CNCFLOW_DB_PATH") else Path(__file__).resolve().parent.parent.parent / "data" / "cncflow.db"
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS tools (
@@ -176,6 +177,49 @@ CREATE TABLE IF NOT EXISTS parser_events (
   message TEXT,
   created_at TEXT DEFAULT (datetime('now')),
   FOREIGN KEY (job_id) REFERENCES parse_jobs(job_id)
+);
+
+
+CREATE TABLE IF NOT EXISTS factory_settings (
+  id INTEGER PRIMARY KEY CHECK (id=1),
+  profit_pct REAL NOT NULL DEFAULT 15,
+  floor_charge REAL NOT NULL DEFAULT 0,
+  inspect_fee REAL NOT NULL DEFAULT 60,
+  ignore_available_machines INTEGER NOT NULL DEFAULT 0,
+  batch_size INTEGER NOT NULL DEFAULT 1,
+  blank_type TEXT NOT NULL DEFAULT '板料',
+  extra_json TEXT
+);
+
+CREATE TABLE IF NOT EXISTS machines (
+  id TEXT PRIMARY KEY,
+  type TEXT NOT NULL,
+  axes INTEGER,
+  travel_x REAL, travel_y REAL, travel_z REAL,
+  max_rpm REAL, power_kw REAL, tool_change_s REAL,
+  fixture_mode TEXT,
+  hourly_rate REAL, setup_fee REAL,
+  enabled INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS factory_tools (
+  ref_id TEXT PRIMARY KEY,
+  ref_kind TEXT NOT NULL DEFAULT 'sku',
+  enabled INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS factory_material_prices (
+  material_code TEXT PRIMARY KEY,
+  price_per_kg REAL NOT NULL,
+  scrap_price_per_kg REAL NOT NULL DEFAULT 0,
+  enabled INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS rate_table (
+  equipment_type TEXT PRIMARY KEY,
+  hourly_rate REAL NOT NULL,
+  setup_fee REAL NOT NULL DEFAULT 0,
+  programming_fee_new REAL NOT NULL DEFAULT 300
 );
 
 CREATE TABLE IF NOT EXISTS parser_workers (
