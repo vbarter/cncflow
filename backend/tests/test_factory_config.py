@@ -24,7 +24,8 @@ def test_put_roundtrip(client):
     body = resp.get_json()
     assert body["settings"]["profit_pct"] == 18
     assert body["settings"]["ignore_available_machines"] is True
-    assert body["machines"][0]["id"] == "vm850"
+    assert any(m["id"] == "vm850" for m in body["machines"])
+    assert any(m["id"] == "VMC850E" for m in body["machines"])
     rates = {r["equipment_type"]: r for r in body["rate_table"]}
     assert rates["3轴立式加工中心"]["hourly_rate"] == 130
     again = client.get("/api/v1/factory-config").get_json()
@@ -42,7 +43,8 @@ def test_get_seeds_machines_and_material_prices(client, seeded_db_path):
     conn.close()
     body = client.get("/api/v1/factory-config").get_json()
     ids = {m["id"] for m in body["machines"]}
-    assert "VM-3AX" in ids
+    assert "VMC850E" in ids
+    assert "VM-3AX" not in ids
     prices = {r["material_code"]: r["price_per_kg"] for r in body["material_prices"]}
     assert prices["AL6061-T6"] == 28
     assert prices["铝合金"] == 25
@@ -56,18 +58,16 @@ def test_get_machines_seed_travel_and_power(client, seeded_db_path):
     conn.commit()
     conn.close()
     body = client.get("/api/v1/factory-config").get_json()
-    assert len(body["machines"]) == 4
+    ids = {m["id"] for m in body["machines"]}
+    assert {"VMC850E", "VMC1813", "TV855S", "U600", "HWC500", "GMC2012", "GF-C30", "CK6150"} <= ids
+    assert "VM-3AX" not in ids
+    assert "WEDM-1" not in ids
     machines = {m["id"]: m for m in body["machines"]}
-    assert machines["VM-3AX"]["travel_x"] == 850
-    assert machines["VM-3AX"]["power_kw"] == 11
-    conn = get_conn(seeded_db_path)
-    conn.execute("UPDATE machines SET travel_x=NULL, power_kw=NULL WHERE id='VM-3AX'")
-    conn.commit()
-    conn.close()
-    body = client.get("/api/v1/factory-config").get_json()
-    machines = {m["id"]: m for m in body["machines"]}
-    assert machines["VM-3AX"]["travel_x"] == 850
-    assert machines["VM-3AX"]["power_kw"] == 11
+    assert machines["VMC850E"]["travel_x"] == 850
+    assert machines["VMC850E"]["torque_nm"] == 70
+    assert machines["VMC850E"]["hourly_rate"] == 120
+    assert machines["CK6150"]["swing_d"] == 520
+    assert machines["CK6150"]["setup_fee"] == 150
 
 
 def test_get_tools_from_tools_catalog(client):
@@ -92,7 +92,7 @@ def test_put_material_density_roundtrip(client):
 def test_put_add_tool_and_delete_machine_persists(client):
     from cncflow_core.factory.defaults import MACHINE_SEEDS
     body = client.get("/api/v1/factory-config").get_json()
-    machines = [dict(m) for m in MACHINE_SEEDS if m["id"] != "HMC-1"]
+    machines = [dict(m) for m in MACHINE_SEEDS if m["id"] != "HWC500"]
     tools = list(body["tools"])
     tools.append({
         "sku": "UI-DR-09900",
@@ -109,7 +109,8 @@ def test_put_add_tool_and_delete_machine_persists(client):
     again = client.get("/api/v1/factory-config").get_json()
     ids = {m["id"] for m in again["machines"]}
     assert "HMC-1" not in ids
-    assert "VM-3AX" in ids
+    assert "VMC850E" in ids
+    assert "VM-3AX" not in ids
     assert "UI-DR-09900" in {t["sku"] for t in again["tools"]}
 
 

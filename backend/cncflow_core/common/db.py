@@ -199,6 +199,7 @@ CREATE TABLE IF NOT EXISTS machines (
   max_rpm REAL, power_kw REAL, tool_change_s REAL,
   fixture_mode TEXT,
   hourly_rate REAL, setup_fee REAL,
+  extra_json TEXT,
   enabled INTEGER NOT NULL DEFAULT 1
 );
 
@@ -290,6 +291,7 @@ def init_schema(conn: sqlite3.Connection) -> None:
     _ensure_column(conn, "tools", "source", "TEXT")
     _ensure_column(conn, "factory_material_prices", "density_g_cm3", "REAL")
     _ensure_column(conn, "factory_material_prices", "family", "TEXT")
+    _ensure_column(conn, "machines", "extra_json", "TEXT")
     # 一期数据库中的无来源刀具全部由 seed_tools.py 生成；迁移后不得冒充真实库存。
     conn.execute(
         "UPDATE tools SET is_mock=1, source='legacy_generated_mock' "
