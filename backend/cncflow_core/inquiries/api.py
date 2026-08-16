@@ -85,7 +85,8 @@ def _review_and_quote_features(parsed_feats, selected_ids, L, W):
             mapped = _hole_for_pipeline(feat, fid)
             if mapped:
                 holes.append(mapped)
-    features = holes + [{"type": "face", "length": L, "width": W, "depth": 1}]
+    # 本轮只跑通孔：报价吃识别出来的勾选孔，不塞空默认面
+    features = holes
     return review, features
 
 
@@ -229,6 +230,10 @@ def _quote_part(conn, part, selected_ids=None, features_override=None):
     review, features = _review_and_quote_features(parsed_feats, selected_ids, L, W)
     if features_override:
         features = features_override
+    try:
+        rules_version = current_app.config.get("RULES_VERSION") or ""
+    except RuntimeError:
+        rules_version = ""
     result = quote({
         "material": part.get("material_code") or "铝合金",
         "stock_type": part.get("blank_type") or "板料",
@@ -243,9 +248,24 @@ def _quote_part(conn, part, selected_ids=None, features_override=None):
         "roughness_ra": part.get("roughness_ra"),
         "v_part_cad": geometry.get("volume_cm3"),
         "features": features,
-    }, conn, rules_version=current_app.config.get("RULES_VERSION") or "")
+    }, conn, rules_version=rules_version)
     result["review_features"] = review
     return store.set_quote(conn, part["id"], result)
+
+
+def _maybe_quote(conn, part):
+    """Parse-complete parts with bbox become quoted so 1/2/3/5 have numbers."""
+    if not part or part.get("status") in {"confirmed", "abandoned", "parse_failed"}:
+        return part
+    q = part.get("quote") if isinstance(part.get("quote"), dict) else {}
+    already = isinstance(q.get("quote"), dict) and (q.get("quote") or {}).get("amount")
+    if already and part.get("status") in {"quoted", "revising"}:
+        return part
+    try:
+        quoted = _quote_part(conn, part)
+    except ValueError:
+        return part
+    return quoted if quoted is not None else part
 
 
 @bp.get("/api/v1/inquiries")
@@ -319,7 +339,8 @@ def quote_inquiry(iid):
 def get_part(pid):
     conn = _conn()
     try:
-        return jsonify(_attach_parsed_features(conn, store.get_part(conn, pid)))
+        part = _maybe_quote(conn, store.get_part(conn, pid))
+        return jsonify(_attach_parsed_features(conn, part))
     except KeyError:
         return jsonify({"error": "零件不存在"}), 404
     finally:
@@ -350,15 +371,34 @@ def patch_part(pid):
         selected_ids = payload.get("selected_feature_ids")
         if selected_ids is not None and not isinstance(selected_ids, list):
             selected_ids = None
-        if part["status"] == "revising" or selected_ids is not None:
+        if part["status"] not in {"confirmed", "abandoned"}:
             quoted = _quote_part(
                 conn, part, selected_ids=selected_ids, features_override=payload.get("features"),
             )
             if quoted is not None:
                 part = quoted
-        return jsonify(part)
+        return jsonify(_attach_parsed_features(conn, part))
     except PermissionError:
         return jsonify({"error": "已确认报价不可再改"}), 409
+    except KeyError:
+        return jsonify({"error": "零件不存在"}), 404
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    finally:
+        conn.close()
+
+
+@bp.post("/api/v1/parts/<pid>/quote")
+def quote_part(pid):
+    conn = _conn()
+    try:
+        part = store.get_part(conn, pid)
+        if part["status"] in {"confirmed", "abandoned"}:
+            return jsonify({"error": f"状态 {part['status']} 不能再报价"}), 409
+        quoted = _quote_part(conn, part)
+        if quoted is None:
+            return jsonify({"error": "缺少长宽尺寸，无法报价"}), 400
+        return jsonify(_attach_parsed_features(conn, quoted))
     except KeyError:
         return jsonify({"error": "零件不存在"}), 404
     except ValueError as exc:

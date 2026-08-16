@@ -121,6 +121,14 @@ def finish_job(conn, job_id, result):
     if pid:
         _apply_bbox(conn, pid, result)
     conn.commit()
+    if pid:
+        try:
+            from ..inquiries import store as inquiry_store
+            from ..inquiries.api import _maybe_quote
+            part = inquiry_store.get_part(conn, pid)
+            _maybe_quote(conn, part)
+        except Exception:
+            pass
     _checkpoint_db()
 
 

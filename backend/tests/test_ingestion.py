@@ -107,7 +107,8 @@ def test_finish_job_writes_bbox_to_part(client, seeded_db_path):
     })
     conn.close()
     part = client.get(f"/api/v1/parts/{pid}").get_json()
-    assert part["status"] == "need_params"
+    assert part["status"] == "quoted"
+    assert part["quote"]["quote"]["amount"] > 0
     assert sorted([part["length"], part["width"], part["height"]], reverse=True) == [80, 40, 12]
 
 

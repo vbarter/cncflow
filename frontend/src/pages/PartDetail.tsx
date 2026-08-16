@@ -225,7 +225,7 @@ export function PartDetail({ id, go }: { id: string; go: (h: string) => void }) 
           <div key={i} className="grid grid-cols-[72px_1fr_88px_72px_72px] gap-2 border-b border-[#e2e8f0] py-2">
             <span className="text-slate-500">STEP {String(s.order || i + 1).padStart(2, "0")}</span>
             <span>{s.name || PROCESS_NAME[s.process] || s.op || s.process || s.feature_id || "工序"}</span>
-            <span className="text-slate-500">{s.tool || s.cycle || "—"}</span>
+            <span className="text-slate-500">{s.sku || s.tool || s.cycle || "—"}</span>
             <span className="text-right text-slate-500">{s.minutes != null ? `${Number(s.minutes).toFixed(1)} min` : "—"}</span>
             <span className="text-right">{s.amount != null ? `¥${yen(s.amount)}` : "—"}</span>
           </div>
