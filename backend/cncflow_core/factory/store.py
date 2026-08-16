@@ -10,6 +10,53 @@ def _opt_float(value):
     return float(value)
 
 
+
+_OBSOLETE_MACHINE_IDS = (
+    "VM-3AX", "VM-4AX", "VM-5AX", "HMC-1",
+    "GANTRY-1", "JIG-1", "EDM-1", "WEDM-1", "LATHE-1", "MT-1", "ODGR-1", "SURFGR-1",
+)
+_MACHINE_COLS = (
+    "id", "type", "axes", "travel_x", "travel_y", "travel_z",
+    "max_rpm", "power_kw", "tool_change_s", "fixture_mode",
+    "hourly_rate", "setup_fee", "enabled",
+)
+
+
+def _machine_extra(item: dict) -> dict:
+    extra = item.get("extra") if isinstance(item.get("extra"), dict) else {}
+    for key, value in item.items():
+        if key in _MACHINE_COLS or key in {"extra", "extra_json", "enabled"}:
+            continue
+        extra[key] = value
+    return extra
+
+
+def _upsert_seed_machine(conn, machine: dict) -> None:
+    extra = json.dumps(_machine_extra(machine), ensure_ascii=False)
+    conn.execute(
+        "INSERT OR IGNORE INTO machines (id, type, axes, travel_x, travel_y, travel_z, max_rpm, power_kw, "
+        "tool_change_s, fixture_mode, hourly_rate, setup_fee, extra_json, enabled) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (
+            machine["id"], machine["type"], machine.get("axes"),
+            machine.get("travel_x"), machine.get("travel_y"), machine.get("travel_z"),
+            machine.get("max_rpm"), machine.get("power_kw"), machine.get("tool_change_s"),
+            machine.get("fixture_mode"), machine.get("hourly_rate"), machine.get("setup_fee"),
+            extra, 1 if machine.get("enabled", True) else 0,
+        ),
+    )
+
+
+def _public_machine(row) -> dict:
+    item = dict(row)
+    raw = item.pop("extra_json", None)
+    if raw:
+        try:
+            item.update(json.loads(raw))
+        except (TypeError, json.JSONDecodeError):
+            pass
+    return item
+
 def seed_factory(conn) -> None:
     conn.execute(
         "INSERT OR IGNORE INTO factory_settings (id, profit_pct, floor_charge, inspect_fee, "
@@ -20,26 +67,14 @@ def seed_factory(conn) -> None:
         "VALUES (:equipment_type, :hourly_rate, :setup_fee, :programming_fee_new)",
         RATE_TABLE,
     )
-    if conn.execute("SELECT COUNT(*) FROM machines").fetchone()[0] == 0:
-        conn.executemany(
-            "INSERT OR IGNORE INTO machines (id, type, axes, travel_x, travel_y, travel_z, max_rpm, power_kw, "
-            "tool_change_s, fixture_mode, hourly_rate, setup_fee, enabled) "
-            "VALUES (:id, :type, :axes, :travel_x, :travel_y, :travel_z, :max_rpm, :power_kw, "
-            ":tool_change_s, :fixture_mode, :hourly_rate, :setup_fee, :enabled)",
-            MACHINE_SEEDS,
-        )
+    conn.execute(
+        "DELETE FROM machines WHERE id IN ({})".format(
+            ",".join("?" * len(_OBSOLETE_MACHINE_IDS))
+        ),
+        _OBSOLETE_MACHINE_IDS,
+    )
     for machine in MACHINE_SEEDS:
-        conn.execute(
-            "UPDATE machines SET "
-            "travel_x=COALESCE(travel_x, :travel_x), "
-            "travel_y=COALESCE(travel_y, :travel_y), "
-            "travel_z=COALESCE(travel_z, :travel_z), "
-            "power_kw=COALESCE(power_kw, :power_kw), "
-            "tool_change_s=COALESCE(tool_change_s, :tool_change_s), "
-            "fixture_mode=COALESCE(fixture_mode, :fixture_mode) "
-            "WHERE id=:id",
-            machine,
-        )
+        _upsert_seed_machine(conn, machine)
     if conn.execute("SELECT COUNT(*) FROM factory_material_prices").fetchone()[0] == 0:
         conn.executemany(
             "INSERT OR IGNORE INTO factory_material_prices "
@@ -69,7 +104,7 @@ def get_config(conn) -> dict:
     settings["extra"] = json.loads(extra) if extra else {}
     return {
         "settings": settings,
-        "machines": [dict(r) for r in conn.execute("SELECT * FROM machines ORDER BY id")],
+        "machines": [_public_machine(r) for r in conn.execute("SELECT * FROM machines ORDER BY id")],
         "tools": [dict(r) for r in conn.execute(
             "SELECT sku, category, diameter_mm, structure, base_material, coating, precision_grade, in_stock "
             "FROM tools ORDER BY sku"
@@ -105,16 +140,17 @@ def put_config(conn, payload: dict) -> dict:
             raise ValueError("machines 须为数组")
         conn.execute("DELETE FROM machines")
         for item in payload["machines"]:
+            extra = json.dumps(_machine_extra(item), ensure_ascii=False)
             conn.execute(
                 "INSERT INTO machines (id, type, axes, travel_x, travel_y, travel_z, max_rpm, power_kw, "
-                "tool_change_s, fixture_mode, hourly_rate, setup_fee, enabled) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "tool_change_s, fixture_mode, hourly_rate, setup_fee, extra_json, enabled) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     item["id"], item.get("type") or item.get("equipment_type"),
                     item.get("axes"), item.get("travel_x"), item.get("travel_y"), item.get("travel_z"),
                     item.get("max_rpm"), item.get("power_kw"), item.get("tool_change_s"),
                     item.get("fixture_mode"), item.get("hourly_rate"), item.get("setup_fee"),
-                    1 if item.get("enabled", True) else 0,
+                    extra, 1 if item.get("enabled", True) else 0,
                 ),
             )
     if "tools" in payload:

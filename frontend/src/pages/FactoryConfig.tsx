@@ -4,10 +4,63 @@ import { json } from "../api"
 
 const TABS = ["基本信息", "设备库", "刀具库", "材料价格", "默认报价规则"]
 
-const MACHINE_GROUPS = [
-  "3轴立式加工中心", "4轴立式加工中心", "5轴联动加工中心", "卧式加工中心",
-  "龙门加工中心", "精密坐标镗床", "电火花成型机EDM", "电火花线切割WEDM",
-  "车削中心CNC车", "车铣复合中心", "外圆磨床", "平面磨床",
+type Col = { key: string; label: string; kind?: "num" | "text" }
+const RATE: Record<string, { hourly_rate: number; setup_fee: number; axes: number }> = {
+  "3轴立式加工中心": { hourly_rate: 120, setup_fee: 200, axes: 3 },
+  "4轴立式加工中心": { hourly_rate: 150, setup_fee: 300, axes: 4 },
+  "5轴联动加工中心": { hourly_rate: 280, setup_fee: 500, axes: 5 },
+  "卧式加工中心": { hourly_rate: 180, setup_fee: 400, axes: 4 },
+  "龙门加工中心": { hourly_rate: 220, setup_fee: 600, axes: 3 },
+  "精密坐标镗床": { hourly_rate: 350, setup_fee: 250, axes: 3 },
+  "电火花成型机EDM": { hourly_rate: 180, setup_fee: 250, axes: 3 },
+  "电火花线切割WEDM": { hourly_rate: 60, setup_fee: 250, axes: 4 },
+  "车削中心CNC车": { hourly_rate: 100, setup_fee: 150, axes: 2 },
+  "车铣复合中心": { hourly_rate: 200, setup_fee: 400, axes: 5 },
+  "外圆磨床": { hourly_rate: 160, setup_fee: 250, axes: 2 },
+  "平面磨床": { hourly_rate: 140, setup_fee: 250, axes: 3 },
+}
+const MACHINE_GROUPS: { type: string; cols: Col[] }[] = [
+  { type: "3轴立式加工中心", cols: [
+    { key: "id", label: "型号" }, { key: "travel_x", label: "X行程", kind: "num" }, { key: "travel_y", label: "Y行程", kind: "num" }, { key: "travel_z", label: "Z行程", kind: "num" },
+    { key: "max_rpm", label: "转速rpm", kind: "num" }, { key: "power_kw", label: "功率kW", kind: "num" }, { key: "torque_nm", label: "扭矩Nm", kind: "num" },
+    { key: "magazine", label: "刀库", kind: "num" }, { key: "table", label: "工作台" }, { key: "taper", label: "锥孔" }, { key: "ref_price", label: "参考价万", kind: "num" },
+  ]},
+  { type: "4轴立式加工中心", cols: [
+    { key: "id", label: "型号" }, { key: "xyz", label: "XYZ行程" }, { key: "axis4", label: "第4轴" },
+    { key: "max_rpm", label: "转速rpm", kind: "num" }, { key: "power_kw", label: "功率kW", kind: "num" }, { key: "magazine", label: "刀库", kind: "num" }, { key: "ref_price", label: "参考价万", kind: "num" },
+  ]},
+  { type: "5轴联动加工中心", cols: [
+    { key: "id", label: "型号" }, { key: "xyz", label: "XYZ行程" }, { key: "ab_range", label: "AB轴范围" },
+    { key: "max_rpm", label: "转速rpm", kind: "num" }, { key: "power_kw", label: "功率kW", kind: "num" }, { key: "rtcp", label: "RTCP" }, { key: "magazine", label: "刀库", kind: "num" }, { key: "ref_price", label: "参考价万", kind: "num" },
+  ]},
+  { type: "卧式加工中心", cols: [
+    { key: "id", label: "型号" }, { key: "xyz", label: "XYZ行程" }, { key: "table", label: "工作台" },
+    { key: "max_rpm", label: "转速rpm", kind: "num" }, { key: "power_kw", label: "功率kW", kind: "num" }, { key: "b_axis", label: "B轴" }, { key: "magazine", label: "刀库", kind: "num" }, { key: "pallet", label: "交换台" }, { key: "ref_price", label: "参考价万", kind: "num" },
+  ]},
+  { type: "龙门加工中心", cols: [
+    { key: "id", label: "型号" }, { key: "xyz", label: "XYZ行程" }, { key: "max_rpm", label: "转速rpm", kind: "num" }, { key: "power_kw", label: "功率kW", kind: "num" }, { key: "magazine", label: "刀库", kind: "num" }, { key: "ref_price", label: "参考价万", kind: "num" },
+  ]},
+  { type: "精密坐标镗床", cols: [
+    { key: "id", label: "型号" }, { key: "travel_x", label: "X行程", kind: "num" }, { key: "travel_y", label: "Y行程", kind: "num" }, { key: "travel_z", label: "Z行程", kind: "num" }, { key: "max_rpm", label: "转速rpm", kind: "num" }, { key: "power_kw", label: "功率kW", kind: "num" },
+  ]},
+  { type: "电火花成型机EDM", cols: [
+    { key: "id", label: "型号" }, { key: "xyz", label: "XYZ行程" }, { key: "electrode_kg", label: "电极kg", kind: "num" }, { key: "table", label: "工作台" }, { key: "best_ra", label: "最佳Ra um", kind: "num" }, { key: "ref_price", label: "参考价万", kind: "num" },
+  ]},
+  { type: "电火花线切割WEDM", cols: [
+    { key: "id", label: "型号" }, { key: "xyz", label: "XYZ行程" }, { key: "ref_price", label: "参考价万", kind: "num" },
+  ]},
+  { type: "车削中心CNC车", cols: [
+    { key: "id", label: "型号" }, { key: "swing_d", label: "回转直径", kind: "num" }, { key: "turn_len", label: "车削长度", kind: "num" }, { key: "max_rpm", label: "转速rpm", kind: "num" }, { key: "power_kw", label: "功率kW", kind: "num" }, { key: "turret", label: "刀塔位", kind: "num" }, { key: "c_axis", label: "C轴" }, { key: "ref_price", label: "参考价万", kind: "num" },
+  ]},
+  { type: "车铣复合中心", cols: [
+    { key: "id", label: "型号" }, { key: "xyz", label: "XYZ行程" }, { key: "max_rpm", label: "转速rpm", kind: "num" }, { key: "power_kw", label: "功率kW", kind: "num" }, { key: "ref_price", label: "参考价万", kind: "num" },
+  ]},
+  { type: "外圆磨床", cols: [
+    { key: "id", label: "型号" }, { key: "xyz", label: "XYZ行程" }, { key: "max_rpm", label: "转速rpm", kind: "num" }, { key: "power_kw", label: "功率kW", kind: "num" },
+  ]},
+  { type: "平面磨床", cols: [
+    { key: "id", label: "型号" }, { key: "xyz", label: "XYZ行程" }, { key: "max_rpm", label: "转速rpm", kind: "num" }, { key: "power_kw", label: "功率kW", kind: "num" },
+  ]},
 ]
 
 const TOOL_GROUPS: { title: string; cats: string[] }[] = [
@@ -25,15 +78,8 @@ const TOOL_GROUPS: { title: string; cats: string[] }[] = [
 const MATERIAL_FAMILIES = ["铝合金", "普通碳钢", "不锈钢", "钛合金", "铸铁", "铜合金", "工程塑料", "合金钢"]
 
 function emptyMachine(type: string) {
-  const axes = type.startsWith("5") ? 5 : type.startsWith("4") || type.includes("卧") ? 4 : 3
-  return {
-    id: "EQ" + String(Date.now()).slice(-6),
-    type,
-    axes,
-    travel_x: 800, travel_y: 500, travel_z: 500,
-    max_rpm: 12000, power_kw: 11, tool_change_s: 3.5,
-    fixture_mode: "虎钳", hourly_rate: 80, setup_fee: 200, enabled: 1,
-  }
+  const r = RATE[type] || { hourly_rate: 80, setup_fee: 200, axes: 3 }
+  return { id: "EQ" + String(Date.now()).slice(-6), type, axes: r.axes, hourly_rate: r.hourly_rate, setup_fee: r.setup_fee, enabled: 1 }
 }
 
 function emptyTool(category: string) {
@@ -134,33 +180,29 @@ export function FactoryConfig() {
         </Card>}
 
         {tab === 1 && <div>
-          {MACHINE_GROUPS.map(type => {
-            const rows = machines.map((m: any, i: number) => ({ m, i })).filter(({ m }: any) => m.type === type)
-            return <CatalogBlock key={type} title={type} count={rows.length} onAdd={() => setCfg({ ...cfg, machines: [...machines, emptyMachine(type)] })}>
-              <table className="w-full min-w-[1100px] text-left text-sm">
+          {MACHINE_GROUPS.map(g => {
+            const rows = machines.map((m: any, i: number) => ({ m, i })).filter(({ m }: any) => m.type === g.type)
+            return <CatalogBlock key={g.type} title={g.type} count={rows.length} onAdd={() => setCfg({ ...cfg, machines: [...machines, emptyMachine(g.type)] })}>
+              <table className="w-full min-w-[960px] text-left text-sm">
                 <thead><tr className="border-b border-[#e2e8f0] text-xs text-slate-500">
-                  <th className="py-2">型号</th><th>轴数</th><th>行程X</th><th>行程Y</th><th>行程Z</th>
-                  <th>最大转速</th><th>功率kW</th><th>换刀s</th><th>装夹</th><th>小时费率</th><th>调机费</th><th>启用</th><th>操作</th>
+                  {g.cols.map(c => <th key={c.key} className="py-2 pr-2">{c.label}</th>)}
+                  <th>小时费率</th><th>调机费</th><th>启用</th><th>操作</th>
                 </tr></thead>
                 <tbody>
                   {rows.map(({ m, i }: any) => (
                     <tr key={i} className="border-b border-slate-100">
-                      <td className="py-2 pr-2"><Input value={m.id} onChange={e => setCfg({ ...cfg, machines: patchAt(machines, i, { id: e.target.value }) })} /></td>
-                      <td className="pr-2"><Input type="number" value={m.axes ?? 3} onChange={e => setCfg({ ...cfg, machines: patchAt(machines, i, { axes: Number(e.target.value) }) })} /></td>
-                      <td className="pr-2"><Input type="number" value={m.travel_x ?? ""} onChange={e => setCfg({ ...cfg, machines: patchAt(machines, i, { travel_x: Number(e.target.value) }) })} /></td>
-                      <td className="pr-2"><Input type="number" value={m.travel_y ?? ""} onChange={e => setCfg({ ...cfg, machines: patchAt(machines, i, { travel_y: Number(e.target.value) }) })} /></td>
-                      <td className="pr-2"><Input type="number" value={m.travel_z ?? ""} onChange={e => setCfg({ ...cfg, machines: patchAt(machines, i, { travel_z: Number(e.target.value) }) })} /></td>
-                      <td className="pr-2"><Input type="number" value={m.max_rpm ?? 12000} onChange={e => setCfg({ ...cfg, machines: patchAt(machines, i, { max_rpm: Number(e.target.value) }) })} /></td>
-                      <td className="pr-2"><Input type="number" value={m.power_kw ?? ""} onChange={e => setCfg({ ...cfg, machines: patchAt(machines, i, { power_kw: Number(e.target.value) }) })} /></td>
-                      <td className="pr-2"><Input type="number" value={m.tool_change_s ?? ""} onChange={e => setCfg({ ...cfg, machines: patchAt(machines, i, { tool_change_s: Number(e.target.value) }) })} /></td>
-                      <td className="pr-2"><Input value={m.fixture_mode || ""} onChange={e => setCfg({ ...cfg, machines: patchAt(machines, i, { fixture_mode: e.target.value }) })} /></td>
-                      <td className="pr-2"><Input type="number" value={m.hourly_rate ?? 80} onChange={e => setCfg({ ...cfg, machines: patchAt(machines, i, { hourly_rate: Number(e.target.value) }) })} /></td>
-                      <td className="pr-2"><Input type="number" value={m.setup_fee ?? 200} onChange={e => setCfg({ ...cfg, machines: patchAt(machines, i, { setup_fee: Number(e.target.value) }) })} /></td>
+                      {g.cols.map(c => (
+                        <td key={c.key} className="py-2 pr-2">
+                          <Input type={c.kind === "num" ? "number" : "text"} value={m[c.key] ?? ""} onChange={e => setCfg({ ...cfg, machines: patchAt(machines, i, { [c.key]: c.kind === "num" ? Number(e.target.value) : e.target.value }) })} />
+                        </td>
+                      ))}
+                      <td className="pr-2"><Input type="number" value={m.hourly_rate ?? ""} onChange={e => setCfg({ ...cfg, machines: patchAt(machines, i, { hourly_rate: Number(e.target.value) }) })} /></td>
+                      <td className="pr-2"><Input type="number" value={m.setup_fee ?? ""} onChange={e => setCfg({ ...cfg, machines: patchAt(machines, i, { setup_fee: Number(e.target.value) }) })} /></td>
                       <td className="pr-2"><Select value={m.enabled ? "1" : "0"} onChange={e => setCfg({ ...cfg, machines: patchAt(machines, i, { enabled: Number(e.target.value) }) })}><option value="1">启用</option><option value="0">停用</option></Select></td>
                       <td><button type="button" className="text-xs text-slate-400 hover:text-red-500" onClick={() => setCfg({ ...cfg, machines: machines.filter((_: any, idx: number) => idx !== i) })}>删除</button></td>
                     </tr>
                   ))}
-                  {!rows.length && <tr><td colSpan={13} className="py-6 text-center text-slate-400">此类暂无设备</td></tr>}
+                  {!rows.length && <tr><td colSpan={g.cols.length + 4} className="py-6 text-center text-slate-400">此类暂无设备</td></tr>}
                 </tbody>
               </table>
             </CatalogBlock>
