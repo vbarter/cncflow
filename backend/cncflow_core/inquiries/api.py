@@ -1,4 +1,5 @@
 """询价 / 零件 HTTP。"""
+import json
 import os
 from flask import Blueprint, current_app, jsonify, request, Response
 
@@ -119,6 +120,65 @@ def _load_mesh_bytes(result):
     return None
 
 
+def _step_path_for_job(conn, job_id):
+    if not job_id:
+        return None
+    row = conn.execute(
+        "SELECT storage_path FROM uploaded_files WHERE job_id=? AND detected_type='step' LIMIT 1",
+        (job_id,),
+    ).fetchone()
+    if not row:
+        return None
+    from ..ingestion.storage import materialize
+    try:
+        return materialize(row["storage_path"], suffix=".step")
+    except FileNotFoundError:
+        return None
+
+
+def _ensure_part_mesh(conn, part):
+    """Serve stored GLB, or build it now from the job STEP (covers stale parses)."""
+    result = _parse_result(conn, part)
+    data = _load_mesh_bytes(result)
+    if data:
+        return data
+    path = _step_path_for_job(conn, part.get("parse_job_id"))
+    if not path:
+        return None
+    from ..geometry.mesh import step_to_glb
+    from ..ingestion.worker import _store_mesh
+    try:
+        data = step_to_glb(path)
+    except Exception:
+        return None
+    mesh = _store_mesh(part["parse_job_id"], data)
+    if not mesh:
+        return None
+    result = dict(result)
+    result["mesh"] = mesh
+    conn.execute(
+        "UPDATE parse_jobs SET result_json=?, updated_at=datetime('now') WHERE job_id=?",
+        (json.dumps(result, ensure_ascii=False), part["parse_job_id"]),
+    )
+    conn.commit()
+    return data
+
+
+def _ensure_pose(feat):
+    if feat.get("pose"):
+        return feat
+    loc, ax = feat.get("location"), feat.get("axis")
+    d, h = feat.get("diameter_mm"), feat.get("depth_mm")
+    if isinstance(loc, dict) and isinstance(ax, dict) and d and h:
+        feat["pose"] = {
+            "origin": {"x": loc.get("x"), "y": loc.get("y"), "z": loc.get("z")},
+            "axis": ax,
+            "length_mm": h,
+            "diameter_mm": d,
+        }
+    return feat
+
+
 def _flatten_hole_fields(feat):
     if not isinstance(feat, dict):
         return feat
@@ -127,7 +187,7 @@ def _flatten_hole_fields(feat):
     for key in ("diameter_mm", "depth_mm", "hole_type", "position_type", "cut_depth_mm"):
         if out.get(key) is None and dim.get(key) is not None:
             out[key] = dim[key]
-    return out
+    return _ensure_pose(out)
 
 
 def _attach_parsed_features(conn, part):
@@ -136,7 +196,9 @@ def _attach_parsed_features(conn, part):
     feats = [_flatten_hole_fields(f) for f in (result.get("features") or [])]
     part["parsed_features"] = feats
     mesh = result.get("mesh") if isinstance(result.get("mesh"), dict) else None
-    available = bool(mesh and (mesh.get("key") or mesh.get("path")))
+    stored = bool(mesh and (mesh.get("key") or mesh.get("path")))
+    can_build = bool(part.get("parse_job_id") and _step_path_for_job(conn, part.get("parse_job_id")))
+    available = stored or can_build
     part["mesh"] = {
         "available": available,
         "url": f"/api/v1/parts/{part['id']}/mesh" if available else None,
@@ -269,7 +331,7 @@ def get_part_mesh(pid):
     conn = _conn()
     try:
         part = store.get_part(conn, pid)
-        data = _load_mesh_bytes(_parse_result(conn, part))
+        data = _ensure_part_mesh(conn, part)
         if not data:
             return jsonify({"error": "暂无模型"}), 404
         return Response(data, mimetype="model/gltf-binary")

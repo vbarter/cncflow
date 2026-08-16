@@ -84,7 +84,26 @@ def _face_normals(positions, indices):
     return out
 
 
-def shape_to_glb(shape, deflection=0.4) -> bytes:
+def _stl_triangles(data: bytes):
+    if len(data) < 84:
+        raise ValueError("stl too small")
+    count = int.from_bytes(data[80:84], "little")
+    positions, indices = [], []
+    off = 84
+    for _ in range(count):
+        if off + 50 > len(data):
+            break
+        _n, x1, y1, z1, x2, y2, z2, x3, y3, z3, _attr = struct.unpack_from("<12fH", data, off)
+        base = len(positions)
+        positions.extend(((x1, y1, z1), (x2, y2, z2), (x3, y3, z3)))
+        indices.extend((base, base + 1, base + 2))
+        off += 50
+    if not indices:
+        raise ValueError("stl has no triangles")
+    return positions, indices
+
+
+def _tessellate_shape(shape, deflection=0.4):
     verts, faces = shape.tessellate(deflection)
     positions = []
     for v in verts:
@@ -98,4 +117,34 @@ def shape_to_glb(shape, deflection=0.4) -> bytes:
     for tri in faces:
         if len(tri) >= 3:
             indices.extend((int(tri[0]), int(tri[1]), int(tri[2])))
-    return triangles_to_glb(positions, indices)
+    return positions, indices
+
+
+def shape_to_glb(shape, deflection=0.4) -> bytes:
+    try:
+        from cadquery import exporters
+        import os
+        import tempfile
+        from pathlib import Path as _P
+        fd, path = tempfile.mkstemp(suffix=".stl")
+        os.close(fd)
+        try:
+            exporters.export(shape, path)
+            raw = _P(path).read_bytes()
+        finally:
+            os.unlink(path)
+        return triangles_to_glb(*_stl_triangles(raw))
+    except Exception:
+        positions, indices = _tessellate_shape(shape, deflection)
+        return triangles_to_glb(positions, indices)
+
+
+def step_to_glb(path: str, deflection=0.4) -> bytes:
+    """Import STEP with the live CadQuery/OCP kernel and emit GLB."""
+    import cadquery as cq
+    imported = cq.importers.importStep(path)
+    values = imported.vals()
+    if not values:
+        raise ValueError("STEP中没有可解析的形状")
+    compound = cq.Compound.makeCompound(values) if len(values) > 1 else values[0]
+    return shape_to_glb(compound, deflection)
