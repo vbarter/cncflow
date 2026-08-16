@@ -15,6 +15,7 @@ from cncflow_core.features.face import pipeline as face_pipeline
 from cncflow_core.features.pocket import pipeline as pocket_pipeline
 from cncflow_core.features.thread import pipeline as thread_pipeline
 from cncflow_core.features.surface import pipeline as surface_pipeline
+from cncflow_core.features.fixture import pipeline as fixture_pipeline
 from cncflow_core.factory.api import bp as factory_bp
 from cncflow_core.factory.store import seed_factory
 from data.seed_tool_specs import seed_tool_specs
@@ -26,6 +27,7 @@ FEATURE_PIPELINES = {
     "pocket": pocket_pipeline.run,
     "thread": thread_pipeline.run,
     "surface": surface_pipeline.run,
+    "fixture": fixture_pipeline.run,
 }
 
 

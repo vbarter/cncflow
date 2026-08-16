@@ -1,0 +1,12 @@
+# 夹具规则材料系数表
+materials:
+  铝合金: {density: 2.70, material_factor: 1.0, thin_wall: 1.0, price: 25}
+  钢: {density: 7.85, material_factor: 1.1, thin_wall: 1.0, price: 8}
+  普通碳钢: {density: 7.85, material_factor: 1.1, thin_wall: 1.0, price: 8}
+  铸铁: {density: 7.20, material_factor: 1.0, thin_wall: 1.0, price: 6}
+  不锈钢: {density: 7.90, material_factor: 1.2, thin_wall: 1.25, price: 30}
+  钛合金: {density: 4.50, material_factor: 1.2, thin_wall: 1.25, price: 200}
+  淬硬钢: {density: 7.85, material_factor: 1.5, thin_wall: 1.5, price: 15}
+  铜合金: {density: 8.90, material_factor: 1.0, thin_wall: 1.0, price: 50}
+  塑料: {density: 1.40, material_factor: 1.0, thin_wall: 1.0, price: 20}
+fallback: 钢

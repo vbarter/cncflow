@@ -72,4 +72,4 @@ def test_surface_manual_risk(client):
 
 def test_health_lists_new_features(client):
     body = client.get("/api/v1/health").get_json()
-    assert set(body["features"]) >= {"hole", "face", "pocket", "thread", "surface"}
+    assert set(body["features"]) >= {"hole", "face", "pocket", "thread", "surface", "fixture"}
