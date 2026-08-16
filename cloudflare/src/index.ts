@@ -41,8 +41,37 @@ export class CncflowContainer extends Container<Env> {
   }
 }
 
+function allowedOrigin(request: Request, raw: string | undefined): string | null {
+  const origin = request.headers.get("Origin");
+  if (!origin) return null;
+  const allowed = (raw || "*").split(",").map((item) => item.trim()).filter(Boolean);
+  if (allowed.includes("*") || allowed.includes(origin)) return origin;
+  return null;
+}
+
+function withCors(request: Request, response: Response, raw: string | undefined): Response {
+  const origin = allowedOrigin(request, raw);
+  if (!origin) return response;
+  const headers = new Headers(response.headers);
+  headers.set("Access-Control-Allow-Origin", origin);
+  headers.set("Vary", "Origin");
+  headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  headers.set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
+  headers.set("Access-Control-Max-Age", "86400");
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    return getContainer(env.CNCFLOW, "api").fetch(request);
+    const origins = env.CNCFLOW_CORS_ORIGINS || "*";
+    if (request.method === "OPTIONS") {
+      return withCors(request, new Response(null, { status: 204 }), origins);
+    }
+    const upstream = await getContainer(env.CNCFLOW, "api").fetch(request);
+    return withCors(request, upstream, origins);
   },
 };
