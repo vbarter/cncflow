@@ -76,3 +76,38 @@ def test_local_path_unchanged_without_r2(monkeypatch, tmp_path):
     stored = storage.store_upload(upload, "job2", "step")
     assert stored["storage_path"].startswith(str(tmp_path))
     assert not stored["storage_path"].startswith("r2://")
+
+
+def test_materialize_adds_step_suffix(monkeypatch, tmp_path):
+    monkeypatch.setenv("CNCFLOW_FILE_STORAGE", str(tmp_path / "files"))
+    for key in ("CNCFLOW_R2_ACCOUNT_ID", "CNCFLOW_R2_ACCESS_KEY_ID", "CNCFLOW_R2_SECRET_ACCESS_KEY", "CNCFLOW_R2_BUCKET"):
+        monkeypatch.delenv(key, raising=False)
+    dest = tmp_path / "files" / "ab" / ("a" * 64)
+    dest.parent.mkdir(parents=True)
+    dest.write_bytes(MINIMAL_STEP)
+    path = storage.materialize(str(dest), suffix=".step")
+    assert path.endswith(".step")
+    assert Path(path).read_bytes() == MINIMAL_STEP
+
+
+def test_materialize_local_miss_falls_back_to_r2(monkeypatch, tmp_path):
+    digest = "ab" + "cd" * 31
+    objects = {f"{digest[:2]}/{digest}": MINIMAL_STEP}
+    _r2_env(monkeypatch, objects)
+    monkeypatch.setenv("CNCFLOW_FILE_STORAGE", str(tmp_path / "files"))
+    missing = tmp_path / "files" / digest[:2] / digest
+    path = storage.materialize(str(missing), suffix=".step")
+    assert Path(path).read_bytes() == MINIMAL_STEP
+    assert path.endswith(".step")
+
+
+def test_materialize_missing_without_r2_raises(monkeypatch, tmp_path):
+    monkeypatch.setenv("CNCFLOW_FILE_STORAGE", str(tmp_path / "files"))
+    for key in ("CNCFLOW_R2_ACCOUNT_ID", "CNCFLOW_R2_ACCESS_KEY_ID", "CNCFLOW_R2_SECRET_ACCESS_KEY", "CNCFLOW_R2_BUCKET"):
+        monkeypatch.delenv(key, raising=False)
+    try:
+        storage.materialize(str(tmp_path / "nope"))
+    except FileNotFoundError as exc:
+        assert "解析文件不存在" in str(exc)
+    else:
+        raise AssertionError("expected FileNotFoundError")

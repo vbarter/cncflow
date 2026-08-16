@@ -24,11 +24,27 @@ def _parse_in_child(detected_type, path, options, output):
         output.put({"ok": False, "error": str(exc)})
 
 
+def _parse_inline(detected_type, path, options):
+    if detected_type == "step":
+        return parse_step(path)
+    return parse_pdf(path, options.get("allow_external_ai", False))
+
+
 def isolated_parse(detected_type, path, options):
-    context = mp.get_context("spawn")
-    output = context.Queue(maxsize=1)
-    process = context.Process(target=_parse_in_child, args=(detected_type, path, options, output))
-    process.start()
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"解析文件不存在: {path}")
+    if os.environ.get("CNCFLOW_PARSE_INLINE") == "1":
+        return _parse_inline(detected_type, path, options)
+    # Cloudchamber 可能禁 exec，spawn 会抛裸 Errno 2；回退同进程解析。
+    try:
+        context = mp.get_context("spawn")
+        output = context.Queue(maxsize=1)
+        process = context.Process(target=_parse_in_child, args=(detected_type, path, options, output))
+        process.start()
+    except (FileNotFoundError, OSError) as exc:
+        if getattr(exc, "errno", None) not in (None, 2) and not isinstance(exc, FileNotFoundError):
+            raise
+        return _parse_inline(detected_type, path, options)
     process.join(PARSER_TIMEOUT_SECONDS)
     if process.is_alive():
         process.terminate(); process.join(5)
@@ -37,22 +53,26 @@ def isolated_parse(detected_type, path, options):
         raise RuntimeError(f"{detected_type.upper()}解析子进程异常退出，exitcode={process.exitcode}")
     result = output.get()
     if not result["ok"]:
-        raise RuntimeError(result["error"])
+        err = result["error"]
+        if "No such file or directory" in err:
+            return _parse_inline(detected_type, path, options)
+        raise RuntimeError(err)
     return result["value"]
 
 
 def process_claimed(conn, job):
     result = {"geometry": None, "features": [], "drawing": None, "warnings": []}
     for file in job["files"]:
+        suffix = ".step" if file["detected_type"] == "step" else ".pdf"
         if file["detected_type"] == "step":
             update_job(conn, job["job_id"], stage="step_geometry", progress=20, message="正在解析STEP实体")
-            parsed = isolated_parse("step", materialize(file["storage_path"]), job["options"])
+            parsed = isolated_parse("step", materialize(file["storage_path"], suffix=suffix), job["options"])
             result["geometry"] = parsed["geometry"]
             result["features"].extend(parsed["features"])
             result["warnings"].extend(parsed["warnings"])
         elif file["detected_type"] == "pdf":
             update_job(conn, job["job_id"], stage="pdf_drawing", progress=65, message="正在识别PDF图纸")
-            result["drawing"] = isolated_parse("pdf", materialize(file["storage_path"]), job["options"])
+            result["drawing"] = isolated_parse("pdf", materialize(file["storage_path"], suffix=suffix), job["options"])
             result["warnings"].extend(result["drawing"].get("warnings", []))
     if result["geometry"] is None:
         result["warnings"].append("未上传STEP，无法获得真实体积、表面积和B-Rep制造特征")
