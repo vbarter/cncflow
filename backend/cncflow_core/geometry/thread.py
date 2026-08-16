@@ -190,18 +190,23 @@ def detect_threads(path: str) -> list:
             1 for form in forms
             if _near_cylinder(form["fb"], cyl["c"], cyl["r"], cyl["axis"], cyl["length"])
         )
-        # 牙型 STEP 常是底孔圆柱 + 若干 B 样条牙面，不是 HELIX 边
-        if not helical and n_form < 2:
-            continue
+        # 牙型 STEP 常是底孔圆柱 + 若干 B 样条牙面，不是 HELIX 边。
+        # 无螺旋时必须能从底孔推公称，避免开口槽圆角圆柱被当成 M6。
         minor = 2 * cyl["r"]
         major, metric_p = major_from_minor(minor)
-        if major is None:
-            major = minor
-            metric_p = pitch or infer_pitch(minor)
-        if metric_p is None:
-            continue
+        if not helical:
+            if n_form < 2 or major is None:
+                continue
+        else:
+            if major is None:
+                major = minor
+                metric_p = pitch or infer_pitch(minor)
+            if metric_p is None:
+                continue
         if pitch is None:
             pitch = metric_p
+        if metric_p is None:
+            continue
         loc = _point(cyl["c"])
         axis = cyl["axis"]
         length = round(cyl["length"], 4)
