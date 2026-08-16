@@ -21,19 +21,22 @@ export class CncflowContainer extends Container<Env> {
   sleepAfter = "24h";
   enableInternet = true;
 
-  get envVars(): Record<string, string> {
-    return {
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
+    // Parent class assigns `envVars = {}` on the instance, which shadows a
+    // subclass getter. Set the field after super so R2 secrets actually reach Flask.
+    this.envVars = {
       CNCFLOW_DB_PATH: "/data/cncflow.db",
       CNCFLOW_REQUIRE_PERSISTENT_DB: "1",
       CNCFLOW_FILE_STORAGE: "/data/uploads",
       CNCFLOW_PARSE_INLINE: "1",
-      CNCFLOW_CORS_ORIGINS: this.env.CNCFLOW_CORS_ORIGINS || "*",
-      CNCFLOW_R2_ACCOUNT_ID: this.env.CNCFLOW_R2_ACCOUNT_ID || "",
-      CNCFLOW_R2_ACCESS_KEY_ID: this.env.CNCFLOW_R2_ACCESS_KEY_ID || "",
-      CNCFLOW_R2_SECRET_ACCESS_KEY: this.env.CNCFLOW_R2_SECRET_ACCESS_KEY || "",
-      CNCFLOW_R2_BUCKET: this.env.CNCFLOW_R2_BUCKET || "cncflow-files",
-      VISION_API_KEY: this.env.VISION_API_KEY || "",
-      VISION_API_BASE: this.env.VISION_API_BASE || "https://api.tu-zi.com",
+      CNCFLOW_CORS_ORIGINS: env.CNCFLOW_CORS_ORIGINS || "*",
+      CNCFLOW_R2_ACCOUNT_ID: env.CNCFLOW_R2_ACCOUNT_ID || "",
+      CNCFLOW_R2_ACCESS_KEY_ID: env.CNCFLOW_R2_ACCESS_KEY_ID || "",
+      CNCFLOW_R2_SECRET_ACCESS_KEY: env.CNCFLOW_R2_SECRET_ACCESS_KEY || "",
+      CNCFLOW_R2_BUCKET: env.CNCFLOW_R2_BUCKET || "cncflow-files",
+      VISION_API_KEY: env.VISION_API_KEY || "",
+      VISION_API_BASE: env.VISION_API_BASE || "https://api.tu-zi.com",
     };
   }
 
