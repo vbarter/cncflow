@@ -111,3 +111,24 @@ def test_put_add_tool_and_delete_machine_persists(client):
     assert "HMC-1" not in ids
     assert "VM-3AX" in ids
     assert "UI-DR-09900" in {t["sku"] for t in again["tools"]}
+
+
+def test_catalog_groups_rate_types_and_material_family(client, seeded_db_path):
+    from cncflow_core.common.db import get_conn
+    from cncflow_core.factory.defaults import RATE_TABLE
+    conn = get_conn(seeded_db_path)
+    conn.execute("DELETE FROM factory_material_prices")
+    conn.commit()
+    conn.close()
+    body = client.get("/api/v1/factory-config").get_json()
+    types = {r["equipment_type"] for r in body["rate_table"]}
+    assert types == {r["equipment_type"] for r in RATE_TABLE}
+    assert len(types) == 12
+    machine_types = {m["type"] for m in body["machines"]}
+    assert machine_types <= types
+    families = {p.get("family") for p in body["material_prices"]}
+    assert "铝合金" in families
+    assert "普通碳钢" in families
+    assert "工程塑料" in families
+    steel = next(p for p in body["material_prices"] if p["material_code"] == "钢")
+    assert steel["family"] == "普通碳钢"

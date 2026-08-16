@@ -43,14 +43,15 @@ def seed_factory(conn) -> None:
     if conn.execute("SELECT COUNT(*) FROM factory_material_prices").fetchone()[0] == 0:
         conn.executemany(
             "INSERT OR IGNORE INTO factory_material_prices "
-            "(material_code, price_per_kg, scrap_price_per_kg, density_g_cm3, enabled) "
-            "VALUES (:material_code, :price_per_kg, :scrap_price_per_kg, :density_g_cm3, 1)",
+            "(material_code, price_per_kg, scrap_price_per_kg, density_g_cm3, family, enabled) "
+            "VALUES (:material_code, :price_per_kg, :scrap_price_per_kg, :density_g_cm3, :family, 1)",
             MATERIAL_PRICES,
         )
     for row in MATERIAL_PRICES:
         conn.execute(
-            "UPDATE factory_material_prices SET density_g_cm3=:density_g_cm3 "
-            "WHERE material_code=:material_code AND density_g_cm3 IS NULL",
+            "UPDATE factory_material_prices SET density_g_cm3=COALESCE(density_g_cm3, :density_g_cm3), "
+            "family=COALESCE(family, :family) "
+            "WHERE material_code=:material_code",
             row,
         )
     conn.commit()
@@ -157,12 +158,13 @@ def put_config(conn, payload: dict) -> dict:
         for item in payload["material_prices"]:
             conn.execute(
                 "INSERT INTO factory_material_prices "
-                "(material_code, price_per_kg, scrap_price_per_kg, density_g_cm3, enabled) "
-                "VALUES (?,?,?,?,?)",
+                "(material_code, price_per_kg, scrap_price_per_kg, density_g_cm3, family, enabled) "
+                "VALUES (?,?,?,?,?,?)",
                 (
                     item["material_code"], float(item["price_per_kg"]),
                     float(item.get("scrap_price_per_kg", 0)),
                     _opt_float(item.get("density_g_cm3")),
+                    item.get("family") or None,
                     1 if item.get("enabled", True) else 0,
                 ),
             )
