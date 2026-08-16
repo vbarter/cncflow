@@ -85,7 +85,8 @@ def _review_and_quote_features(parsed_feats, selected_ids, L, W):
             mapped = _hole_for_pipeline(feat, fid)
             if mapped:
                 holes.append(mapped)
-    features = holes + [{"type": "face", "length": L, "width": W, "depth": 1}]
+    # 本轮只跑通孔：报价吃识别出来的勾选孔，不塞空默认面
+    features = holes
     return review, features
 
 

@@ -146,6 +146,8 @@ def test_part_detail_shows_parse_job_holes_before_quote(client, seeded_db_path):
     assert step.get("name")
     assert step.get("minutes") is not None
     assert step.get("amount") is not None
+    assert any(s.get("sku") for s in q["process_sequence"]), q["process_sequence"]
+    assert all(s.get("process") for s in q["process_sequence"])
     holes = part.get("parsed_features") or q.get("review_features") or []
     hole = next(f for f in holes if f.get("type") == "hole")
     assert hole["diameter_mm"] == 3.30
@@ -167,6 +169,5 @@ def test_post_part_quote_one_click(client):
     assert part["status"] == "quoted"
     assert part["quote"]["quote"]["amount"] > 0
     assert part["quote"]["ui_cost"]["material"] >= 0
-    seq = part["quote"]["process_sequence"]
-    assert seq
-    assert all("name" in s and "minutes" in s and "amount" in s for s in seq)
+    # 无识别孔时本轮不出默认面工步，金额仍在
+    assert part["quote"]["quote"]["amount"] > 0
