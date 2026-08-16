@@ -12,4 +12,6 @@ Uploads keep a local content-addressed cache. `storage_path` becomes `r2://cncfl
 
 Required Worker secrets: R2 account, access key, secret, bucket; `CNCFLOW_CORS_ORIGINS` for the Pages origin; optional `VISION_API_KEY` for drawing OCR via api.tu-zi.com.
 
-Frontend production build uses `VITE_BASE=/` and `VITE_API_URL` pointing at the `cncflow-api` Worker origin. VPS SSH publish remains until this path is live.
+Frontend production build uses `VITE_BASE=/` and `VITE_API_URL` pointing at the `cncflow-api` Worker origin. The Cloudflare workflow publishes `frontend/dist` to Pages project `cncflow` on every main push. VPS SSH publish remains as a fallback.
+
+CORS is applied at the Worker (OPTIONS 204 + ACAO on proxied responses). `CNCFLOW_CORS_ORIGINS` defaults to `*`; Flask `_install_cors` is defense in depth only.
