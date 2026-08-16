@@ -133,11 +133,40 @@ def test_part_detail_shows_parse_job_holes_before_quote(client, seeded_db_path):
     })
     conn.close()
     part = client.get(f"/api/v1/parts/{pid}").get_json()
-    assert part["status"] == "need_params"
-    assert part.get("quote") in (None, {}) or not (part.get("quote") or {}).get("quote")
-    holes = part.get("parsed_features") or (part.get("quote") or {}).get("review_features") or []
+    assert part["status"] == "quoted"
+    q = part["quote"]
+    assert q["quote"]["amount"] > 0
+    assert q["quote"]["cost"] > 0
+    assert "margin" in q["quote"]
+    assert "ui_cost" in q
+    for key in ("material", "machining", "setup", "programming", "inspect", "toolwear", "scrap"):
+        assert key in q["ui_cost"]
+    assert q.get("process_sequence")
+    step = q["process_sequence"][0]
+    assert step.get("name")
+    assert step.get("minutes") is not None
+    assert step.get("amount") is not None
+    holes = part.get("parsed_features") or q.get("review_features") or []
     hole = next(f for f in holes if f.get("type") == "hole")
     assert hole["diameter_mm"] == 3.30
     assert hole["depth_mm"] == 26
     assert hole["hole_type"] == "through"
     assert hole["position_type"] == "垂直"
+    assert hole.get("cut_depth_mm") == 26.99
+
+
+def test_post_part_quote_one_click(client):
+    r = client.post("/api/v1/inquiries", json={"customer": "华科"})
+    iid = r.get_json()["id"]
+    pid = client.post(f"/api/v1/inquiries/{iid}/parts", json={
+        "name": "底板", "material": "铝合金", "length": 80, "width": 60, "height": 12, "blank_type": "板料",
+    }).get_json()["id"]
+    q = client.post(f"/api/v1/parts/{pid}/quote", json={})
+    assert q.status_code == 200, q.get_json()
+    part = q.get_json()
+    assert part["status"] == "quoted"
+    assert part["quote"]["quote"]["amount"] > 0
+    assert part["quote"]["ui_cost"]["material"] >= 0
+    seq = part["quote"]["process_sequence"]
+    assert seq
+    assert all("name" in s and "minutes" in s and "amount" in s for s in seq)

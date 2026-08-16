@@ -104,7 +104,7 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
         ops.append({"op": ftype, "minutes": mins, "na": na})
         plans.append({"feature_id": feat.get("id") or f"{ftype}-{i}", "type": ftype, "plan": result})
         for step in result.get("process_chain") or []:
-            seq.append({"order": len(seq) + 1, "feature_id": feat.get("id") or f"{ftype}-{i}", **step})
+            seq.append({"order": len(seq) + 1, "feature_id": feat.get("id") or feat.get("feature_id") or f"{ftype}-{i}", **step})
         tags.extend(result.get("risk_tags") or [])
         if order.get(level, 1) > order.get(worst, 1):
             worst = level
@@ -164,6 +164,22 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
     if any(op["na"] for op in ops):
         conf["level"] = "high" if conf["confidence"] >= 30 else conf["level"]
         tags.append("超出常规边界")
+
+    STEP_NAME = {
+        "spot_drill": "点钻", "drill": "钻孔", "gun_drill": "枪钻", "u_drill": "U钻",
+        "ream": "铰孔", "bore": "镗孔", "semi_bore": "半精镗", "fine_bore": "精镗",
+        "tap": "攻丝", "chamfer": "倒角", "face": "铣面", "mill": "铣削",
+        "flat_bottom_mill": "修底", "grind": "磨削",
+    }
+    if seq:
+        per_min = cut_min / len(seq)
+        per_amt = cut_fee / len(seq)
+        for s in seq:
+            proc = s.get("process") or s.get("op")
+            s.setdefault("name", STEP_NAME.get(proc, proc or "工序"))
+            s.setdefault("tool", s.get("tool") or s.get("cycle") or proc or "—")
+            s.setdefault("minutes", round(per_min, 2))
+            s.setdefault("amount", round(per_amt, 2))
 
     items = [
         {"code": "MAT", "amount": round(mat_cost, 2)},
