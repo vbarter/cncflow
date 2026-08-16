@@ -1,0 +1,89 @@
+"""报价引擎：体积公式、始终出价、滑轴、翻单。"""
+import math
+
+
+def quote(client, payload):
+    return client.post("/api/v1/quotes", json=payload)
+
+
+def test_bar_stock_volume_example(client):
+    resp = quote(client, {
+        "material": "铝合金",
+        "stock_type": "棒料",
+        "length": 200,
+        "diameter": 50,
+        "features": [],
+    })
+    assert resp.status_code == 200
+    vol = resp.get_json()["volume"]
+    assert vol["part_class"] == "轴类"
+    assert abs(vol["v_blank_mm3"] - 467205) < 50
+    assert abs(vol["v_part_mm3"] - 188496) < 50
+    assert abs(vol["utilization_pct"] - 40.4) < 0.2
+
+
+def test_always_quotes_out_of_bound_hole(client):
+    resp = quote(client, {
+        "material": "铝合金",
+        "stock_type": "棒料",
+        "length": 80,
+        "diameter": 20,
+        "features": [{"type": "hole", "diameter_mm": 0.8, "depth_mm": 30}],
+    })
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body["status"] == "quoted"
+    assert body["quote"]["amount"] > 0
+    assert "confidence" in body
+    assert isinstance(body["risk"]["customer_forbidden"], bool)
+
+
+def test_repeat_order_zeros_prog_and_fixture(client):
+    payload = {
+        "material": "铝合金",
+        "stock_type": "板材",
+        "length": 80, "width": 60, "height": 20,
+        "features": [{"type": "face", "length": 80, "width": 60, "depth": 1}],
+        "is_repeat_order": True,
+    }
+    body = quote(client, payload).get_json()
+    items = {i["code"]: i["amount"] for i in body["cost_items"]}
+    assert items["PROG"] == 0
+    assert items["FIX"] == 0
+
+
+def test_slider_changes_machining(client):
+    base = {
+        "material": "铝合金",
+        "stock_type": "板材",
+        "length": 80, "width": 60, "height": 12,
+        "features": [{"type": "face", "length": 80, "width": 60, "depth": 1}],
+    }
+    conservative = quote(client, {**base, "slider": "保守"}).get_json()
+    aggressive = quote(client, {**base, "slider": "激进"}).get_json()
+    assert conservative["ui_cost"]["machining"] > aggressive["ui_cost"]["machining"]
+    assert conservative["slider"]["effective_level"] == "保守"
+    assert aggressive["slider"]["scrap_rate"] > conservative["slider"]["scrap_rate"]
+
+
+def test_floor_applied(client):
+    body = quote(client, {
+        "material": "铝合金",
+        "stock_type": "棒料",
+        "length": 30, "diameter": 10,
+        "features": [],
+        "floor_charge": 99999,
+        "profit_pct": 15,
+    }).get_json()
+    assert body["quote"]["floor_applied"] is True
+    assert body["quote"]["amount"] == 99999
+
+
+def test_surface_risk_tag(client):
+    body = quote(client, {
+        "material": "铝合金",
+        "stock_type": "板材",
+        "length": 80, "width": 60, "height": 20,
+        "features": [{"type": "surface", "manual_hours": 0}],
+    }).get_json()
+    assert "需补五轴工时" in body["risk"]["tags"]
