@@ -23,6 +23,7 @@ from cncflow_core.quoting.api import bp as quoting_bp
 from cncflow_core.inquiries.api import bp as inquiries_bp
 from cncflow_core.factory.store import seed_factory
 from data.seed_tool_specs import seed_tool_specs
+from data.seed_tools import seed as seed_tools
 from cncflow_core.ingestion.api import bp as ingestion_bp
 from cncflow_core.geometry.api import bp as geometry_bp
 
@@ -90,6 +91,8 @@ def create_app(db_path=None) -> Flask:
     init_schema(conn)
     seed_material_catalog(conn)
     seed_tool_specs(conn)
+    if conn.execute("SELECT COUNT(*) FROM tools").fetchone()[0] == 0:
+        seed_tools(conn)
     seed_factory(conn)
     conn.close()
     app.register_blueprint(ingestion_bp)

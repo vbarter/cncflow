@@ -60,6 +60,10 @@ def test_rough_tool_requirement_uses_allowance_intersection():
 def test_catalog_only_when_no_inventory(tmp_path):
     db_path = tmp_path / "catalog.db"
     app = create_app(str(db_path))
+    conn = get_conn(str(db_path))
+    conn.execute("DELETE FROM tools")
+    conn.commit()
+    conn.close()
     app.testing = True
     resp = app.test_client().post("/api/v1/process-plan", json={
         "feature": {"type": "hole", "diameter_mm": 10, "depth_mm": 20},
@@ -73,7 +77,12 @@ def test_catalog_only_when_no_inventory(tmp_path):
 
 
 def test_incompatible_catalog_coating_is_not_presented_as_candidate(tmp_path):
-    app = create_app(str(tmp_path / "catalog-al.db"))
+    db_path = tmp_path / "catalog-al.db"
+    app = create_app(str(db_path))
+    conn = get_conn(str(db_path))
+    conn.execute("DELETE FROM tools")
+    conn.commit()
+    conn.close()
     app.testing = True
     resp = app.test_client().post("/api/v1/process-plan", json={
         "feature": {"type": "hole", "diameter_mm": 10, "depth_mm": 20},
