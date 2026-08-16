@@ -19,3 +19,10 @@ SLOT_FEATURE_FIELDS = (
     "corner_radius",
 )
 
+FACE_SCHEMA = "face-v1"
+FACE_FEATURE_FIELDS = (
+    "length",
+    "width",
+    "face_position",
+)
+

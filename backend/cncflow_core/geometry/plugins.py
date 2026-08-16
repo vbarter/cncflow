@@ -1,10 +1,10 @@
-"""识别器插件位。hole 与 slot 现网可用，face 只留位。"""
-from . import FEATURE_SCHEMA, SLOT_SCHEMA
+"""识别器插件位。hole / slot / face 现网可用。"""
+from . import FEATURE_SCHEMA, SLOT_SCHEMA, FACE_SCHEMA
 
 PLUGINS = (
     {"id": "hole", "status": "active", "version": FEATURE_SCHEMA},
     {"id": "slot", "status": "active", "version": SLOT_SCHEMA},
-    {"id": "face", "status": "stub", "version": None},
+    {"id": "face", "status": "active", "version": FACE_SCHEMA},
 )
 
 
@@ -26,5 +26,11 @@ def run_slot(path):
         return []
 
 
-def run_face(_path):
-    return []
+def run_face(path):
+    try:
+        from .face import detect_faces
+        return detect_faces(path)
+    except FileNotFoundError:
+        return []
+    except Exception:
+        return []
