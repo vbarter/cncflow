@@ -12,15 +12,30 @@ from cncflow_core.ingestion import r2
 
 DB_OBJECT_KEY = os.environ.get("CNCFLOW_DB_R2_KEY", "db/cncflow.db")
 
-_last_backup_ok: bool | None = None
-
-
 def db_path() -> Path:
     return Path(os.environ.get("CNCFLOW_DB_PATH") or "/data/cncflow.db")
 
 
+def _status_path() -> Path:
+    return db_path().with_suffix(db_path().suffix + ".backup-ok")
+
+
 def last_backup_ok() -> bool | None:
-    return _last_backup_ok
+    path = _status_path()
+    if not path.exists():
+        return None
+    text = path.read_text().strip()
+    if text == "1":
+        return True
+    if text == "0":
+        return False
+    return None
+
+
+def _set_last_backup_ok(ok: bool) -> None:
+    path = _status_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("1" if ok else "0")
 
 
 def health_snapshot() -> dict:
@@ -28,7 +43,7 @@ def health_snapshot() -> dict:
     return {
         "r2": r2.configured(),
         "db_exists": db_path().exists(),
-        "last_backup_ok": _last_backup_ok,
+        "last_backup_ok": last_backup_ok(),
     }
 
 
@@ -47,12 +62,11 @@ def restore_db() -> bool:
 
 
 def backup_db() -> bool:
-    global _last_backup_ok
     if not r2.configured():
         return False
     src = db_path()
     if not src.exists():
-        _last_backup_ok = False
+        _set_last_backup_ok(False)
         return False
     try:
         tmp = src.with_suffix(".snapshot")
@@ -67,10 +81,10 @@ def backup_db() -> bool:
             source.close()
         r2.put_object(DB_OBJECT_KEY, tmp.read_bytes(), content_type="application/vnd.sqlite3")
         tmp.unlink(missing_ok=True)
-        _last_backup_ok = True
+        _set_last_backup_ok(True)
         return True
     except Exception:
-        _last_backup_ok = False
+        _set_last_backup_ok(False)
         raise
 
 

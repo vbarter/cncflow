@@ -114,7 +114,6 @@ def test_materialize_missing_without_r2_raises(monkeypatch, tmp_path):
 
 
 def test_backup_records_last_ok(monkeypatch, tmp_path):
-    persist._last_backup_ok = None
     objects = {}
     _r2_env(monkeypatch, objects)
     db = tmp_path / "cncflow.db"
