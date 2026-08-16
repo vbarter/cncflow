@@ -29,6 +29,8 @@ def test_put_roundtrip(client):
     assert rates["3轴立式加工中心"]["hourly_rate"] == 130
     again = client.get("/api/v1/factory-config").get_json()
     assert again["settings"]["ignore_available_machines"] is True
+    skus = [t["sku"] for t in again["tools"]]
+    assert any("DR-00300" in s for s in skus)
 
 
 def test_get_seeds_machines_and_material_prices(client, seeded_db_path):
@@ -45,3 +47,67 @@ def test_get_seeds_machines_and_material_prices(client, seeded_db_path):
     assert prices["AL6061-T6"] == 28
     assert prices["铝合金"] == 25
 
+
+
+def test_get_machines_seed_travel_and_power(client, seeded_db_path):
+    from cncflow_core.common.db import get_conn
+    conn = get_conn(seeded_db_path)
+    conn.execute("DELETE FROM machines")
+    conn.commit()
+    conn.close()
+    body = client.get("/api/v1/factory-config").get_json()
+    assert len(body["machines"]) == 4
+    machines = {m["id"]: m for m in body["machines"]}
+    assert machines["VM-3AX"]["travel_x"] == 850
+    assert machines["VM-3AX"]["power_kw"] == 11
+    conn = get_conn(seeded_db_path)
+    conn.execute("UPDATE machines SET travel_x=NULL, power_kw=NULL WHERE id='VM-3AX'")
+    conn.commit()
+    conn.close()
+    body = client.get("/api/v1/factory-config").get_json()
+    machines = {m["id"]: m for m in body["machines"]}
+    assert machines["VM-3AX"]["travel_x"] == 850
+    assert machines["VM-3AX"]["power_kw"] == 11
+
+
+def test_get_tools_from_tools_catalog(client):
+    body = client.get("/api/v1/factory-config").get_json()
+    skus = [t["sku"] for t in body["tools"]]
+    assert any("DR-00300" in s for s in skus)
+    assert any("DR-00800" in s for s in skus)
+
+
+def test_put_material_density_roundtrip(client):
+    resp = client.put("/api/v1/factory-config", json={
+        "material_prices": [
+            {"material_code": "AL6061-T6", "price_per_kg": 28, "scrap_price_per_kg": 8, "density_g_cm3": 2.71, "enabled": 1},
+        ],
+    })
+    assert resp.status_code == 200
+    again = client.get("/api/v1/factory-config").get_json()
+    got = next(p for p in again["material_prices"] if p["material_code"] == "AL6061-T6")
+    assert got["density_g_cm3"] == 2.71
+
+
+def test_put_add_tool_and_delete_machine_persists(client):
+    from cncflow_core.factory.defaults import MACHINE_SEEDS
+    body = client.get("/api/v1/factory-config").get_json()
+    machines = [dict(m) for m in MACHINE_SEEDS if m["id"] != "HMC-1"]
+    tools = list(body["tools"])
+    tools.append({
+        "sku": "UI-DR-09900",
+        "category": "钻头",
+        "diameter_mm": 9.9,
+        "structure": "标准",
+        "base_material": "硬质合金",
+        "coating": "无涂层",
+        "precision_grade": "普通",
+        "in_stock": 1,
+    })
+    resp = client.put("/api/v1/factory-config", json={"machines": machines, "tools": tools})
+    assert resp.status_code == 200
+    again = client.get("/api/v1/factory-config").get_json()
+    ids = {m["id"] for m in again["machines"]}
+    assert "HMC-1" not in ids
+    assert "VM-3AX" in ids
+    assert "UI-DR-09900" in {t["sku"] for t in again["tools"]}
