@@ -1,7 +1,7 @@
 @import url('https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,400;0,500;1,400&family=Manrope:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;600;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;0,8..60,700;1,8..60,400&display=swap');
 @tailwind base; @tailwind components; @tailwind utilities;
 :root{--background:206 26% 95%;--foreground:222 47% 11%;--border:210 32% 85%;--muted:214 67% 97%;--primary:221 83% 53%;--card:#ffffff;--panel:#f1f6fc}
-*{box-sizing:border-box}html{overflow-x:hidden;background:#eef2f5}body{margin:0;min-width:320px;overflow-x:hidden;background:#eef2f5;font-family:'Manrope','Noto Sans SC',sans-serif;color:#0f172a;-webkit-font-smoothing:antialiased}button,input,select{font:inherit}::selection{background:#2563eb;color:#fff}
+*{box-sizing:border-box}html{overflow-x:hidden;background:#f8fafc}body{margin:0;min-width:320px;overflow-x:hidden;background:#f8fafc;font-family:'Manrope','Noto Sans SC',sans-serif;color:#0f172a;-webkit-font-smoothing:antialiased}button,input,select{font:inherit}::selection{background:#2563eb;color:#fff}
 .font-serif{font-family:'Source Serif 4',ui-serif,Georgia,serif}
 .font-mono{font-family:'DM Mono',ui-monospace,SFMono-Regular,Menlo,monospace}
 @media(max-width:640px){h1,h2,p{overflow-wrap:anywhere;word-break:break-word}}
