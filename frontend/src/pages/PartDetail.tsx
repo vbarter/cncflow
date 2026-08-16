@@ -1,10 +1,17 @@
 import { useEffect, useState } from "react"
 import { Button, Card, Select } from "../components/ui"
+import { FeatureReview } from "../components/FeatureReview"
 import { json } from "../api"
 
 const COST_LABEL: Record<string, string> = {
-  material: "材料", machining: "加工", setup: "装夹", programming: "编程",
-  inspect: "检测", toolwear: "刀具损耗", scrap: "报废",
+  material: "原材料", machining: "加工工时", setup: "装夹", programming: "编程",
+  inspect: "检测", toolwear: "刀具损耗", scrap: "不良损耗",
+}
+
+const PROCESS_NAME: Record<string, string> = {
+  spot_drill: "点钻", drill: "钻孔", gun_drill: "枪钻", u_drill: "U钻",
+  ream: "铰孔", bore: "镗孔", tap: "攻丝", chamfer: "倒角",
+  face: "铣面", mill: "铣削",
 }
 
 const MATERIALS = ["AL6061-T6", "SUS304", "AL7075", "POM", "铝合金", "钢", "不锈钢"]
@@ -17,23 +24,27 @@ function yen(n: any) {
   return Number.isFinite(v) ? v.toFixed(0) : "—"
 }
 
-function featDims(f: any) {
-  const dim = f.dimensions || {}
-  const d = dim.diameter_mm ?? f.diameter_mm
-  const depth = dim.depth_mm ?? f.depth_mm
-  const bits: string[] = []
-  if (d != null) bits.push(`Ø${d}`)
-  if (depth != null) bits.push(`深${depth}`)
-  const ht = f.hole_type === "through" ? "通孔" : f.hole_type === "blind" ? "盲孔" : f.hole_type
-  if (ht) bits.push(ht)
-  if (f.position_type) bits.push(f.position_type)
-  if (f.cut_depth_mm != null) bits.push(`cut=${f.cut_depth_mm}`)
-  if (f.length != null && f.width != null) bits.push(`${f.length}×${f.width}`)
-  return bits.join(" ")
-}
-
 function featId(f: any, i: number) {
   return String(f.feature_id || f.id || `f${i}`)
+}
+
+function confidenceParts(part: any, q: any, reviewFeats: any[]) {
+  const holes = reviewFeats.filter((f) => f.subtype === "recognized_hole" || (f.type === "hole" && f.selected !== false))
+  const drawing = holes.length ? 88 : (reviewFeats.length ? 52 : 18)
+  const process = Number(q.confidence)
+  const factory = q.fixture?.is_machinable === false ? 32 : (q.fixture?.type ? 82 : 58)
+  const keys = Object.keys(COST_LABEL)
+  const ui = q.ui_cost || {}
+  const filled = keys.filter((k) => Number(ui[k]) > 0).length
+  const cost = Math.round((filled / keys.length) * 100)
+  const total = Number.isFinite(process) ? process : Math.round((drawing + factory + cost) / 3)
+  return [
+    { key: "drawing", label: "图纸识别", value: drawing },
+    { key: "process", label: "工艺可加工性", value: Number.isFinite(process) ? process : 0 },
+    { key: "factory", label: "工厂资源匹配", value: factory },
+    { key: "cost", label: "成本数据完整性", value: cost },
+    { key: "total", label: "总分", value: total },
+  ]
 }
 
 export function PartDetail({ id, go }: { id: string; go: (h: string) => void }) {
@@ -61,12 +72,16 @@ export function PartDetail({ id, go }: { id: string; go: (h: string) => void }) 
   const ui = q.ui_cost || {}
   const risk = q.risk || {}
   const locked = part.status === "confirmed"
-  const recommend = risk.customer_forbidden ? "建议暂缓" : (risk.level === "high" ? "存在工艺风险" : "建议接单")
+  const recommend = risk.customer_forbidden ? "建议暂缓" : (risk.level === "high" ? "建议暂缓" : "建议接单")
   const maxCost = Math.max(1, ...Object.values(ui).map((v: any) => Number(v) || 0))
-  const reviewFeats = q.review_features || q.features || part.parsed_features || []
+  const reviewFeats = (q.review_features || q.features || part.parsed_features || []).map((f: any, i: number) => ({
+    ...f, feature_id: featId(f, i),
+  }))
   const materials = MATERIALS.includes(part.material_code) || !part.material_code
     ? MATERIALS
     : [part.material_code, ...MATERIALS]
+  const conf = confidenceParts(part, q, reviewFeats)
+  const meshAvailable = Boolean(part.mesh?.available)
 
   function patchParams(next: { material?: string; tolerance_it?: number; roughness_ra?: number }) {
     patch({
@@ -78,17 +93,17 @@ export function PartDetail({ id, go }: { id: string; go: (h: string) => void }) 
 
   function toggleFeat(fid: string, checked: boolean) {
     const ids = reviewFeats
-      .filter((f: any, i: number) => {
-        const id = featId(f, i)
+      .filter((f: any) => {
         const on = f.selected === false ? false : true
-        return id === fid ? checked : on
+        return f.feature_id === fid ? checked : on
       })
-      .map((f: any, i: number) => featId(f, i))
+      .map((f: any) => f.feature_id)
     patch({ selected_feature_ids: ids })
   }
 
   const costCard = (
     <Card className="p-5">
+      <div className="mb-1 text-xs uppercase tracking-wide text-slate-400">03</div>
       <div className="mb-3 font-medium">为什么是这个报价？（成本构成）</div>
       <div className="space-y-2">{Object.entries(COST_LABEL).map(([k, label]) => {
         const v = Number(ui[k]) || 0
@@ -110,10 +125,11 @@ export function PartDetail({ id, go }: { id: string; go: (h: string) => void }) 
     </div>
   )
 
-  const banner = (withConfirm: boolean) => (
+  const decision = (withConfirm: boolean) => (
     <div className="flex flex-wrap items-center justify-between gap-4 rounded bg-slate-900 px-6 py-5 text-white">
       <div>
-        <div className="text-sm text-emerald-300">{recommend}</div>
+        <div className="text-xs uppercase tracking-wide text-slate-400">01 AI QUOTE DECISION</div>
+        <div className="mt-1 text-sm text-emerald-300">{recommend}</div>
         <div className="mt-2 flex flex-wrap gap-6 text-sm">
           <div>单件报价 <span className="text-xl font-semibold">¥{yen(quote.amount)}</span></div>
           <div>单件成本 ¥{yen(quote.cost)}</div>
@@ -121,7 +137,7 @@ export function PartDetail({ id, go }: { id: string; go: (h: string) => void }) 
           <div>工艺风险 <span className={risk.tags?.length ? "text-red-300" : ""}>{risk.tags?.length || 0}项</span></div>
         </div>
       </div>
-      {withConfirm && <Button disabled={locked || part.status !== "quoted" || busy} onClick={() => act("/parts/" + id + "/confirm")}>确认本次零件报价</Button>}
+      {withConfirm && <Button disabled={locked || part.status !== "quoted" || busy} onClick={() => act("/parts/" + id + "/confirm")}>确认本零件报价</Button>}
     </div>
   )
 
@@ -136,33 +152,36 @@ export function PartDetail({ id, go }: { id: string; go: (h: string) => void }) 
     </div>
 
     {view === "boss" ? <>
-      {banner(false)}
+      {decision(false)}
       {costCard}
       {actions}
     </> : <>
-      {banner(true)}
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card className="p-5">
-          <div className="text-xs text-slate-500">报价可信度</div>
-          <div className="mt-2 text-3xl font-semibold text-blue-600">{q.confidence ?? "—"}</div>
-          <div className="mt-1 text-xs text-slate-500">{risk.customer_forbidden ? "置信度偏低，不建议直接给客户" : "可内部确认后出给客户"}</div>
-        </Card>
-        <Card className="p-5">
-          <div className="text-xs text-slate-500">滑轴（改参后自动重算）</div>
-          <Select disabled={locked || busy} value={q.slider?.slider || part.slider || "标准"} onChange={e => patch({ slider: e.target.value })} className="mt-2">
-            <option>保守</option><option>偏保守</option><option>标准</option><option>偏激进</option><option>激进</option>
-          </Select>
-        </Card>
-        <Card className="p-5">
-          <div className="text-xs text-slate-500">毛坯尺寸 mm</div>
-          <div className="mt-2 text-sm text-slate-800">{[part.length, part.width, part.height].filter(v => v != null).join(" × ") || "待解析"}</div>
-          <div className="mt-1 text-xs text-slate-400">状态 {part.status}</div>
-        </Card>
-      </div>
+      {decision(true)}
 
       <Card className="p-5">
-        <div className="mb-3 font-medium">改参</div>
-        <div className="grid gap-4 md:grid-cols-3">
+        <div className="mb-1 text-xs uppercase tracking-wide text-slate-400">02</div>
+        <div className="mb-3 font-medium">报价可信度</div>
+        <div className="flex items-end gap-3">
+          <div className="text-3xl font-semibold text-blue-600">{conf.find(c => c.key === "total")?.value ?? "—"}</div>
+          <div className="text-xs text-slate-500">{risk.customer_forbidden ? "置信度偏低，不建议直接给客户" : "可内部确认后出给客户"}</div>
+        </div>
+        <div className="mt-4 grid gap-3 md:grid-cols-4">
+          {conf.filter(c => c.key !== "total").map((c) => (
+            <div key={c.key}>
+              <div className="text-xs text-slate-500">{c.label}</div>
+              <div className="mt-1 text-lg font-medium">{c.value}</div>
+              <div className="mt-1 h-1.5 rounded bg-slate-100"><div className="h-1.5 rounded bg-blue-600" style={{ width: `${Math.min(100, c.value)}%` }} /></div>
+            </div>
+          ))}
+        </div>
+      </Card>
+
+      {costCard}
+
+      <Card className="p-5">
+        <div className="mb-1 text-xs uppercase tracking-wide text-slate-400">04</div>
+        <div className="mb-3 font-medium">Feature 模型审查</div>
+        <div className="mb-4 grid gap-4 md:grid-cols-4">
           <label className="block text-sm">
             <div className="mb-1 text-xs text-slate-500">材料</div>
             <Select disabled={locked || busy} value={part.material_code || "铝合金"} onChange={e => patchParams({ material: e.target.value })}>
@@ -181,31 +200,34 @@ export function PartDetail({ id, go }: { id: string; go: (h: string) => void }) 
               {RA_OPTIONS.map(n => <option key={n} value={n}>{n}</option>)}
             </Select>
           </label>
-        </div>
-        <div className="mt-5 mb-3 font-medium">特征审查</div>
-        <div className="space-y-2 text-sm">{reviewFeats.length ? reviewFeats.map((f: any, i: number) => {
-          const fid = featId(f, i)
-          const checked = f.selected !== false
-          const diff = f.plan?.difficulty?.level || f.plan?.machinability?.level || f.difficulty || ""
-          return <label key={fid} className="flex items-center justify-between gap-3 border-b border-[#e2e8f0] py-2">
-            <span className="flex min-w-0 items-center gap-2">
-              <input type="checkbox" disabled={locked || busy} checked={checked} onChange={e => toggleFeat(fid, e.target.checked)} />
-              <span>{fid} · {f.type || "特征"}{featDims(f) ? ` · ${featDims(f)}` : ""}</span>
-            </span>
-            <span className="shrink-0 text-slate-500">{diff}</span>
+          <label className="block text-sm">
+            <div className="mb-1 text-xs text-slate-500">滑轴</div>
+            <Select disabled={locked || busy} value={q.slider?.slider || part.slider || "标准"} onChange={e => patch({ slider: e.target.value })}>
+              <option>保守</option><option>偏保守</option><option>标准</option><option>偏激进</option><option>激进</option>
+            </Select>
           </label>
-        }) : <div className="text-slate-400">暂无特征</div>}</div>
+        </div>
+        <FeatureReview
+          partId={id}
+          features={reviewFeats}
+          meshAvailable={meshAvailable}
+          locked={locked}
+          busy={busy}
+          onToggle={toggleFeat}
+        />
         {!!(risk.tags || []).length && <div className="mt-3 text-xs text-amber-700">风险：{(risk.tags || []).join("、")}</div>}
       </Card>
 
-      {costCard}
-
       <Card className="p-5">
+        <div className="mb-1 text-xs uppercase tracking-wide text-slate-400">05</div>
         <div className="mb-3 font-medium">加工工艺方案</div>
         <div className="space-y-2 text-sm">{(q.process_sequence || []).length ? (q.process_sequence || []).map((s: any, i: number) => (
-          <div key={i} className="flex justify-between border-b border-[#e2e8f0] py-2">
-            <span>STEP {String(s.order || i + 1).padStart(2, "0")} · {s.name || s.op || s.process || s.feature_id || "工序"}</span>
-            <span className="text-slate-500">{s.minutes ? `${Number(s.minutes).toFixed(1)} min` : ""}</span>
+          <div key={i} className="grid grid-cols-[72px_1fr_88px_72px_72px] gap-2 border-b border-[#e2e8f0] py-2">
+            <span className="text-slate-500">STEP {String(s.order || i + 1).padStart(2, "0")}</span>
+            <span>{s.name || PROCESS_NAME[s.process] || s.op || s.process || s.feature_id || "工序"}</span>
+            <span className="text-slate-500">{s.tool || s.cycle || "—"}</span>
+            <span className="text-right text-slate-500">{s.minutes != null ? `${Number(s.minutes).toFixed(1)} min` : "—"}</span>
+            <span className="text-right">{s.amount != null ? `¥${yen(s.amount)}` : "—"}</span>
           </div>
         )) : <div className="text-slate-400">暂无工序。改滑轴会触发重算。</div>}</div>
       </Card>

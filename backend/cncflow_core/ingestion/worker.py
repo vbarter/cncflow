@@ -11,6 +11,28 @@ from ..geometry.service import parse_step_file
 from .jobs import claim_job, fail_job, finish_job, recover_stale, update_job
 from .pdf_parser import parse_pdf
 from .storage import materialize
+from . import r2
+
+
+
+def _store_mesh(job_id, mesh_bytes):
+    """Write GLB to local disk and R2. Never put bytes into result_json."""
+    if not mesh_bytes:
+        return None
+    key = f"meshes/{job_id}.glb"
+    root = os.environ.get("CNCFLOW_FILE_STORAGE") or "/data"
+    local = os.path.join(root, "meshes", f"{job_id}.glb")
+    os.makedirs(os.path.dirname(local), exist_ok=True)
+    with open(local, "wb") as fh:
+        fh.write(mesh_bytes)
+    stored = {"key": key, "format": "glb", "bytes": len(mesh_bytes), "path": local, "storage": "local"}
+    if r2.configured():
+        try:
+            r2.put_object(key, mesh_bytes, "model/gltf-binary")
+            stored["storage"] = "r2"
+        except Exception:
+            pass
+    return stored
 
 
 PARSER_TIMEOUT_SECONDS = int(os.environ.get("CNCFLOW_PARSER_TIMEOUT", "300"))
@@ -80,6 +102,10 @@ def process_claimed(conn, job):
             result["feature_schema"] = parsed.get("feature_schema") or FEATURE_SCHEMA
             result["parser"] = parsed.get("parser") or "geometry-service"
             result["parser_version"] = parsed.get("parser_version") or FEATURE_SCHEMA
+            mesh_bytes = parsed.pop("_mesh_glb", None)
+            mesh = _store_mesh(job["job_id"], mesh_bytes)
+            if mesh:
+                result["mesh"] = mesh
         elif file["detected_type"] == "pdf":
             update_job(conn, job["job_id"], stage="pdf_drawing", progress=65, message="正在识别PDF图纸")
             result["drawing"] = isolated_parse("pdf", materialize(file["storage_path"], suffix=suffix), job["options"])
