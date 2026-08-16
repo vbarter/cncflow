@@ -8,8 +8,7 @@
       "class_name": "CncflowContainer",
       "image": "../Dockerfile",
       "instance_type": "standard-4",
-      "max_instances": 1,
-      "min_instances": 1
+      "max_instances": 1
     }
   ],
   "durable_objects": {
