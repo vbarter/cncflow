@@ -16,11 +16,13 @@ function yen(n: any) {
 export function InquiryDetail({ id, go }: { id: string; go: (h: string) => void }) {
   const [inq, setInq] = useState<any>(null)
   const [err, setErr] = useState("")
+  const [hint, setHint] = useState("")
   useEffect(() => { json<any>("/inquiries/" + id).then(setInq).catch(e => setErr(e.message)) }, [id])
   if (!inq) return <div className="text-sm text-slate-500">{err || "加载中…"}</div>
   const parts = inq.parts || []
   const total = parts.reduce((s: number, p: any) => s + (Number(p.quote?.quote?.amount) || 0) * (Number(p.qty) || 1), 0)
   function exportQuote() {
+    const name = (inq.title || "RFQ") + "-报价单.json"
     const blob = new Blob([JSON.stringify({
       rfq: inq.title, customer: inq.customer, project: inq.project, due_date: inq.due_date,
       parts: parts.map((p: any) => ({
@@ -29,10 +31,16 @@ export function InquiryDetail({ id, go }: { id: string; go: (h: string) => void 
       })),
       total,
     }, null, 2)], { type: "application/json" })
+    const url = URL.createObjectURL(blob)
     const a = document.createElement("a")
-    a.href = URL.createObjectURL(blob)
-    a.download = `${inq.title || "RFQ"}-报价单.json`
+    a.href = url
+    a.download = name
+    a.rel = "noopener"
+    document.body.appendChild(a)
     a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+    setHint("已下载 " + name)
   }
   return <div className="space-y-6">
     <button type="button" className="text-sm text-blue-600" onClick={() => go("")}>← 返回报价工作台</button>
@@ -42,7 +50,7 @@ export function InquiryDetail({ id, go }: { id: string; go: (h: string) => void 
         <div className="mt-1 font-serif text-2xl font-semibold">{parts.length} 个零件综合报价</div>
         <div className="mt-1 text-sm text-slate-300">合计 ¥{yen(total)} · 交期 {inq.due_date || "—"}</div>
       </div>
-      <Button onClick={exportQuote}>导出报价单</Button>
+      <Button type="button" onClick={exportQuote}>导出报价单</Button>
     </div>
     <div>
       <div className="mb-3 text-sm font-medium text-slate-800">零件报价列表</div>
@@ -68,6 +76,7 @@ export function InquiryDetail({ id, go }: { id: string; go: (h: string) => void 
         </Card>
       })}</div>
     </div>
+    {hint && <div className="text-sm text-slate-500">{hint}</div>}
     {err && <div className="text-sm text-red-700">{err}</div>}
   </div>
 }

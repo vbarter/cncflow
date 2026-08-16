@@ -1,7 +1,7 @@
 """工厂配置读写。"""
 import json
 
-from .defaults import RATE_TABLE
+from .defaults import MACHINE_SEEDS, MATERIAL_PRICES, RATE_TABLE
 
 
 def seed_factory(conn) -> None:
@@ -14,6 +14,18 @@ def seed_factory(conn) -> None:
         "VALUES (:equipment_type, :hourly_rate, :setup_fee, :programming_fee_new)",
         RATE_TABLE,
     )
+    if conn.execute("SELECT COUNT(*) FROM machines").fetchone()[0] == 0:
+        conn.executemany(
+            "INSERT OR IGNORE INTO machines (id, type, axes, max_rpm, hourly_rate, setup_fee, enabled) "
+            "VALUES (:id, :type, :axes, :max_rpm, :hourly_rate, :setup_fee, :enabled)",
+            MACHINE_SEEDS,
+        )
+    if conn.execute("SELECT COUNT(*) FROM factory_material_prices").fetchone()[0] == 0:
+        conn.executemany(
+            "INSERT OR IGNORE INTO factory_material_prices (material_code, price_per_kg, scrap_price_per_kg, enabled) "
+            "VALUES (:material_code, :price_per_kg, :scrap_price_per_kg, 1)",
+            MATERIAL_PRICES,
+        )
     conn.commit()
 
 
