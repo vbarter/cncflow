@@ -1,16 +1,16 @@
 version: 1
+# 面积档对齐《平面特征加工报价》：>40000 D2 / >160000 D3
 checks:
   - id: FACE-AREA
     name: 平面面积
     metric: area
     bands:
-      - max: 20000
-        level: D1
-      - min: 20000
-        max: 80000
-        level: D2
-      - min: 80000
+      - min: 160000
         level: D3
+      - min: 40000
+        level: D2
+      - max: 40000
+        level: D1
   - id: FACE-IT
     name: 公差
     metric: tolerance_it

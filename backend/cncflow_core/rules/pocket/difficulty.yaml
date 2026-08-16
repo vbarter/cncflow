@@ -1,27 +1,24 @@
 version: 1
+# 深宽比对齐文档：H/W>2 只到 D3，内部模式不标 NA
 checks:
   - id: POCKET-HD
     name: 深宽比
     metric: h_over_w
     bands:
+      - min: 2
+        level: D3
+      - min: 1
+        level: D2
       - max: 1
         level: D1
-      - min: 1
-        max: 2
-        level: D2
-      - min: 2
-        max: 4
-        level: D3
-      - min: 4
-        level: NA
   - id: POCKET-CORNER
     name: 底角半径
     metric: corner_radius
     bands:
       - min: 2
         level: D1
-      - min: 0.5
+      - min: 1
         max: 2
         level: D2
-      - max: 0.5
+      - max: 1
         level: D3
