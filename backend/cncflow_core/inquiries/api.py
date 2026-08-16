@@ -99,7 +99,7 @@ def _face_for_pipeline(feat, fid):
     width = feat.get("width") if feat.get("width") is not None else dim.get("width")
     if not length or not width:
         return None
-    pos = feat.get("face_position") or dim.get("face_position") or "顶面"
+    pos = feat.get("face_position") or dim.get("face_position") or "水平"
     return {
         "type": "face",
         "feature_id": fid,

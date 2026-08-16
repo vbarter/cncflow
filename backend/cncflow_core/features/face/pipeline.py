@@ -3,12 +3,10 @@ from ..generic import evaluate_difficulty
 
 
 def _face_mill_d(length, width):
-    span = min(float(length), float(width))
-    if span >= 80:
+    # 冻：W>50 走 TK-028 Ø80，否则 TK-027 Ø50。不编刀。
+    if float(width) > 50:
         return 80.0
-    if span >= 50:
-        return 50.0
-    return max(6.0, min(12.0, span * 0.5))
+    return 50.0
 
 
 def _handbook_chain(length, width, it, ra):
@@ -34,6 +32,10 @@ def _handbook_chain(length, width, it, ra):
             "tool_attrs": None, "sku_candidates": [], "match_status": "unsupported",
             "note": "磨削超出本期刀具库",
         })
+    steps.append({
+        "process": "chamfer", "op": "chamfer", "name": "倒角", "cycle": None,
+        "tool_attrs": {"category": "倒角刀", "nominal_diameter_mm": 6.0},
+    })
     return steps
 
 
@@ -55,7 +57,7 @@ def run(payload: dict, conn) -> dict:
     if ra is None:
         ra = feature.get("roughness_ra") or 3.2
     ra = float(ra)
-    pos = feature.get("face_position") or "顶面"
+    pos = feature.get("face_position") or "水平"
     metrics = {
         "area": length * width,
         "tolerance_it": it,
@@ -65,8 +67,10 @@ def run(payload: dict, conn) -> dict:
     difficulty = evaluate_difficulty("face/difficulty.yaml", metrics)
     chain = _handbook_chain(length, width, it, ra)
     tags = ["超边界"] if difficulty["na"] else []
-    if pos == "侧面":
-        tags.append("侧面需翻面或侧铣")
+    if pos == "垂直":
+        tags.append("垂直面需翻面或侧铣")
+    elif pos == "倾斜":
+        tags.append("倾斜面需确认装夹")
     return {
         "feature_type": "face",
         "difficulty": difficulty,
