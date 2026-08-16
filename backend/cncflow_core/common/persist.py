@@ -12,9 +12,24 @@ from cncflow_core.ingestion import r2
 
 DB_OBJECT_KEY = os.environ.get("CNCFLOW_DB_R2_KEY", "db/cncflow.db")
 
+_last_backup_ok: bool | None = None
+
 
 def db_path() -> Path:
     return Path(os.environ.get("CNCFLOW_DB_PATH") or "/data/cncflow.db")
+
+
+def last_backup_ok() -> bool | None:
+    return _last_backup_ok
+
+
+def health_snapshot() -> dict:
+    """供 /health 暴露：R2 是否配置、本地库是否在、上次备份是否成功。"""
+    return {
+        "r2": r2.configured(),
+        "db_exists": db_path().exists(),
+        "last_backup_ok": _last_backup_ok,
+    }
 
 
 def restore_db() -> bool:
@@ -32,24 +47,40 @@ def restore_db() -> bool:
 
 
 def backup_db() -> bool:
+    global _last_backup_ok
     if not r2.configured():
         return False
     src = db_path()
     if not src.exists():
+        _last_backup_ok = False
         return False
-    tmp = src.with_suffix(".snapshot")
-    source = sqlite3.connect(f"file:{src}?mode=ro", uri=True)
     try:
-        dest = sqlite3.connect(tmp)
+        tmp = src.with_suffix(".snapshot")
+        source = sqlite3.connect(f"file:{src}?mode=ro", uri=True)
         try:
-            source.backup(dest)
+            dest = sqlite3.connect(tmp)
+            try:
+                source.backup(dest)
+            finally:
+                dest.close()
         finally:
-            dest.close()
-    finally:
-        source.close()
-    r2.put_object(DB_OBJECT_KEY, tmp.read_bytes(), content_type="application/vnd.sqlite3")
-    tmp.unlink(missing_ok=True)
-    return True
+            source.close()
+        r2.put_object(DB_OBJECT_KEY, tmp.read_bytes(), content_type="application/vnd.sqlite3")
+        tmp.unlink(missing_ok=True)
+        _last_backup_ok = True
+        return True
+    except Exception:
+        _last_backup_ok = False
+        raise
+
+
+def try_backup_db() -> bool:
+    """尽力备份；失败只记日志，不抛给调用方。"""
+    try:
+        return backup_db()
+    except Exception as exc:  # noqa: BLE001 — 业务路径不能因备份失败中断
+        print(f"sqlite R2 backup failed: {exc}", file=sys.stderr)
+        return False
 
 
 def run_loop(interval: int | None = None) -> None:
@@ -65,11 +96,8 @@ def run_loop(interval: int | None = None) -> None:
     signal.signal(signal.SIGTERM, _flush)
     signal.signal(signal.SIGINT, _flush)
     while True:
+        try_backup_db()
         time.sleep(seconds)
-        try:
-            backup_db()
-        except Exception as exc:  # noqa: BLE001 — 后台循环不能因一次失败退出
-            print(f"sqlite R2 backup failed: {exc}", file=sys.stderr)
 
 
 if __name__ == "__main__":

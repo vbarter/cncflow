@@ -56,6 +56,9 @@ class TestHappyPath:
         assert set(body["features"]) >= {"hole", "face", "fixture"}
         assert body["parser"]["queued"] >= 0
         assert body["parser"]["available"] is False
+        assert body["persist"]["r2"] is False
+        assert isinstance(body["persist"]["db_exists"], bool)
+        assert body["persist"]["last_backup_ok"] in (True, False, None)
 
 
 class TestValidation:
@@ -127,3 +130,81 @@ class TestAuditLog:
         assert row["machinability_level"] == 2
         assert "HOLE-PREC-IT7" in json.loads(row["fired_rules"])
         assert row["rules_version"]
+
+
+R2_ENV_KEYS = (
+    "CNCFLOW_R2_ACCOUNT_ID",
+    "CNCFLOW_R2_ACCESS_KEY_ID",
+    "CNCFLOW_R2_SECRET_ACCESS_KEY",
+    "CNCFLOW_R2_BUCKET",
+)
+
+
+class TestPersistHealth:
+    def test_persist_r2_false_without_env(self, client, monkeypatch):
+        for key in R2_ENV_KEYS:
+            monkeypatch.delenv(key, raising=False)
+        monkeypatch.delenv("CNCFLOW_REQUIRE_PERSISTENT_DB", raising=False)
+        body = client.get("/api/v1/health").get_json()
+        assert body["persist"]["r2"] is False
+        assert set(body["persist"]) == {"r2", "db_exists", "last_backup_ok"}
+
+    def test_persist_r2_true_with_env(self, client, monkeypatch):
+        monkeypatch.setenv("CNCFLOW_R2_ACCOUNT_ID", "acct")
+        monkeypatch.setenv("CNCFLOW_R2_ACCESS_KEY_ID", "key")
+        monkeypatch.setenv("CNCFLOW_R2_SECRET_ACCESS_KEY", "secret")
+        monkeypatch.setenv("CNCFLOW_R2_BUCKET", "cncflow-files")
+        body = client.get("/api/v1/health").get_json()
+        assert body["persist"]["r2"] is True
+        assert isinstance(body["persist"]["db_exists"], bool)
+        assert body["persist"]["last_backup_ok"] in (True, False, None)
+
+    def _with_live_parser(self, seeded_db_path):
+        from cncflow_core.common.db import get_conn
+
+        conn = get_conn(seeded_db_path)
+        conn.execute(
+            "INSERT OR REPLACE INTO parser_workers(worker_id,parser_version,heartbeat_at) "
+            "VALUES(?,?,datetime('now'))",
+            ("health-worker", "hole-v3"),
+        )
+        conn.commit()
+        conn.close()
+        try:
+            yield
+        finally:
+            conn = get_conn(seeded_db_path)
+            conn.execute("DELETE FROM parser_workers WHERE worker_id=?", ("health-worker",))
+            conn.commit()
+            conn.close()
+
+    def test_degraded_when_persistent_db_required_without_r2(self, client, seeded_db_path, monkeypatch):
+        for key in R2_ENV_KEYS:
+            monkeypatch.delenv(key, raising=False)
+        monkeypatch.setenv("CNCFLOW_REQUIRE_PERSISTENT_DB", "1")
+        ctx = self._with_live_parser(seeded_db_path)
+        next(ctx)
+        try:
+            body = client.get("/api/v1/health").get_json()
+            assert body["parser"]["available"] is True
+            assert body["persist"]["r2"] is False
+            assert body["status"] == "degraded"
+        finally:
+            next(ctx, None)
+
+    def test_ok_when_parser_up_and_r2_configured(self, client, seeded_db_path, monkeypatch):
+        monkeypatch.setenv("CNCFLOW_R2_ACCOUNT_ID", "acct")
+        monkeypatch.setenv("CNCFLOW_R2_ACCESS_KEY_ID", "key")
+        monkeypatch.setenv("CNCFLOW_R2_SECRET_ACCESS_KEY", "secret")
+        monkeypatch.setenv("CNCFLOW_R2_BUCKET", "cncflow-files")
+        monkeypatch.setenv("CNCFLOW_REQUIRE_PERSISTENT_DB", "1")
+        ctx = self._with_live_parser(seeded_db_path)
+        next(ctx)
+        try:
+            body = client.get("/api/v1/health").get_json()
+            assert body["parser"]["available"] is True
+            assert body["persist"]["r2"] is True
+            assert body["status"] == "ok"
+        finally:
+            next(ctx, None)
+

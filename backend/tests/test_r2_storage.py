@@ -111,3 +111,84 @@ def test_materialize_missing_without_r2_raises(monkeypatch, tmp_path):
         assert "解析文件不存在" in str(exc)
     else:
         raise AssertionError("expected FileNotFoundError")
+
+
+def test_backup_records_last_ok(monkeypatch, tmp_path):
+    persist._last_backup_ok = None
+    objects = {}
+    _r2_env(monkeypatch, objects)
+    db = tmp_path / "cncflow.db"
+    monkeypatch.setenv("CNCFLOW_DB_PATH", str(db))
+    assert persist.last_backup_ok() is None
+    assert persist.backup_db() is False
+    assert persist.last_backup_ok() is False
+    import sqlite3
+    conn = sqlite3.connect(db)
+    conn.execute("CREATE TABLE ping(x INTEGER)")
+    conn.commit()
+    conn.close()
+    assert persist.backup_db() is True
+    assert persist.last_backup_ok() is True
+    snap = persist.health_snapshot()
+    assert snap["r2"] is True
+    assert snap["db_exists"] is True
+    assert snap["last_backup_ok"] is True
+
+
+def test_run_loop_backups_immediately(monkeypatch):
+    calls = []
+
+    def fake_backup():
+        calls.append("backup")
+        return True
+
+    monkeypatch.setattr(persist, "backup_db", fake_backup)
+
+    def boom(_seconds):
+        raise SystemExit
+
+    monkeypatch.setattr(persist.time, "sleep", boom)
+    try:
+        persist.run_loop(interval=60)
+    except SystemExit:
+        pass
+    assert calls == ["backup"]
+
+
+def test_finish_and_fail_job_checkpoint(monkeypatch, tmp_path):
+    from cncflow_core.common.db import get_conn, init_schema
+    from cncflow_core.ingestion.jobs import create_job, fail_job, finish_job, get_job
+
+    called = []
+    monkeypatch.setattr(persist, "try_backup_db", lambda: called.append("ok") or True)
+    db = tmp_path / "jobs.db"
+    conn = get_conn(db)
+    init_schema(conn)
+    job_id = create_job(conn, [], {})
+    finish_job(conn, job_id, {"geometry": None, "features": [], "warnings": []})
+    assert called == ["ok"]
+    assert get_job(conn, job_id)["status"] == "needs_review"
+
+    called.clear()
+    job_id2 = create_job(conn, [], {})
+    fail_job(conn, job_id2, "parse exploded")
+    assert called == ["ok"]
+    conn.close()
+
+
+def test_finish_job_survives_backup_error(monkeypatch, tmp_path):
+    from cncflow_core.common.db import get_conn, init_schema
+    from cncflow_core.ingestion.jobs import create_job, finish_job, get_job
+
+    def boom():
+        raise RuntimeError("r2 down")
+
+    monkeypatch.setattr(persist, "backup_db", boom)
+    db = tmp_path / "jobs.db"
+    conn = get_conn(db)
+    init_schema(conn)
+    job_id = create_job(conn, [], {})
+    finish_job(conn, job_id, {"geometry": None, "features": [], "warnings": []})
+    assert get_job(conn, job_id)["status"] == "needs_review"
+    conn.close()
+

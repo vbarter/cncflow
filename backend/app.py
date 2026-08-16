@@ -10,6 +10,7 @@ from flask import Flask, jsonify, request, send_from_directory
 import os
 
 from cncflow_core.common.db import get_conn, init_schema
+from cncflow_core.common import persist
 from cncflow_core.common.materials import list_materials, seed_material_catalog
 from cncflow_core.features.hole import pipeline as hole_pipeline
 from cncflow_core.features.face import pipeline as face_pipeline
@@ -80,9 +81,9 @@ def create_app(db_path=None) -> Flask:
     app.config["MAX_CONTENT_LENGTH"] = 150 * 1024 * 1024
     _install_cors(app)
 
-    persist = os.environ.get("CNCFLOW_REQUIRE_PERSISTENT_DB") == "1"
+    require_persistent = os.environ.get("CNCFLOW_REQUIRE_PERSISTENT_DB") == "1"
     resolved = Path(db_path or os.environ.get("CNCFLOW_DB_PATH") or "")
-    if persist and not str(resolved).startswith("/data"):
+    if require_persistent and not str(resolved).startswith("/data"):
         raise RuntimeError("CNCFLOW_REQUIRE_PERSISTENT_DB=1 要求数据库在 /data 持久卷")
 
     conn = get_conn(db_path)
@@ -151,11 +152,15 @@ def create_app(db_path=None) -> Flask:
             "WHERE heartbeat_at>=datetime('now','-10 seconds') ORDER BY heartbeat_at DESC LIMIT 1"
         ).fetchone()
         conn.close()
-        return jsonify({"status": "ok" if worker else "degraded", "features": sorted(FEATURE_PIPELINES),
+        persist_info = persist.health_snapshot()
+        require_persistent = os.environ.get("CNCFLOW_REQUIRE_PERSISTENT_DB") == "1"
+        degraded = (not worker) or (require_persistent and not persist_info["r2"])
+        return jsonify({"status": "degraded" if degraded else "ok", "features": sorted(FEATURE_PIPELINES),
                         "parser": {"available": bool(worker), "queued": queued,
                                    "worker_id": worker["worker_id"] if worker else None,
                                    "version": worker["parser_version"] if worker else None,
-                                   "last_heartbeat": worker["heartbeat_at"] if worker else None}})
+                                   "last_heartbeat": worker["heartbeat_at"] if worker else None},
+                        "persist": persist_info})
 
     @app.get("/api/v1/materials")
     @app.get("/cncflow/api/v1/materials")
