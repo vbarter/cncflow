@@ -76,3 +76,19 @@ def test_capabilities(client):
     body = client.get("/api/v1/parse-capabilities").get_json()
     assert body["formats"] == ["step", "stp", "pdf"]
     assert body["confirmation_required"] is True
+
+
+def test_parse_job_binds_part_id(client, seeded_db_path):
+    inq = client.post("/api/v1/inquiries", json={"customer": "华科", "project": "夹具A"})
+    assert inq.status_code == 201
+    pid = client.post(f"/api/v1/inquiries/{inq.get_json()['id']}/parts", json={"name": "底板"}).get_json()["id"]
+    data = {"step_file": (BytesIO(MINIMAL_STEP), "part.step"), "part_id": pid}
+    response = client.post("/api/v1/parse-jobs", data=data, content_type="multipart/form-data")
+    assert response.status_code == 202
+    body = response.get_json()
+    assert body["part_id"] == pid
+    conn = get_conn(seeded_db_path)
+    row = conn.execute("SELECT parse_job_id, status FROM parts WHERE id=?", (pid,)).fetchone()
+    conn.close()
+    assert row["parse_job_id"] == body["job_id"]
+    assert row["status"] == "parsing"

@@ -25,3 +25,23 @@ def test_list_filter_customer(client):
     client.post("/api/v1/inquiries", json={"customer": "甲厂", "project": "P1"})
     items = client.get("/api/v1/inquiries?customer=甲").get_json()["items"]
     assert any(i["customer"] == "甲厂" for i in items)
+
+def test_inquiry_auto_rfq_title(client):
+    r = client.post("/api/v1/inquiries", json={"customer": "华科"})
+    assert r.status_code == 201
+    title = r.get_json()["title"]
+    assert title.startswith("RFQ-")
+
+
+def test_quote_skips_parts_without_dims(client):
+    r = client.post("/api/v1/inquiries", json={"customer": "华科"})
+    iid = r.get_json()["id"]
+    p = client.post(f"/api/v1/inquiries/{iid}/parts", json={"name": "底板", "material": "铝合金"})
+    assert p.status_code == 201
+    assert p.get_json()["length"] in (None, 0)
+    q = client.post(f"/api/v1/inquiries/{iid}/quote", json={})
+    assert q.status_code == 200
+    part = q.get_json()["parts"][0]
+    assert part["status"] == "draft"
+    assert part.get("quote") in (None, {})
+

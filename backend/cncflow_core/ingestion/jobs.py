@@ -43,6 +43,8 @@ def get_job(conn: sqlite3.Connection, job_id: str) -> dict:
     result["events"] = [dict(r) for r in conn.execute(
         "SELECT stage,message,created_at FROM parser_events WHERE job_id=? ORDER BY id", (job_id,),
     )]
+    options = json.loads(conn.execute("SELECT options_json FROM parse_jobs WHERE job_id=?", (job_id,)).fetchone()["options_json"] or "{}")
+    result["part_id"] = options.get("part_id")
     return result
 
 

@@ -1,6 +1,15 @@
 """询价单 / 零件仓储与状态汇总。"""
 import json
 import uuid
+from datetime import datetime, timezone
+
+
+def next_rfq(conn) -> str:
+    day = datetime.now(timezone.utc).strftime("%Y%m%d")
+    prefix = f"RFQ-{day}-"
+    n = conn.execute("SELECT COUNT(*) AS c FROM inquiries WHERE title LIKE ?", (prefix + "%",)).fetchone()["c"]
+    return f"{prefix}{int(n) + 1:04d}"
+
 
 UI = {
     "draft": "pending", "parse_failed": "pending", "need_params": "pending",
@@ -33,9 +42,10 @@ def _part(row):
 
 def create_inquiry(conn, payload: dict) -> dict:
     iid = str(uuid.uuid4())
+    title = (payload.get("title") or "").strip() or next_rfq(conn)
     conn.execute(
         "INSERT INTO inquiries (id,title,customer,project,due_date) VALUES (?,?,?,?,?)",
-        (iid, payload.get("title") or "", payload.get("customer") or "",
+        (iid, title, payload.get("customer") or "",
          payload.get("project") or "", payload.get("due_date") or ""),
     )
     conn.commit()
