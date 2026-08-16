@@ -26,9 +26,16 @@ function isStep(f: File) {
 function isPdf(f: File) { return f.name.toLowerCase().endsWith(".pdf") }
 function stem(f: File) { return f.name.replace(/\.[^.]+$/, "") }
 
+function nextRfq() {
+  const d = new Date()
+  const ymd = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`
+  const n = String(Math.floor(1000 + Math.random() * 9000))
+  return `RFQ-${ymd}-${n}`
+}
+
 export function NewInquiry({ go }: { go: (h: string) => void }) {
   const [customer, setCustomer] = useState("")
-  const [rfq, setRfq] = useState("")
+  const [rfq, setRfq] = useState(() => nextRfq())
   const [project, setProject] = useState("")
   const [due, setDue] = useState("")
   const [parts, setParts] = useState<PartDraft[]>([empty()])
@@ -69,7 +76,7 @@ export function NewInquiry({ go }: { go: (h: string) => void }) {
     try {
       const inq = await json<any>("/inquiries", {
         method: "POST",
-        body: JSON.stringify({ customer, project, due_date: due, title: project || rfq }),
+        body: JSON.stringify({ customer, project, due_date: due, title: rfq }),
       })
       for (const p of usable) {
         const part = await json<any>(`/inquiries/${inq.id}/parts`, {
@@ -79,7 +86,6 @@ export function NewInquiry({ go }: { go: (h: string) => void }) {
             qty: Number(p.qty) || 1,
             material: p.material,
             blank_type: "板料",
-            length: 80, width: 60, height: 20,
             surface_finish: p.surface_finish === "无" ? "" : p.surface_finish,
             tolerance_it: p.precision.includes("精密") ? 7 : 11,
             roughness_ra: Number(p.roughness_ra) || 3.2,
@@ -110,7 +116,7 @@ export function NewInquiry({ go }: { go: (h: string) => void }) {
       <div className="mb-4 text-sm font-medium text-slate-800">01. 询价基本信息</div>
       <div className="grid gap-4 md:grid-cols-2">
         <label className="text-xs text-slate-500">客户<Input className="mt-1" value={customer} onChange={e => setCustomer(e.target.value)} placeholder="输入客户名称" /></label>
-        <label className="text-xs text-slate-500">询价单号<Input className="mt-1" value={rfq} onChange={e => setRfq(e.target.value)} placeholder="可选" /></label>
+        <label className="text-xs text-slate-500">询价单号<Input className="mt-1 bg-slate-50" value={rfq} readOnly /></label>
         <label className="text-xs text-slate-500">项目名称<Input className="mt-1" value={project} onChange={e => setProject(e.target.value)} placeholder="可选" /></label>
         <label className="text-xs text-slate-500">交期要求<Input className="mt-1" value={due} onChange={e => setDue(e.target.value)} placeholder="5 天" /></label>
       </div>
@@ -170,8 +176,8 @@ export function NewInquiry({ go }: { go: (h: string) => void }) {
       >
         <div>
           <UploadCloud className="mx-auto mb-2 text-slate-400" size={28} />
-          <div className="text-sm font-medium text-slate-700">拖拽或点击上传 STEP / PDF 工程文件</div>
-          <div className="mt-1 text-xs text-slate-500">推荐同时上传同一零件的三维模型和二维图纸</div>
+          <div className="text-sm font-medium text-slate-700">拖拽或点击上传多个 3D 图纸批量识别</div>
+          <div className="mt-1 text-xs text-slate-500">支持 STEP / STP 格式</div>
           <div className="mt-1 font-mono text-[10px] text-slate-400">3D · STEP / STP　　2D · PDF　　≤ 100 MB</div>
         </div>
       </div>

@@ -67,20 +67,26 @@ def quote_inquiry(iid):
             if part["status"] == "confirmed":
                 out.append(part)
                 continue
+            L = part.get("length") or part.get("diameter")
+            W = part.get("width") or part.get("diameter")
+            H = part.get("height")
+            if not L or not W:
+                out.append(part)
+                continue
             payload = {
                 "material": part.get("material_code") or "铝合金",
                 "stock_type": part.get("blank_type") or "板料",
-                "length": part.get("length") or part.get("diameter") or 80,
-                "diameter": part.get("diameter") or part.get("width") or 40,
-                "width": part.get("width") or part.get("diameter") or 40,
-                "height": part.get("height") or 20,
+                "length": L,
+                "diameter": part.get("diameter") or W,
+                "width": W,
+                "height": H or 0,
                 "batch_size": part.get("batch_size") or 1,
                 "is_repeat_order": part.get("is_repeat_order"),
                 "slider": part.get("slider") or "标准",
                 "tolerance_it": part.get("tolerance_it"),
                 "roughness_ra": part.get("roughness_ra"),
                 "features": (request.get_json(silent=True) or {}).get("features") or [
-                    {"type": "face", "length": part.get("length") or 80, "width": part.get("width") or 40, "depth": 1}
+                    {"type": "face", "length": L, "width": W, "depth": 1}
                 ],
             }
             result = quote(payload, conn, rules_version=current_app.config.get("RULES_VERSION") or "")
@@ -112,20 +118,25 @@ def patch_part(pid):
     try:
         part = store.update_part(conn, pid, payload)
         if part["status"] == "revising":
+            L = part.get("length") or part.get("diameter")
+            W = part.get("width") or part.get("diameter")
+            H = part.get("height")
+            if not L or not W:
+                return jsonify(part)
             q = quote({
                 "material": part.get("material_code") or "铝合金",
                 "stock_type": part.get("blank_type") or "板料",
-                "length": part.get("length") or 80,
-                "diameter": part.get("diameter") or part.get("width") or 40,
-                "width": part.get("width") or 40,
-                "height": part.get("height") or 20,
+                "length": L,
+                "diameter": part.get("diameter") or W,
+                "width": W,
+                "height": H or 0,
                 "batch_size": part.get("batch_size") or 1,
                 "is_repeat_order": part.get("is_repeat_order"),
                 "slider": part.get("slider") or "标准",
                 "tolerance_it": part.get("tolerance_it"),
                 "roughness_ra": part.get("roughness_ra"),
                 "features": payload.get("features") or [
-                    {"type": "face", "length": part.get("length") or 80, "width": part.get("width") or 40, "depth": 1}
+                    {"type": "face", "length": L, "width": W, "depth": 1}
                 ],
             }, conn, rules_version=current_app.config.get("RULES_VERSION") or "")
             part = store.set_quote(conn, pid, q)
