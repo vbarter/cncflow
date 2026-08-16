@@ -11,11 +11,22 @@ from flask import Flask, jsonify, request, send_from_directory
 from cncflow_core.common.db import get_conn, init_schema
 from cncflow_core.common.materials import list_materials, seed_material_catalog
 from cncflow_core.features.hole import pipeline as hole_pipeline
+from cncflow_core.features.face import pipeline as face_pipeline
+from cncflow_core.features.pocket import pipeline as pocket_pipeline
+from cncflow_core.features.thread import pipeline as thread_pipeline
+from cncflow_core.features.surface import pipeline as surface_pipeline
+from cncflow_core.factory.api import bp as factory_bp
+from cncflow_core.factory.store import seed_factory
 from data.seed_tool_specs import seed_tool_specs
 from cncflow_core.ingestion.api import bp as ingestion_bp
 
-# 特征分发注册表：feature_type → pipeline 函数（二期：FEATURE_PIPELINES["face"] = face_pipeline.run）
-FEATURE_PIPELINES = {"hole": hole_pipeline.run}
+FEATURE_PIPELINES = {
+    "hole": hole_pipeline.run,
+    "face": face_pipeline.run,
+    "pocket": pocket_pipeline.run,
+    "thread": thread_pipeline.run,
+    "surface": surface_pipeline.run,
+}
 
 
 def _rules_version() -> str:
@@ -37,14 +48,22 @@ def create_app(db_path=None) -> Flask:
     app.config["RULES_VERSION"] = _rules_version()
     app.config["MAX_CONTENT_LENGTH"] = 150 * 1024 * 1024
 
+    import os
+    persist = os.environ.get("CNCFLOW_REQUIRE_PERSISTENT_DB") == "1"
+    resolved = Path(db_path or os.environ.get("CNCFLOW_DB_PATH") or "")
+    if persist and not str(resolved).startswith("/data"):
+        raise RuntimeError("CNCFLOW_REQUIRE_PERSISTENT_DB=1 要求数据库在 /data 持久卷")
+
     conn = get_conn(db_path)
     init_schema(conn)
     seed_material_catalog(conn)
     seed_tool_specs(conn)
+    seed_factory(conn)
     conn.close()
     app.register_blueprint(ingestion_bp)
-    # 便于本地直接访问构建时base=/cncflow/的前端；生产Nginx会先剥离此前缀。
     app.register_blueprint(ingestion_bp, url_prefix="/cncflow", name="ingestion_prefixed")
+    app.register_blueprint(factory_bp)
+    app.register_blueprint(factory_bp, url_prefix="/cncflow", name="factory_prefixed")
 
     @app.errorhandler(413)
     def upload_too_large(_exc):
@@ -69,13 +88,14 @@ def create_app(db_path=None) -> Flask:
         except ValueError as exc:
             conn.close()
             return jsonify({"error": str(exc)}), 400
+        verdict = result.get("machinability") or result.get("difficulty") or {}
         conn.execute(
             "INSERT INTO audit_log (request_json, machinability_level, fired_rules, "
             "response_json, rules_version) VALUES (?,?,?,?,?)",
             (
                 json.dumps(payload, ensure_ascii=False),
-                result["machinability"]["level"],
-                json.dumps(result["machinability"]["fired_rules"], ensure_ascii=False),
+                verdict.get("level"),
+                json.dumps(verdict.get("fired_rules") or [], ensure_ascii=False),
                 json.dumps(result, ensure_ascii=False),
                 app.config["RULES_VERSION"],
             ),

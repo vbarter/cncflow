@@ -1,0 +1,22 @@
+version: 1
+# 公称直径对齐文档：D<3 D3 / D>16 D2；无 <1=NA
+checks:
+  - id: THREAD-D
+    name: 公称直径
+    metric: nominal_d
+    bands:
+      - max: 3
+        level: D3
+      - min: 16
+        level: D2
+      - min: 3
+        max: 16
+        level: D1
+  - id: THREAD-LD
+    name: 长径比
+    metric: l_over_d
+    bands:
+      - min: 2.5
+        level: D2
+      - max: 2.5
+        level: D1
