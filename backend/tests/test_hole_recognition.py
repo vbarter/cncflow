@@ -10,6 +10,7 @@ from cncflow_core.ingestion.jobs import finish_job
 from cncflow_core.ingestion.step_parser import (
     classify_by_containment, classify_cylinder_side, classify_position,
     classify_through_blind, classify_through_by_ends, coaxial_cavity_span,
+    is_curved_entry_kind,
     is_quote_hole, likely_outer_od, likely_plate_hole, override_false_outer,
     recover_through_depth, through_cut_depth, through_into_cavity,
     through_wall_depth, _hole_feature,
@@ -287,3 +288,12 @@ def test_o8_hole_feature_keeps_plate_thickness():
     assert feat["hole_type"] == "through"
     assert feat["position_type"] == "垂直"
     assert feat["cut_depth_mm"] == pytest.approx(14.4, abs=0.05)
+
+
+
+def test_zn010_countersink_not_curved():
+    assert is_curved_entry_kind("CONE") is False
+    assert is_curved_entry_kind("TORUS") is False
+    assert is_curved_entry_kind("SPHERE") is True
+    assert classify_position((0, 0, 1), (50, 50, 44)) == "垂直"
+    assert classify_position((0, 0, 1), (50, 50, 44), entry_curved=True) == "曲面"
