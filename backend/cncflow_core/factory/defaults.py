@@ -23,12 +23,12 @@ MACHINE_SEEDS = [
 ]
 
 MATERIAL_PRICES = [
-    {"material_code": "AL6061-T6", "price_per_kg": 28, "scrap_price_per_kg": 8, "density_g_cm3": 2.70},
-    {"material_code": "AL7075", "price_per_kg": 45, "scrap_price_per_kg": 12, "density_g_cm3": 2.80},
-    {"material_code": "SUS304", "price_per_kg": 32, "scrap_price_per_kg": 8, "density_g_cm3": 7.93},
-    {"material_code": "铝合金", "price_per_kg": 25, "scrap_price_per_kg": 6, "density_g_cm3": 2.70},
-    {"material_code": "不锈钢", "price_per_kg": 30, "scrap_price_per_kg": 8, "density_g_cm3": 7.93},
-    {"material_code": "钢", "price_per_kg": 8, "scrap_price_per_kg": 2, "density_g_cm3": 7.85},
-    {"material_code": "POM", "price_per_kg": 18, "scrap_price_per_kg": 2, "density_g_cm3": 1.41},
+    {"material_code": "AL6061-T6", "family": "铝合金", "price_per_kg": 28, "scrap_price_per_kg": 8, "density_g_cm3": 2.70},
+    {"material_code": "AL7075", "family": "铝合金", "price_per_kg": 45, "scrap_price_per_kg": 12, "density_g_cm3": 2.80},
+    {"material_code": "SUS304", "family": "不锈钢", "price_per_kg": 32, "scrap_price_per_kg": 8, "density_g_cm3": 7.93},
+    {"material_code": "铝合金", "family": "铝合金", "price_per_kg": 25, "scrap_price_per_kg": 6, "density_g_cm3": 2.70},
+    {"material_code": "不锈钢", "family": "不锈钢", "price_per_kg": 30, "scrap_price_per_kg": 8, "density_g_cm3": 7.93},
+    {"material_code": "钢", "family": "普通碳钢", "price_per_kg": 8, "scrap_price_per_kg": 2, "density_g_cm3": 7.85},
+    {"material_code": "POM", "family": "工程塑料", "price_per_kg": 18, "scrap_price_per_kg": 2, "density_g_cm3": 1.41},
 ]
 

@@ -213,6 +213,7 @@ CREATE TABLE IF NOT EXISTS factory_material_prices (
   price_per_kg REAL NOT NULL,
   scrap_price_per_kg REAL NOT NULL DEFAULT 0,
   density_g_cm3 REAL,
+  family TEXT,
   enabled INTEGER NOT NULL DEFAULT 1
 );
 
@@ -288,6 +289,7 @@ def init_schema(conn: sqlite3.Connection) -> None:
     _ensure_column(conn, "tools", "is_mock", "INTEGER DEFAULT 0")
     _ensure_column(conn, "tools", "source", "TEXT")
     _ensure_column(conn, "factory_material_prices", "density_g_cm3", "REAL")
+    _ensure_column(conn, "factory_material_prices", "family", "TEXT")
     # 一期数据库中的无来源刀具全部由 seed_tools.py 生成；迁移后不得冒充真实库存。
     conn.execute(
         "UPDATE tools SET is_mock=1, source='legacy_generated_mock' "
