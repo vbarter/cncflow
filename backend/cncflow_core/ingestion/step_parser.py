@@ -77,18 +77,19 @@ def classify_cylinder_side(normal, radial):
 
 
 def classify_position(axis, extents, entry_curved=False, entry_recessed=False):
-    if entry_curved:
-        return "曲面"
-    if entry_recessed:
-        return "深腔"
+    """轴对齐最短边 → 垂直，不被沉头/圆角打成曲面。"""
     ax = (abs(axis[0]), abs(axis[1]), abs(axis[2]))
     dom = max(range(3), key=lambda i: ax[i])
-    if ax[dom] < ALIGN_COS:
-        return "倾斜"
-    shortest = min(range(3), key=lambda i: extents[i])
-    if dom == shortest:
-        return "垂直"
-    return "侧向"
+    if ax[dom] >= ALIGN_COS:
+        shortest = min(range(3), key=lambda i: extents[i])
+        if dom == shortest:
+            return "垂直"
+        if entry_recessed:
+            return "深腔"
+        return "侧向"
+    if entry_curved:
+        return "曲面"
+    return "倾斜"
 
 
 def classify_through_blind(cyl_min, cyl_max, solid_min, solid_max):
@@ -661,7 +662,7 @@ def parse_step(path: str) -> dict:
         warnings.append("圆柱面未能确认内孔，已标候选待工程师勾选")
     return {
         "parser": "cadquery-occ", "parser_version": getattr(cq, "__version__", "unknown"),
-        "feature_schema": "hole-v2",
+        "feature_schema": "hole-v3",
         "geometry": {
             "unit": "mm", "solid_count": len(solids), "volume_cm3": round(volume / 1000, 6),
             "surface_area_cm2": round(area / 100, 6), "bounding_box_mm": _bbox(bbox),
