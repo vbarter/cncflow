@@ -24,6 +24,7 @@ def test_infer_pitch_metric():
 def test_major_from_minor_m8():
     assert major_from_minor(6.8) == (8.0, 1.25)
     assert major_from_minor(8.0) == (None, None)
+    assert major_from_minor(6.0) == (None, None)  # 开口槽 R3 圆柱不是底孔
     assert major_from_minor(3.3) == (4.0, 0.7)  # 底孔碰巧是 M4，无牙面不当螺纹
 
 
