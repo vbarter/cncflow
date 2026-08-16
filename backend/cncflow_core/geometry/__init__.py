@@ -26,3 +26,10 @@ FACE_FEATURE_FIELDS = (
     "face_position",
 )
 
+THREAD_SCHEMA = "thread-v1"
+THREAD_FEATURE_FIELDS = (
+    "diameter_mm",
+    "pitch",
+    "thread_length",
+)
+
