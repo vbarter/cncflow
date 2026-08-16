@@ -12,6 +12,10 @@ def list_plugins():
     return [dict(item) for item in PLUGINS]
 
 
+def plugin_names():
+    return [item["id"] for item in PLUGINS]
+
+
 def run_slot(_path):
     return []
 

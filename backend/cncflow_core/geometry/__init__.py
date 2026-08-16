@@ -2,3 +2,10 @@
 
 FEATURE_SCHEMA = "hole-v3"
 SERVICE_NAME = "geometry"
+HOLE_FEATURE_FIELDS = (
+    "diameter_mm",
+    "depth_mm",
+    "hole_type",
+    "position_type",
+    "cut_depth_mm",
+)
