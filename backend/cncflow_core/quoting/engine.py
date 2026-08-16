@@ -12,6 +12,7 @@ PIPELINES = {
     "hole": hole_pipeline.run,
     "face": face_pipeline.run,
     "pocket": pocket_pipeline.run,
+    "slot": pocket_pipeline.run,
     "thread": thread_pipeline.run,
     "surface": surface_pipeline.run,
 }
@@ -232,6 +233,8 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
         "ream": "铰孔", "bore": "镗孔", "semi_bore": "半精镗", "fine_bore": "精镗",
         "tap": "攻丝", "chamfer": "倒角", "face": "铣面", "mill": "铣削",
         "flat_bottom_mill": "修底", "grind": "磨削",
+        "rough_pocket": "粗铣", "semi_finish_pocket": "半精铣", "finish_pocket": "精铣",
+        "rest_mill": "清角", "pocket_mill": "铣槽",
     }
     if seq:
         per_min = cut_min / len(seq)

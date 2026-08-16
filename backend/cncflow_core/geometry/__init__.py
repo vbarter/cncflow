@@ -9,3 +9,13 @@ HOLE_FEATURE_FIELDS = (
     "position_type",
     "cut_depth_mm",
 )
+
+SLOT_SCHEMA = "slot-v1"
+SLOT_FEATURE_FIELDS = (
+    "pocket_type",
+    "length",
+    "width",
+    "depth",
+    "corner_radius",
+)
+
