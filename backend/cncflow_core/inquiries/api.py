@@ -1,8 +1,10 @@
 """询价 / 零件 HTTP。"""
-from flask import Blueprint, current_app, jsonify, request
+import os
+from flask import Blueprint, current_app, jsonify, request, Response
 
 from ..common.db import get_conn
 from ..ingestion.jobs import get_job
+from ..ingestion import r2
 from ..quoting.engine import quote
 from . import store
 
@@ -86,7 +88,7 @@ def _review_and_quote_features(parsed_feats, selected_ids, L, W):
     return review, features
 
 
-def _parse_geom(conn, part):
+def _parse_result(conn, part):
     job = None
     if part.get("parse_job_id"):
         try:
@@ -94,9 +96,27 @@ def _parse_geom(conn, part):
         except KeyError:
             job = None
     geom = (job or {}).get("result") or {}
-    if isinstance(geom, dict):
-        return geom.get("geometry") or {}, geom.get("features") or []
-    return {}, []
+    return geom if isinstance(geom, dict) else {}
+
+
+def _parse_geom(conn, part):
+    geom = _parse_result(conn, part)
+    return geom.get("geometry") or {}, geom.get("features") or []
+
+
+def _load_mesh_bytes(result):
+    mesh = (result or {}).get("mesh") or {}
+    path = mesh.get("path")
+    if path and os.path.isfile(path):
+        with open(path, "rb") as fh:
+            return fh.read()
+    key = mesh.get("key")
+    if key and r2.configured():
+        try:
+            return r2.get_object(key)
+        except FileNotFoundError:
+            return None
+    return None
 
 
 def _flatten_hole_fields(feat):
@@ -112,9 +132,17 @@ def _flatten_hole_fields(feat):
 
 def _attach_parsed_features(conn, part):
     """零件详情在未报价时也能看到 parse-job 孔参数。"""
-    _, feats = _parse_geom(conn, part)
-    feats = [_flatten_hole_fields(f) for f in feats]
+    result = _parse_result(conn, part)
+    feats = [_flatten_hole_fields(f) for f in (result.get("features") or [])]
     part["parsed_features"] = feats
+    mesh = result.get("mesh") if isinstance(result.get("mesh"), dict) else None
+    available = bool(mesh and (mesh.get("key") or mesh.get("path")))
+    part["mesh"] = {
+        "available": available,
+        "url": f"/api/v1/parts/{part['id']}/mesh" if available else None,
+        "bytes": (mesh or {}).get("bytes"),
+        "format": "glb" if available else None,
+    }
     quote = part.get("quote")
     if not isinstance(quote, dict):
         quote = {}
@@ -230,6 +258,21 @@ def get_part(pid):
     conn = _conn()
     try:
         return jsonify(_attach_parsed_features(conn, store.get_part(conn, pid)))
+    except KeyError:
+        return jsonify({"error": "零件不存在"}), 404
+    finally:
+        conn.close()
+
+
+@bp.get("/api/v1/parts/<pid>/mesh")
+def get_part_mesh(pid):
+    conn = _conn()
+    try:
+        part = store.get_part(conn, pid)
+        data = _load_mesh_bytes(_parse_result(conn, part))
+        if not data:
+            return jsonify({"error": "暂无模型"}), 404
+        return Response(data, mimetype="model/gltf-binary")
     except KeyError:
         return jsonify({"error": "零件不存在"}), 404
     finally:

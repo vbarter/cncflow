@@ -465,7 +465,7 @@ def _hole_feature(group, bbox, all_faces, index, cavities=None):
     ]
     if thread:
         evidence.append("helix-thread")
-    return {
+    feat = {
         "feature_id": "hole-%d" % index,
         "type": "hole",
         "subtype": "recognized_hole",
@@ -487,6 +487,16 @@ def _hole_feature(group, bbox, all_faces, index, cavities=None):
         "evidence": evidence,
         "warnings": [],
     }
+    origin = item.get("origin")
+    if origin and axis:
+        start = _axis_point(origin, axis, cyl_min)
+        feat["pose"] = {
+            "origin": {"x": round(start[0], 4), "y": round(start[1], 4), "z": round(start[2], 4)},
+            "axis": {"x": round(axis[0], 6), "y": round(axis[1], 6), "z": round(axis[2], 6)},
+            "length_mm": round(cyl_max - cyl_min, 4),
+            "diameter_mm": round(diameter, 4),
+        }
+    return feat
 
 
 def _candidate(index, radius, depth, location, axis=None, hole_type=None, position_type=None):
@@ -660,7 +670,14 @@ def parse_step(path: str) -> dict:
     recognized = any(f.get("subtype") == "recognized_hole" for f in features)
     if not recognized and any(f.get("type") == "hole" for f in features):
         warnings.append("圆柱面未能确认内孔，已标候选待工程师勾选")
-    return {
+    mesh_glb = None
+    try:
+        from cncflow_core.geometry.mesh import shape_to_glb
+        mesh_glb = shape_to_glb(compound)
+    except Exception:
+        warnings.append("网格导出失败，零件详情将显示空态")
+
+    out = {
         "parser": "cadquery-occ", "parser_version": getattr(cq, "__version__", "unknown"),
         "feature_schema": "hole-v3",
         "geometry": {
@@ -671,4 +688,7 @@ def parse_step(path: str) -> dict:
         },
         "features": features, "warnings": warnings,
     }
+    if mesh_glb:
+        out["_mesh_glb"] = mesh_glb
+    return out
 
