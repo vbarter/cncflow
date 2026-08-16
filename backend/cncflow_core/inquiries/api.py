@@ -13,6 +13,84 @@ def _conn():
     return get_conn(current_app.config.get("DB_PATH"))
 
 
+def _bbox_lwh(part, geometry):
+    box = (geometry or {}).get("bounding_box_mm") or {}
+    L = part.get("length") or part.get("diameter") or box.get("x")
+    W = part.get("width") or part.get("diameter") or box.get("y")
+    H = part.get("height") or box.get("z")
+    if (not part.get("length") or not part.get("width")) and box.get("x") and box.get("y"):
+        nums = sorted([float(box.get("x") or 0), float(box.get("y") or 0), float(box.get("z") or 0)], reverse=True)
+        L, W, H = nums[0], nums[1], nums[2]
+    return L, W, H
+
+
+def _review_and_quote_features(parsed_feats, selected_ids, L, W):
+    review = []
+    holes = []
+    selected = set(str(x) for x in selected_ids) if selected_ids is not None else None
+    for i, feat in enumerate(parsed_feats or []):
+        if not isinstance(feat, dict):
+            continue
+        fid = str(feat.get("feature_id") or feat.get("id") or f"f{i}")
+        on = True if selected is None else fid in selected
+        if selected is None and feat.get("selected") is False:
+            on = False
+        item = {**feat, "feature_id": fid, "selected": on}
+        review.append(item)
+        if feat.get("type") == "hole" and on:
+            dim = feat.get("dimensions") or {}
+            d = dim.get("diameter_mm") or feat.get("diameter_mm")
+            depth = dim.get("depth_mm") or feat.get("depth_mm")
+            if d and depth:
+                holes.append({"type": "hole", "diameter_mm": d, "depth_mm": depth, "hole_type": "through", "feature_id": fid})
+    features = holes + [{"type": "face", "length": L, "width": W, "depth": 1}]
+    return review, features
+
+
+def _parse_geom(conn, part):
+    job = None
+    if part.get("parse_job_id"):
+        try:
+            job = get_job(conn, part["parse_job_id"])
+        except KeyError:
+            job = None
+    geom = (job or {}).get("result") or {}
+    if isinstance(geom, dict):
+        return geom.get("geometry") or {}, geom.get("features") or []
+    return {}, []
+
+
+def _quote_part(conn, part, selected_ids=None, features_override=None):
+    geometry, parsed_feats = _parse_geom(conn, part)
+    L, W, H = _bbox_lwh(part, geometry)
+    box = (geometry or {}).get("bounding_box_mm") or {}
+    if (not part.get("length") or not part.get("width")) and box.get("x") and box.get("y") and L and W:
+        store.update_part(conn, part["id"], {"length": L, "width": W, "height": H})
+        part = store.get_part(conn, part["id"])
+    if not L or not W:
+        return None
+    review, features = _review_and_quote_features(parsed_feats, selected_ids, L, W)
+    if features_override:
+        features = features_override
+    result = quote({
+        "material": part.get("material_code") or "铝合金",
+        "stock_type": part.get("blank_type") or "板料",
+        "length": L,
+        "diameter": part.get("diameter") or W,
+        "width": W,
+        "height": H or 0,
+        "batch_size": part.get("batch_size") or 1,
+        "is_repeat_order": part.get("is_repeat_order"),
+        "slider": part.get("slider") or "标准",
+        "tolerance_it": part.get("tolerance_it"),
+        "roughness_ra": part.get("roughness_ra"),
+        "v_part_cad": geometry.get("volume_cm3"),
+        "features": features,
+    }, conn, rules_version=current_app.config.get("RULES_VERSION") or "")
+    result["review_features"] = review
+    return store.set_quote(conn, part["id"], result)
+
+
 @bp.get("/api/v1/inquiries")
 def list_inquiries():
     conn = _conn()
@@ -69,56 +147,8 @@ def quote_inquiry(iid):
             if part["status"] == "confirmed":
                 out.append(part)
                 continue
-            job = None
-            if part.get("parse_job_id"):
-                try:
-                    job = get_job(conn, part["parse_job_id"])
-                except KeyError:
-                    job = None
-            geom = (job or {}).get("result") or {}
-            if isinstance(geom, dict):
-                geometry = geom.get("geometry") or {}
-                parsed_feats = geom.get("features") or []
-            else:
-                geometry, parsed_feats = {}, []
-            box = geometry.get("bounding_box_mm") or {}
-            L = part.get("length") or part.get("diameter") or box.get("x")
-            W = part.get("width") or part.get("diameter") or box.get("y")
-            H = part.get("height") or box.get("z")
-            if (not part.get("length") or not part.get("width")) and box.get("x") and box.get("y"):
-                nums = sorted([float(box.get("x") or 0), float(box.get("y") or 0), float(box.get("z") or 0)], reverse=True)
-                L, W, H = nums[0], nums[1], nums[2]
-                store.update_part(conn, part["id"], {"length": L, "width": W, "height": H})
-            if not L or not W:
-                out.append(part)
-                continue
-            holes = []
-            for feat in parsed_feats:
-                if feat.get("type") != "hole" or feat.get("selected") is False:
-                    continue
-                dim = feat.get("dimensions") or {}
-                d = dim.get("diameter_mm") or feat.get("diameter_mm")
-                depth = dim.get("depth_mm") or feat.get("depth_mm")
-                if d and depth:
-                    holes.append({"type": "hole", "diameter_mm": d, "depth_mm": depth, "hole_type": "through"})
-            features = req.get("features") or (holes + [{"type": "face", "length": L, "width": W, "depth": 1}])
-            payload = {
-                "material": part.get("material_code") or "铝合金",
-                "stock_type": part.get("blank_type") or "板料",
-                "length": L,
-                "diameter": part.get("diameter") or W,
-                "width": W,
-                "height": H or 0,
-                "batch_size": part.get("batch_size") or 1,
-                "is_repeat_order": part.get("is_repeat_order"),
-                "slider": part.get("slider") or "标准",
-                "tolerance_it": part.get("tolerance_it"),
-                "roughness_ra": part.get("roughness_ra"),
-                "v_part_cad": geometry.get("volume_cm3"),
-                "features": features,
-            }
-            result = quote(payload, conn, rules_version=current_app.config.get("RULES_VERSION") or "")
-            out.append(store.set_quote(conn, part["id"], result))
+            quoted = _quote_part(conn, part, selected_ids=None, features_override=req.get("features"))
+            out.append(quoted if quoted is not None else part)
         return jsonify(store.get_inquiry(conn, iid))
     except KeyError:
         return jsonify({"error": "询价单不存在"}), 404
@@ -145,34 +175,22 @@ def patch_part(pid):
     conn = _conn()
     try:
         part = store.update_part(conn, pid, payload)
-        if part["status"] == "revising":
-            L = part.get("length") or part.get("diameter")
-            W = part.get("width") or part.get("diameter")
-            H = part.get("height")
-            if not L or not W:
-                return jsonify(part)
-            q = quote({
-                "material": part.get("material_code") or "铝合金",
-                "stock_type": part.get("blank_type") or "板料",
-                "length": L,
-                "diameter": part.get("diameter") or W,
-                "width": W,
-                "height": H or 0,
-                "batch_size": part.get("batch_size") or 1,
-                "is_repeat_order": part.get("is_repeat_order"),
-                "slider": part.get("slider") or "标准",
-                "tolerance_it": part.get("tolerance_it"),
-                "roughness_ra": part.get("roughness_ra"),
-                "features": payload.get("features") or [
-                    {"type": "face", "length": L, "width": W, "depth": 1}
-                ],
-            }, conn, rules_version=current_app.config.get("RULES_VERSION") or "")
-            part = store.set_quote(conn, pid, q)
+        selected_ids = payload.get("selected_feature_ids")
+        if selected_ids is not None and not isinstance(selected_ids, list):
+            selected_ids = None
+        if part["status"] == "revising" or selected_ids is not None:
+            quoted = _quote_part(
+                conn, part, selected_ids=selected_ids, features_override=payload.get("features"),
+            )
+            if quoted is not None:
+                part = quoted
         return jsonify(part)
     except PermissionError:
         return jsonify({"error": "已确认报价不可再改"}), 409
     except KeyError:
         return jsonify({"error": "零件不存在"}), 404
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
     finally:
         conn.close()
 
