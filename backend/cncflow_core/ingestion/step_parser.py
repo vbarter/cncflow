@@ -141,7 +141,36 @@ def classify_through_by_ends(lo_inside, hi_inside):
     return None
 
 
-def is_quote_hole(diameter, depth, hole_type, extents):
+def radial_bbox_extents(axis, extents):
+    """Two bbox lengths perpendicular to the cylinder axis."""
+    if not extents or not axis:
+        return tuple(extents or ())
+    ax = (abs(axis[0]), abs(axis[1]), abs(axis[2]))
+    dom = max(range(3), key=lambda i: ax[i])
+    radial = tuple(extents[i] for i in range(3) if i != dom)
+    return radial or tuple(extents)
+
+
+def likely_outer_od(diameter, extents, axis):
+    """直径接近垂直于轴的外轮廓 → 外圆，不能当孔。"""
+    if not extents or not axis or diameter <= 0:
+        return False
+    radial = radial_bbox_extents(axis, extents)
+    if not radial:
+        return False
+    return diameter >= min(radial) * 0.85
+
+
+def override_false_outer(side, diameter, extents, axis):
+    """Ø3.3 不可能是 50mm 件外圆：containment 标 outer 也改 inner。"""
+    if likely_outer_od(diameter, extents, axis):
+        return "outer"
+    if side == "outer":
+        return "inner"
+    return side
+
+
+def is_quote_hole(diameter, depth, hole_type, extents, axis=None):
     """Ø50 外圆、Ø33.4 浅盲腔不当孔；小通孔要进链。"""
     if not extents or diameter <= 0 or depth <= 0:
         return False
@@ -149,21 +178,17 @@ def is_quote_hole(diameter, depth, hole_type, extents):
     longest = max(extents)
     if diameter >= shortest * 0.9:
         return False
+    if axis is not None:
+        if likely_outer_od(diameter, extents, axis):
+            return False
+        radial = radial_bbox_extents(axis, extents)
+        if radial and diameter >= min(radial) * 0.5:
+            return False
     if hole_type == "blind" and diameter > max(depth * 1.2, 20):
         return False
     if diameter > longest * 0.45 and hole_type != "through":
         return False
     return True
-
-
-def likely_outer_od(diameter, extents, axis):
-    """直径接近垂直于轴的外轮廓 → 外圆，不能当孔。"""
-    if not extents or not axis or diameter <= 0:
-        return False
-    ax = (abs(axis[0]), abs(axis[1]), abs(axis[2]))
-    dom = max(range(3), key=lambda i: ax[i])
-    radial = [extents[i] for i in range(3) if i != dom] or list(extents)
-    return diameter >= min(radial) * 0.85
 
 
 def through_wall_depth(cyl_span, solid_span, cavity_span=None):
@@ -173,6 +198,25 @@ def through_wall_depth(cyl_span, solid_span, cavity_span=None):
         if wall > 0 and (cyl_span <= 0 or abs(wall - cyl_span) <= max(3.0, cyl_span * 0.2)):
             return wall
     return cyl_span
+
+
+def recover_through_depth(cyl_depth, wall_depth, min_ratio=0.85):
+    """通孔圆柱略短于壁厚时用壁厚。不向更短收缩，也不跳到整段外圆高。"""
+    if not wall_depth or wall_depth <= cyl_depth:
+        return cyl_depth
+    if cyl_depth >= wall_depth * min_ratio:
+        return wall_depth
+    return cyl_depth
+
+
+def through_into_cavity(cyl_span, solid_span, cavity_span):
+    """圆柱跨度接近剩余壁厚 → 打穿到型腔的通孔。"""
+    if not cavity_span or not solid_span or solid_span <= cavity_span:
+        return False
+    wall = solid_span - cavity_span
+    if wall <= 0:
+        return False
+    return abs(wall - cyl_span) <= max(3.0, cyl_span * 0.2)
 
 
 def _axis_point(origin, axis, t):
@@ -192,6 +236,31 @@ def _same_axis(a, b, tol_dir=0.02, tol_axis=1.5):
     )
     dist = (cross[0] ** 2 + cross[1] ** 2 + cross[2] ** 2) ** 0.5
     return dist <= tol_axis
+
+
+def coaxial_cavity_span(hole, cylinders, solid_span, extents=None):
+    """同轴更大圆柱里选型腔（短于件高），不要把 Ø50 外圆当型腔。"""
+    best = None
+    hole_d = hole.get("diameter_mm") or 0
+    for cav in cylinders or []:
+        d = cav.get("diameter_mm") or 0
+        if d <= hole_d + 0.5:
+            continue
+        if not cav.get("axis_t") or not hole.get("axis_t"):
+            continue
+        if not _same_axis(hole, cav):
+            continue
+        span = cav["cyl_max"] - cav["cyl_min"]
+        if span <= 0:
+            continue
+        if solid_span and span >= solid_span * 0.88:
+            continue
+        axis = cav.get("axis_t")
+        if extents and axis and likely_outer_od(d, extents, axis):
+            continue
+        if best is None or span > best:
+            best = span
+    return best
 
 
 def _axis_from_face(face):
@@ -359,17 +428,17 @@ def _hole_feature(group, bbox, all_faces, index, cavities=None):
     diameter = item["diameter_mm"]
     axis = item["axis_t"]
     solid_min, solid_max = item["solid_min"], item["solid_max"]
+    solid_span = solid_max - solid_min
+    extents = (bbox.xlen, bbox.ylen, bbox.zlen)
     hole_type = item.get("hole_type") or classify_through_blind(cyl_min, cyl_max, solid_min, solid_max)
-    cavity_span = None
-    for cav in cavities or []:
-        if cav.get("diameter_mm", 0) > diameter + 0.5 and cav.get("axis_t") and _same_axis(item, cav):
-            span = cav["cyl_max"] - cav["cyl_min"]
-            if cavity_span is None or span > cavity_span:
-                cavity_span = span
-    if cavity_span and hole_type != "through":
+    cavity_span = coaxial_cavity_span(item, cavities, solid_span, extents)
+    if hole_type != "through" and through_into_cavity(depth, solid_span, cavity_span):
         hole_type = "through"
     if hole_type == "through":
-        depth = through_wall_depth(depth, solid_max - solid_min, cavity_span)
+        depth = through_wall_depth(depth, solid_span, cavity_span)
+        wall_span = max((g.get("wall_span") or 0) for g in group) or None
+        if wall_span:
+            depth = recover_through_depth(depth, wall_span)
     recessed = is_recessed(cyl_min, cyl_max, solid_min, solid_max)
     curved = any(
         _entry_is_curved(all_faces, g["axis_t"], g["cyl_min"], g["cyl_max"], diameter / 2)
@@ -489,10 +558,7 @@ def parse_step(path: str) -> dict:
             side = classify_side(solids, face_center, axis, origin, radius, _face_normal(face))
             solid_min, solid_max = _solid_span_on_axis(bbox, axis)
             extents = (bbox.xlen, bbox.ylen, bbox.zlen)
-            if likely_outer_od(radius * 2, extents, axis):
-                side = "outer"
-            elif side == "outer":
-                side = "inner"
+            side = override_false_outer(side, radius * 2, extents, axis)
             if side is None and likely_plate_hole(
                 radius * 2, cyl_min, cyl_max, solid_min, solid_max, extents,
             ):
@@ -521,7 +587,7 @@ def parse_step(path: str) -> dict:
                 ht = end_ht
             rec["hole_type"] = ht
             all_cyls.append(rec)
-            if side == "inner" and not is_quote_hole(radius * 2, cyl_max - cyl_min, ht, extents):
+            if side == "inner" and not is_quote_hole(radius * 2, cyl_max - cyl_min, ht, extents, axis):
                 side = None
             if side == "inner":
                 inner.append(rec)
