@@ -26,7 +26,7 @@ jobs:
             exit 1
           fi
           npm install --legacy-peer-deps
-          npx wrangler deploy
+          npx wrangler deploy --containers-rollout=immediate
 
   pages:
     runs-on: ubuntu-latest
