@@ -26,6 +26,7 @@ export class CncflowContainer extends Container<Env> {
       CNCFLOW_DB_PATH: "/data/cncflow.db",
       CNCFLOW_REQUIRE_PERSISTENT_DB: "1",
       CNCFLOW_FILE_STORAGE: "/data/uploads",
+      CNCFLOW_PARSE_INLINE: "1",
       CNCFLOW_CORS_ORIGINS: this.env.CNCFLOW_CORS_ORIGINS || "*",
       CNCFLOW_R2_ACCOUNT_ID: this.env.CNCFLOW_R2_ACCOUNT_ID || "",
       CNCFLOW_R2_ACCESS_KEY_ID: this.env.CNCFLOW_R2_ACCESS_KEY_ID || "",

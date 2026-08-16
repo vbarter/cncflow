@@ -109,3 +109,16 @@ def test_finish_job_writes_bbox_to_part(client, seeded_db_path):
     part = client.get(f"/api/v1/parts/{pid}").get_json()
     assert part["status"] == "need_params"
     assert sorted([part["length"], part["width"], part["height"]], reverse=True) == [80, 40, 12]
+
+
+def test_isolated_parse_inline(monkeypatch, tmp_path):
+    from cncflow_core.ingestion import worker
+    monkeypatch.setenv("CNCFLOW_PARSE_INLINE", "1")
+    step = tmp_path / "part.step"
+    step.write_bytes(MINIMAL_STEP)
+    def fake_step(path):
+        return {"geometry": {"ok": True}, "features": [], "warnings": [path]}
+    monkeypatch.setattr(worker, "parse_step", fake_step)
+    out = worker.isolated_parse("step", str(step), {})
+    assert out["geometry"]["ok"] is True
+    assert str(step) in out["warnings"]

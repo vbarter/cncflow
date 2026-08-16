@@ -75,15 +75,48 @@ def store_upload(file_storage, job_id: str, role: str) -> dict:
         raise
 
 
-def materialize(storage_path: str) -> str:
-    """解析器需要本地路径。R2 URI 会下载到内容寻址缓存。"""
-    if not storage_path.startswith("r2://"):
-        return storage_path
-    _bucket, key = r2.parse_uri(storage_path)
-    digest = key.rsplit("/", 1)[-1]
-    cached = storage_root() / digest[:2] / digest
-    if cached.exists():
-        return str(cached)
-    cached.parent.mkdir(parents=True, exist_ok=True)
-    cached.write_bytes(r2.get_object(key))
-    return str(cached)
+def _digest_from_path(storage_path: str) -> str | None:
+    name = Path(storage_path).name
+    if len(name) == 64 and all(c in "0123456789abcdef" for c in name):
+        return name
+    if storage_path.startswith("r2://"):
+        return storage_path.rsplit("/", 1)[-1]
+    return None
+
+
+def _ensure_suffix(path: str, suffix: str) -> str:
+    if not suffix:
+        return path
+    if not suffix.startswith("."):
+        suffix = "." + suffix
+    if path.endswith(suffix):
+        return path
+    linked = Path(path + suffix)
+    if not linked.exists():
+        try:
+            os.link(path, linked)
+        except OSError:
+            linked.write_bytes(Path(path).read_bytes())
+    return str(linked)
+
+
+def materialize(storage_path: str, suffix: str = "") -> str:
+    """解析器需要本地路径。R2 URI 或本地丢失时从 R2 拉回；可加 .step/.pdf 后缀。"""
+    if storage_path.startswith("r2://"):
+        _bucket, key = r2.parse_uri(storage_path)
+        digest = key.rsplit("/", 1)[-1]
+        cached = storage_root() / digest[:2] / digest
+        if not cached.exists():
+            cached.parent.mkdir(parents=True, exist_ok=True)
+            cached.write_bytes(r2.get_object(key))
+        return _ensure_suffix(str(cached), suffix)
+    local = Path(storage_path)
+    if local.exists():
+        return _ensure_suffix(str(local), suffix)
+    digest = _digest_from_path(storage_path)
+    if digest and r2.configured():
+        cached = storage_root() / digest[:2] / digest
+        cached.parent.mkdir(parents=True, exist_ok=True)
+        cached.write_bytes(r2.get_object(f"{digest[:2]}/{digest}"))
+        return _ensure_suffix(str(cached), suffix)
+    raise FileNotFoundError(f"解析文件不存在: {storage_path}")
