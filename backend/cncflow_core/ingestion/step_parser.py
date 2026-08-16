@@ -130,6 +130,70 @@ def likely_plate_hole(diameter, cyl_min, cyl_max, solid_min, solid_max, extents)
     return diameter < shortest * 0.95 and depth >= shortest * 0.7
 
 
+def classify_through_by_ends(lo_inside, hi_inside):
+    """两端都在实体外 → 通孔（含打穿到型腔）；一端在实体内 → 盲孔。"""
+    if lo_inside is None or hi_inside is None:
+        return None
+    if (not lo_inside) and (not hi_inside):
+        return "through"
+    if lo_inside != hi_inside:
+        return "blind"
+    return None
+
+
+def is_quote_hole(diameter, depth, hole_type, extents):
+    """Ø50 外圆、Ø33.4 浅盲腔不当孔；小通孔要进链。"""
+    if not extents or diameter <= 0 or depth <= 0:
+        return False
+    shortest = min(extents)
+    longest = max(extents)
+    if diameter >= shortest * 0.9:
+        return False
+    if hole_type == "blind" and diameter > max(depth * 1.2, 20):
+        return False
+    if diameter > longest * 0.45 and hole_type != "through":
+        return False
+    return True
+
+
+def likely_outer_od(diameter, extents, axis):
+    """直径接近垂直于轴的外轮廓 → 外圆，不能当孔。"""
+    if not extents or not axis or diameter <= 0:
+        return False
+    ax = (abs(axis[0]), abs(axis[1]), abs(axis[2]))
+    dom = max(range(3), key=lambda i: ax[i])
+    radial = [extents[i] for i in range(3) if i != dom] or list(extents)
+    return diameter >= min(radial) * 0.85
+
+
+def through_wall_depth(cyl_span, solid_span, cavity_span=None):
+    """通孔打穿到同轴型腔时，H = 件高 − 型腔深。"""
+    if cavity_span and solid_span > cavity_span:
+        wall = solid_span - cavity_span
+        if wall > 0 and (cyl_span <= 0 or abs(wall - cyl_span) <= max(3.0, cyl_span * 0.2)):
+            return wall
+    return cyl_span
+
+
+def _axis_point(origin, axis, t):
+    t0 = _project(origin, axis)
+    dt = t - t0
+    return (origin[0] + axis[0] * dt, origin[1] + axis[1] * dt, origin[2] + axis[2] * dt)
+
+
+def _same_axis(a, b, tol_dir=0.02, tol_axis=1.5):
+    if abs(_dot(a["axis_t"], b["axis_t"])) < 1 - tol_dir:
+        return False
+    w = (b["origin"][0] - a["origin"][0], b["origin"][1] - a["origin"][1], b["origin"][2] - a["origin"][2])
+    cross = (
+        w[1] * a["axis_t"][2] - w[2] * a["axis_t"][1],
+        w[2] * a["axis_t"][0] - w[0] * a["axis_t"][2],
+        w[0] * a["axis_t"][1] - w[1] * a["axis_t"][0],
+    )
+    dist = (cross[0] ** 2 + cross[1] ** 2 + cross[2] ** 2) ** 0.5
+    return dist <= tol_axis
+
+
 def _axis_from_face(face):
     cylinder = face._geomAdaptor().Cylinder()
     direction = cylinder.Axis().Direction()
@@ -287,7 +351,7 @@ def _merge_inner(items):
     return groups
 
 
-def _hole_feature(group, bbox, all_faces, index):
+def _hole_feature(group, bbox, all_faces, index, cavities=None):
     item = group[0]
     cyl_min = min(g["cyl_min"] for g in group)
     cyl_max = max(g["cyl_max"] for g in group)
@@ -295,7 +359,17 @@ def _hole_feature(group, bbox, all_faces, index):
     diameter = item["diameter_mm"]
     axis = item["axis_t"]
     solid_min, solid_max = item["solid_min"], item["solid_max"]
-    hole_type = classify_through_blind(cyl_min, cyl_max, solid_min, solid_max)
+    hole_type = item.get("hole_type") or classify_through_blind(cyl_min, cyl_max, solid_min, solid_max)
+    cavity_span = None
+    for cav in cavities or []:
+        if cav.get("diameter_mm", 0) > diameter + 0.5 and cav.get("axis_t") and _same_axis(item, cav):
+            span = cav["cyl_max"] - cav["cyl_min"]
+            if cavity_span is None or span > cavity_span:
+                cavity_span = span
+    if cavity_span and hole_type != "through":
+        hole_type = "through"
+    if hole_type == "through":
+        depth = through_wall_depth(depth, solid_max - solid_min, cavity_span)
     recessed = is_recessed(cyl_min, cyl_max, solid_min, solid_max)
     curved = any(
         _entry_is_curved(all_faces, g["axis_t"], g["cyl_min"], g["cyl_max"], diameter / 2)
@@ -395,7 +469,7 @@ def parse_step(path: str) -> dict:
         kind = face.geomType()
         geom_counts[kind] = geom_counts.get(kind, 0) + 1
 
-    inner, outer, unknown, other = [], [], [], []
+    inner, outer, unknown, other, all_cyls = [], [], [], [], []
     for index, face in enumerate(faces):
         kind = face.geomType()
         location = face.Center()
@@ -414,9 +488,13 @@ def parse_step(path: str) -> dict:
             face_center = _xyz(location)
             side = classify_side(solids, face_center, axis, origin, radius, _face_normal(face))
             solid_min, solid_max = _solid_span_on_axis(bbox, axis)
+            extents = (bbox.xlen, bbox.ylen, bbox.zlen)
+            if likely_outer_od(radius * 2, extents, axis):
+                side = "outer"
+            elif side == "outer":
+                side = "inner"
             if side is None and likely_plate_hole(
-                radius * 2, cyl_min, cyl_max, solid_min, solid_max,
-                (bbox.xlen, bbox.ylen, bbox.zlen),
+                radius * 2, cyl_min, cyl_max, solid_min, solid_max, extents,
             ):
                 side = "inner"
             rec = {
@@ -431,13 +509,26 @@ def parse_step(path: str) -> dict:
                 "location": _point(location),
                 "helix": _has_helix(face),
             }
+            ht = classify_through_blind(cyl_min, cyl_max, solid_min, solid_max)
+            lo = _axis_point(origin, axis, cyl_min - 0.4)
+            hi = _axis_point(origin, axis, cyl_max + 0.4)
+            end_ht = None
+            for solid in solids:
+                end_ht = classify_through_by_ends(_point_inside(solid, lo), _point_inside(solid, hi))
+                if end_ht:
+                    break
+            if end_ht:
+                ht = end_ht
+            rec["hole_type"] = ht
+            all_cyls.append(rec)
+            if side == "inner" and not is_quote_hole(radius * 2, cyl_max - cyl_min, ht, extents):
+                side = None
             if side == "inner":
                 inner.append(rec)
             elif side == "outer":
                 outer.append(rec)
             else:
                 axis_d = {"x": round(axis[0], 6), "y": round(axis[1], 6), "z": round(axis[2], 6)}
-                ht = classify_through_blind(cyl_min, cyl_max, solid_min, solid_max)
                 pos = classify_position(axis, (bbox.xlen, bbox.ylen, bbox.zlen))
                 unknown.append(_candidate(
                     index, radius, cyl_max - cyl_min, _point(location), axis_d,
@@ -460,7 +551,7 @@ def parse_step(path: str) -> dict:
 
     features = []
     for i, group in enumerate(_merge_inner(inner)):
-        features.append(_hole_feature(group, bbox, faces, i))
+        features.append(_hole_feature(group, bbox, faces, i, cavities=all_cyls))
     for rec in outer:
         depth = rec["cyl_max"] - rec["cyl_min"]
         features.append({
