@@ -109,6 +109,30 @@ def _face_for_pipeline(feat, fid):
     }
 
 
+
+def _thread_for_pipeline(feat, fid):
+    dim = feat.get("dimensions") or {}
+    d = feat.get("diameter_mm") if feat.get("diameter_mm") is not None else dim.get("diameter_mm")
+    if d is None:
+        d = feat.get("nominal_d") or dim.get("nominal_d")
+    length = feat.get("thread_length")
+    if length is None:
+        length = dim.get("thread_length") or feat.get("length") or feat.get("depth_mm")
+    if not d or not length:
+        return None
+    pitch = feat.get("pitch")
+    if pitch is None:
+        pitch = dim.get("pitch")
+    return {
+        "type": "thread",
+        "feature_id": fid,
+        "diameter_mm": float(d),
+        "nominal_d": float(d),
+        "pitch": float(pitch) if pitch not in (None, "") else None,
+        "thread_length": float(length),
+    }
+
+
 def _review_and_quote_features(parsed_feats, selected_ids, L, W):
     review = []
     quoted = []
@@ -134,6 +158,10 @@ def _review_and_quote_features(parsed_feats, selected_ids, L, W):
                 quoted.append(mapped)
         elif feat.get("type") == "face":
             mapped = _face_for_pipeline(feat, fid)
+            if mapped:
+                quoted.append(mapped)
+        elif feat.get("type") == "thread":
+            mapped = _thread_for_pipeline(feat, fid)
             if mapped:
                 quoted.append(mapped)
     features = quoted

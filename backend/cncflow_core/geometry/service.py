@@ -1,12 +1,13 @@
 """几何特征服务：询价 parse-job 进程内调用；孔字段与 hole-v3 现网一致。"""
-from . import FEATURE_SCHEMA, FACE_FEATURE_FIELDS, FACE_SCHEMA, HOLE_FEATURE_FIELDS, SERVICE_NAME, SLOT_FEATURE_FIELDS, SLOT_SCHEMA
-from .plugins import list_plugins, plugin_names, run_face, run_slot
+from . import FEATURE_SCHEMA, FACE_FEATURE_FIELDS, FACE_SCHEMA, HOLE_FEATURE_FIELDS, SERVICE_NAME, SLOT_FEATURE_FIELDS, SLOT_SCHEMA, THREAD_FEATURE_FIELDS, THREAD_SCHEMA
+from .plugins import list_plugins, plugin_names, run_face, run_slot, run_thread
 
 
 def contract():
     hole_fields = list(HOLE_FEATURE_FIELDS)
     slot_fields = list(SLOT_FEATURE_FIELDS)
     face_fields = list(FACE_FEATURE_FIELDS)
+    thread_fields = list(THREAD_FEATURE_FIELDS)
     return {
         "service": SERVICE_NAME,
         "endpoint": "POST /api/v1/geometry/parse",
@@ -32,15 +33,21 @@ def contract():
                     "version": FACE_SCHEMA,
                     "fields": face_fields,
                 },
+                "thread": {
+                    "status": "active",
+                    "accepted": True,
+                    "version": THREAD_SCHEMA,
+                    "fields": thread_fields,
+                },
             },
-            "plugins": "hole+slot+face active",
+            "plugins": "hole+slot+face+thread active",
         },
         "plugins": list_plugins(),
         "notes": [
             "询价 parse-job 进程内调用 geometry service，Ø8/ZN-010 仍走现网 parse-jobs",
             "Ø8 / ZN-010 hole-v3 不得回退",
-            "平面本轮验收；孔五字段和槽腔不回退",
-            "平面最小集 L/W/face_position 本轮验收；螺纹仍留桩",
+            "螺纹本轮验收；孔五字段、槽腔、平面不回退",
+            "螺纹最小集 D/P/L 本轮验收；有螺旋才出，没有当孔走；台阶/曲面仍留桩",
         ],
     }
 
@@ -78,15 +85,45 @@ def _drop_slot_fillet_holes(features):
     return kept
 
 
+
+def _drop_threaded_holes(features):
+    """已认成螺纹的孔不再当光孔报价。Ø8/ZN-010 无螺旋，不会被摘。"""
+    threads = [f for f in features if f.get("subtype") == "recognized_thread"]
+    if not threads:
+        return features
+    kept = []
+    for feat in features:
+        if feat.get("subtype") == "recognized_hole":
+            d = feat.get("diameter_mm") or 0
+            loc = feat.get("location") or {}
+            hx, hy, hz = loc.get("x") or 0, loc.get("y") or 0, loc.get("z") or 0
+            skip = False
+            for th in threads:
+                if abs((th.get("diameter_mm") or 0) - d) > 0.8:
+                    continue
+                tl = th.get("location") or {}
+                dx = hx - (tl.get("x") or 0)
+                dy = hy - (tl.get("y") or 0)
+                dz = hz - (tl.get("z") or 0)
+                if dx * dx + dy * dy + dz * dz <= 25:
+                    skip = True
+                    break
+            if skip:
+                continue
+        kept.append(feat)
+    return kept
+
 def parse_step_file(path):
-    """STEP → features。hole 走现网 parse_step 一次；slot 识别凹腔；face 识别外平面。"""
+    """STEP → features。hole/slot/face/thread；无螺旋螺纹当孔走。"""
     from cncflow_core.ingestion.step_parser import parse_step
 
     result = parse_step(path)
     features = list(result.get("features") or [])
     features.extend(run_slot(path))
     features.extend(run_face(path))
+    features.extend(run_thread(path))
     features = _drop_slot_fillet_holes(features)
+    features = _drop_threaded_holes(features)
     result["service"] = SERVICE_NAME
     result["parser"] = "geometry-service"
     result["parser_version"] = FEATURE_SCHEMA

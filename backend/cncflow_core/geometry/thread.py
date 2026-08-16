@@ -1,0 +1,176 @@
+"""螺纹 B-Rep 识别：有螺旋/牙型才出 D/P/L，没有当孔走。"""
+import math
+
+from cncflow_core.ingestion.step_parser import _face_normal, _norm, _point, _xyz
+
+# 粗牙常用螺距，P 认不出时按 D 回填
+_METRIC_PITCH = (
+    (3, 0.5), (4, 0.7), (5, 0.8), (6, 1.0), (8, 1.25),
+    (10, 1.5), (12, 1.75), (16, 2.0), (20, 2.5), (24, 3.0),
+)
+
+
+def infer_pitch(diameter):
+    if not diameter:
+        return None
+    d = float(diameter)
+    best = min(_METRIC_PITCH, key=lambda item: abs(item[0] - d))
+    if abs(best[0] - d) <= 0.15:
+        return best[1]
+    return None
+
+
+def _edge_kind(edge):
+    try:
+        return str(edge.geomType() or "").upper()
+    except Exception:
+        return ""
+
+
+def _cyl_radius(face):
+    try:
+        return float(face._geomAdaptor().Cylinder().Radius())
+    except Exception:
+        try:
+            return float(face.radius())
+        except Exception:
+            return None
+
+
+def _helix_pitch(edge, axis):
+    """沿轴走一圈的升程。认不出返回 None。"""
+    try:
+        pts = []
+        n = 12
+        for i in range(n + 1):
+            p = edge.positionAt(i / n)
+            pts.append(_xyz(p))
+        if len(pts) < 4:
+            return None
+        ax, mag = _norm(axis)
+        if mag < 1e-9:
+            return None
+        zs = [p[0] * ax[0] + p[1] * ax[1] + p[2] * ax[2] for p in pts]
+        span = max(zs) - min(zs)
+        # 转角：在垂直轴平面上累加
+        turns = 0.0
+        prev = None
+        for p, z in zip(pts, zs):
+            radial = (
+                p[0] - ax[0] * z,
+                p[1] - ax[1] * z,
+                p[2] - ax[2] * z,
+            )
+            r, rm = _norm(radial)
+            if rm < 1e-6:
+                continue
+            if prev is not None:
+                cross = (
+                    prev[1] * r[2] - prev[2] * r[1],
+                    prev[2] * r[0] - prev[0] * r[2],
+                    prev[0] * r[1] - prev[1] * r[0],
+                )
+                sin_a = cross[0] * ax[0] + cross[1] * ax[1] + cross[2] * ax[2]
+                cos_a = prev[0] * r[0] + prev[1] * r[1] + prev[2] * r[2]
+                turns += math.atan2(sin_a, cos_a)
+            prev = r
+        revs = abs(turns) / (2 * math.pi)
+        if revs < 0.4:
+            return None
+        pitch = span / revs
+        if 0.2 <= pitch <= 6.5:
+            return round(pitch, 3)
+    except Exception:
+        return None
+    return None
+
+
+def _looks_helical(face, axis):
+    kinds = []
+    pitch = None
+    for edge in face.Edges():
+        kind = _edge_kind(edge)
+        kinds.append(kind)
+        if kind in {"HELIX", "BSPLINE", "BSPLINECURVE", "OFFSET"}:
+            found = _helix_pitch(edge, axis)
+            if found:
+                pitch = found if pitch is None else min(pitch, found)
+    if pitch:
+        return True, pitch
+    # 仅圆柱直边/圆，不当螺纹
+    return False, None
+
+
+def detect_threads(path: str) -> list:
+    try:
+        import cadquery as cq
+    except ImportError:
+        return []
+
+    try:
+        imported = cq.importers.importStep(path)
+        values = imported.vals()
+        if not values:
+            return []
+        compound = cq.Compound.makeCompound(values) if len(values) > 1 else values[0]
+        solids = compound.Solids()
+        if not solids:
+            return []
+    except Exception:
+        return []
+
+    found = []
+    for face in compound.Faces():
+        if face.geomType() != "CYLINDER":
+            continue
+        radius = _cyl_radius(face)
+        if not radius or radius < 1.0 or radius > 20:
+            continue
+        normal = _face_normal(face)
+        if not normal:
+            continue
+        n, mag = _norm(normal)
+        if mag < 1e-9:
+            continue
+        # 内孔：法向大致指向轴。用面中心径向判断交给 hole；这里只认螺旋。
+        fb = face.BoundingBox()
+        axis = (
+            1.0 if fb.xlen >= fb.ylen and fb.xlen >= fb.zlen else 0.0,
+            1.0 if fb.ylen > fb.xlen and fb.ylen >= fb.zlen else 0.0,
+            1.0 if fb.zlen > fb.xlen and fb.zlen > fb.ylen else 0.0,
+        )
+        if axis == (0.0, 0.0, 0.0):
+            axis = (0.0, 0.0, 1.0)
+        helical, pitch = _looks_helical(face, axis)
+        if not helical:
+            continue
+        length = max(fb.xlen, fb.ylen, fb.zlen)
+        if length < 1.5:
+            continue
+        diameter = round(2 * radius, 4)
+        if pitch is None:
+            pitch = infer_pitch(diameter)
+        if pitch is None:
+            continue
+        loc = _point(face.Center())
+        found.append({
+            "feature_id": "thread-%d" % len(found),
+            "type": "thread",
+            "subtype": "recognized_thread",
+            "selected": True,
+            "diameter_mm": diameter,
+            "pitch": pitch,
+            "thread_length": round(length, 4),
+            "dimensions": {
+                "diameter_mm": diameter,
+                "pitch": pitch,
+                "thread_length": round(length, 4),
+            },
+            "location": loc,
+            "axis": {"x": round(axis[0], 6), "y": round(axis[1], 6), "z": round(axis[2], 6)},
+            "occurrences": 1,
+            "confidence": 0.7,
+            "evidence": ["helix", "D=%.3f" % diameter, "P=%.3f" % pitch, "L=%.3f" % length],
+            "warnings": [],
+        })
+    return found
