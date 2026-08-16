@@ -9,8 +9,10 @@ from cncflow_core.features.hole.process_chain import generate_chain
 from cncflow_core.ingestion.jobs import finish_job
 from cncflow_core.ingestion.step_parser import (
     classify_by_containment, classify_cylinder_side, classify_position,
-    classify_through_blind, classify_through_by_ends, is_quote_hole,
-    likely_outer_od, likely_plate_hole, through_cut_depth, through_wall_depth,
+    classify_through_blind, classify_through_by_ends, coaxial_cavity_span,
+    is_quote_hole, likely_outer_od, likely_plate_hole, override_false_outer,
+    recover_through_depth, through_cut_depth, through_into_cavity,
+    through_wall_depth, _hole_feature,
 )
 from cncflow_core.inquiries.api import _hole_for_pipeline, _review_and_quote_features
 
@@ -209,14 +211,79 @@ def test_zn010_acceptance_fields():
     assert likely_outer_od(50, extents, axis) is True
     assert likely_outer_od(3.30, extents, axis) is False
     assert likely_outer_od(33.40, extents, axis) is False
+    assert override_false_outer("outer", 3.30, extents, axis) == "inner"
+    assert override_false_outer("outer", 50, extents, axis) == "outer"
+    assert override_false_outer("inner", 33.40, extents, axis) == "inner"
     assert through_wall_depth(24.625, 44, 18) == 26
+    assert through_wall_depth(24.625, 44, 44) == 24.625
+    assert recover_through_depth(24.625, 26) == 26
+    assert recover_through_depth(12, 12) == 12
+    assert recover_through_depth(24.625, 44) == 24.625
+    assert through_into_cavity(24.625, 44, 18) is True
+    assert through_into_cavity(10, 44, 18) is False
     assert through_cut_depth(3.30, 26, "through") == 26.99
-    assert is_quote_hole(3.30, 26, "through", extents) is True
-    assert is_quote_hole(50, 44, "through", extents) is False
-    assert is_quote_hole(33.40, 18, "blind", extents) is False
+    assert is_quote_hole(3.30, 26, "through", extents, axis) is True
+    assert is_quote_hole(50, 44, "through", extents, axis) is False
+    assert is_quote_hole(33.40, 18, "blind", extents, axis) is False
+    assert is_quote_hole(33.40, 18, "through", extents, axis) is False
     hole = _hole_for_pipeline({
         "type": "hole", "diameter_mm": 3.30, "depth_mm": 26,
         "hole_type": "through", "position_type": "垂直",
     }, "hole-0")
     assert hole["cut_depth_mm"] == 26.99
     assert hole["surface"] == "top"
+
+
+def _cyl(diameter, cyl_min, cyl_max, solid_max=44.0):
+    return {
+        "diameter_mm": diameter,
+        "axis_t": (0.0, 0.0, 1.0),
+        "origin": (0.0, 0.0, 0.0),
+        "cyl_min": cyl_min,
+        "cyl_max": cyl_max,
+        "solid_min": 0.0,
+        "solid_max": solid_max,
+        "location": {"x": 0.0, "y": 0.0, "z": 0.0},
+        "helix": False,
+    }
+
+
+def test_coaxial_cavity_skips_od():
+    extents = (50, 50, 44)
+    hole = _cyl(3.3, 0.0, 24.625)
+    cavity = _cyl(33.4, 26.0, 44.0)
+    od = _cyl(50.0, 0.0, 44.0)
+    assert coaxial_cavity_span(hole, [hole, cavity, od], 44.0, extents) == 18
+    assert coaxial_cavity_span(hole, [hole, od], 44.0, extents) is None
+
+
+def test_zn010_hole_feature_from_cylinders():
+    class BBox:
+        xlen, ylen, zlen = 50.0, 50.0, 44.0
+
+    hole = _cyl(3.3, 0.0, 24.625)
+    hole["hole_type"] = "through"
+    cavity = _cyl(33.4, 26.0, 44.0)
+    od = _cyl(50.0, 0.0, 44.0)
+    feat = _hole_feature([hole], BBox(), [], 0, cavities=[hole, cavity, od])
+    assert feat["subtype"] == "recognized_hole"
+    assert feat["selected"] is True
+    assert feat["diameter_mm"] == pytest.approx(3.30, abs=0.01)
+    assert feat["depth_mm"] == pytest.approx(26, abs=0.05)
+    assert feat["hole_type"] == "through"
+    assert feat["position_type"] == "垂直"
+    assert feat["cut_depth_mm"] == pytest.approx(26.99, abs=0.05)
+
+
+def test_o8_hole_feature_keeps_plate_thickness():
+    class BBox:
+        xlen, ylen, zlen = 80.0, 60.0, 12.0
+
+    hole = _cyl(8.0, 0.0, 12.0, solid_max=12.0)
+    hole["hole_type"] = "through"
+    feat = _hole_feature([hole], BBox(), [], 0, cavities=[hole])
+    assert feat["diameter_mm"] == pytest.approx(8, abs=0.01)
+    assert feat["depth_mm"] == pytest.approx(12, abs=0.05)
+    assert feat["hole_type"] == "through"
+    assert feat["position_type"] == "垂直"
+    assert feat["cut_depth_mm"] == pytest.approx(14.4, abs=0.05)
