@@ -135,9 +135,12 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
                 "process": step.get("process"),
                 "cycle": step.get("cycle"),
                 "sku": sku,
+                "side": step.get("side"),
                 "match_status": step.get("match_status") if sel.get("candidate_id") else ("nearest" if sku else step.get("match_status")),
                 "tool": sku or step.get("cycle") or step.get("process") or "—",
             })
+            if step.get("name"):
+                seq[-1]["name"] = step["name"]
         tags.extend(result.get("risk_tags") or [])
         if order.get(level, 1) > order.get(worst, 1):
             worst = level
@@ -197,6 +200,8 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
     if any(op["na"] for op in ops):
         conf["level"] = "high" if conf["confidence"] >= 30 else conf["level"]
         tags.append("超出常规边界")
+    if any("深孔" in str(t) for t in tags) and conf.get("level") in {None, "low", "medium_low", "medium"}:
+        conf["level"] = "high"
 
     STEP_NAME = {
         "spot_drill": "点钻", "drill": "钻孔", "gun_drill": "枪钻", "u_drill": "U钻",
