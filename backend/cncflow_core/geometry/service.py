@@ -99,13 +99,16 @@ def _drop_threaded_holes(features):
             hx, hy, hz = loc.get("x") or 0, loc.get("y") or 0, loc.get("z") or 0
             skip = False
             for th in threads:
-                if abs((th.get("diameter_mm") or 0) - d) > 0.8:
+                major = th.get("diameter_mm") or 0
+                pitch = th.get("pitch") or 0
+                minor = major - pitch if pitch else major
+                if min(abs(major - d), abs(minor - d)) > 0.8:
                     continue
                 tl = th.get("location") or {}
                 dx = hx - (tl.get("x") or 0)
                 dy = hy - (tl.get("y") or 0)
                 dz = hz - (tl.get("z") or 0)
-                if dx * dx + dy * dy + dz * dz <= 25:
+                if dx * dx + dy * dy + dz * dz <= 36:
                     skip = True
                     break
             if skip:
