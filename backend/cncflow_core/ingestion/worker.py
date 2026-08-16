@@ -8,9 +8,10 @@ from ..common.db import get_conn, init_schema
 from ..geometry import FEATURE_SCHEMA
 from ..geometry.plugins import plugin_names
 from ..geometry.service import parse_step_file
+from ..geometry.mesh import step_to_glb
 from .jobs import claim_job, fail_job, finish_job, recover_stale, update_job
 from .pdf_parser import parse_pdf
-from .storage import materialize
+from .storage import materialize, storage_root
 from . import r2
 
 
@@ -20,8 +21,7 @@ def _store_mesh(job_id, mesh_bytes):
     if not mesh_bytes:
         return None
     key = f"meshes/{job_id}.glb"
-    root = os.environ.get("CNCFLOW_FILE_STORAGE") or "/data"
-    local = os.path.join(root, "meshes", f"{job_id}.glb")
+    local = str(storage_root() / "meshes" / f"{job_id}.glb")
     os.makedirs(os.path.dirname(local), exist_ok=True)
     with open(local, "wb") as fh:
         fh.write(mesh_bytes)
@@ -94,7 +94,8 @@ def process_claimed(conn, job):
                 conn, job["job_id"], stage="geometry_parse", progress=20,
                 message=f"geometry-service {FEATURE_SCHEMA} plugins={names}",
             )
-            parsed = isolated_parse("step", materialize(file["storage_path"], suffix=suffix), job["options"])
+            step_path = materialize(file["storage_path"], suffix=suffix)
+            parsed = isolated_parse("step", step_path, job["options"])
             result["geometry"] = parsed["geometry"]
             result["features"].extend(parsed.get("features") or [])
             result["warnings"].extend(parsed.get("warnings") or [])
@@ -103,9 +104,16 @@ def process_claimed(conn, job):
             result["parser"] = parsed.get("parser") or "geometry-service"
             result["parser_version"] = parsed.get("parser_version") or FEATURE_SCHEMA
             mesh_bytes = parsed.pop("_mesh_glb", None)
+            if not mesh_bytes:
+                try:
+                    mesh_bytes = step_to_glb(step_path)
+                except Exception as exc:
+                    result["warnings"].append("网格导出失败: %s" % exc)
             mesh = _store_mesh(job["job_id"], mesh_bytes)
             if mesh:
                 result["mesh"] = mesh
+            else:
+                result["warnings"].append("网格未写入，零件详情将显示空态")
         elif file["detected_type"] == "pdf":
             update_job(conn, job["job_id"], stage="pdf_drawing", progress=65, message="正在识别PDF图纸")
             result["drawing"] = isolated_parse("pdf", materialize(file["storage_path"], suffix=suffix), job["options"])

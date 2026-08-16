@@ -159,7 +159,8 @@ def create_app(db_path=None) -> Flask:
                         "parser": {"available": bool(worker), "queued": queued,
                                    "worker_id": worker["worker_id"] if worker else None,
                                    "version": worker["parser_version"] if worker else None,
-                                   "last_heartbeat": worker["heartbeat_at"] if worker else None},
+                                   "last_heartbeat": worker["heartbeat_at"] if worker else None,
+                                   "mesh_export": True},
                         "persist": persist_info})
 
     @app.get("/api/v1/materials")

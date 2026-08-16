@@ -87,3 +87,67 @@ def test_part_mesh_serves_glb(client, seeded_db_path, tmp_path):
     assert resp.status_code == 200
     assert resp.data[:4] == b"glTF"
     assert resp.mimetype == "model/gltf-binary"
+
+
+
+def test_pose_fallback_from_location_axis(client, seeded_db_path):
+    inq = client.post("/api/v1/inquiries", json={"customer": "mesh"}).get_json()
+    pid = client.post(
+        f"/api/v1/inquiries/{inq['id']}/parts", json={"name": "块"},
+    ).get_json()["id"]
+    data = {"step_file": (BytesIO(MINIMAL_STEP), "part.step"), "part_id": pid}
+    job_id = client.post(
+        "/api/v1/parse-jobs", data=data, content_type="multipart/form-data",
+    ).get_json()["job_id"]
+    conn = get_conn(seeded_db_path)
+    finish_job(conn, job_id, {
+        "geometry": {"volume_cm3": 1, "bounding_box_mm": {"x": 10, "y": 10, "z": 10}},
+        "features": [{
+            "type": "hole", "feature_id": "hole-0", "subtype": "recognized_hole",
+            "selected": True, "diameter_mm": 3.3, "depth_mm": 26,
+            "hole_type": "through", "position_type": "垂直", "cut_depth_mm": 26.99,
+            "location": {"x": 0, "y": 0, "z": 0},
+            "axis": {"x": 0, "y": 0, "z": -1},
+        }],
+        "warnings": [],
+    })
+    conn.close()
+    part = client.get(f"/api/v1/parts/{pid}").get_json()
+    hole = [f for f in part["parsed_features"] if f["feature_id"] == "hole-0"][0]
+    assert hole["diameter_mm"] == 3.3
+    assert hole["depth_mm"] == 26
+    assert hole["hole_type"] == "through"
+    assert hole["pose"]["diameter_mm"] == 3.3
+    assert hole["pose"]["length_mm"] == 26
+    assert hole["pose"]["axis"]["z"] == -1
+
+
+def test_mesh_backfill_from_step(client, seeded_db_path, monkeypatch):
+    glb = triangles_to_glb([(0, 0, 0), (1, 0, 0), (0, 1, 0)], [0, 1, 2])
+    monkeypatch.setattr("cncflow_core.geometry.mesh.step_to_glb", lambda path, deflection=0.4: glb)
+    inq = client.post("/api/v1/inquiries", json={"customer": "mesh"}).get_json()
+    pid = client.post(
+        f"/api/v1/inquiries/{inq['id']}/parts", json={"name": "块"},
+    ).get_json()["id"]
+    data = {"step_file": (BytesIO(MINIMAL_STEP), "part.step"), "part_id": pid}
+    job_id = client.post(
+        "/api/v1/parse-jobs", data=data, content_type="multipart/form-data",
+    ).get_json()["job_id"]
+    conn = get_conn(seeded_db_path)
+    finish_job(conn, job_id, {
+        "geometry": {"volume_cm3": 1, "bounding_box_mm": {"x": 10, "y": 10, "z": 10}},
+        "features": [{
+            "type": "hole", "feature_id": "hole-0", "subtype": "recognized_hole",
+            "selected": True, "diameter_mm": 3.3, "depth_mm": 26,
+            "hole_type": "through", "position_type": "垂直", "cut_depth_mm": 26.99,
+        }],
+        "warnings": [],
+    })
+    conn.close()
+    resp = client.get(f"/api/v1/parts/{pid}/mesh")
+    assert resp.status_code == 200, resp.get_json()
+    assert resp.data[:4] == b"glTF"
+    part = client.get(f"/api/v1/parts/{pid}").get_json()
+    assert part["mesh"]["available"] is True
+    hole = [f for f in part["parsed_features"] if f["feature_id"] == "hole-0"][0]
+    assert hole["cut_depth_mm"] == 26.99
