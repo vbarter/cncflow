@@ -20,6 +20,50 @@ def infer_pitch(diameter):
     return None
 
 
+def major_from_minor(minor_d):
+    """底孔≈公称-螺距。M8×1.25 底孔约 6.8。"""
+    if not minor_d:
+        return None, None
+    d0 = float(minor_d)
+    for major, pitch in _METRIC_PITCH:
+        if abs((major - pitch) - d0) <= 0.25:
+            return float(major), float(pitch)
+    return None, None
+
+
+def _axis_from_bbox(fb):
+    axis = (
+        1.0 if fb.xlen >= fb.ylen and fb.xlen >= fb.zlen else 0.0,
+        1.0 if fb.ylen > fb.xlen and fb.ylen >= fb.zlen else 0.0,
+        1.0 if fb.zlen > fb.xlen and fb.zlen > fb.ylen else 0.0,
+    )
+    if axis == (0.0, 0.0, 0.0):
+        return (0.0, 0.0, 1.0)
+    return axis
+
+
+def _is_form_face(face):
+    kind = str(face.geomType() or "").upper()
+    return kind not in {"PLANE", "CYLINDER", "CONE", "SPHERE", "TORUS", "CIRCLE"}
+
+
+def _near_cylinder(form_fb, cyl_c, cyl_r, axis, length):
+    fc = (
+        (form_fb.xmin + form_fb.xmax) / 2,
+        (form_fb.ymin + form_fb.ymax) / 2,
+        (form_fb.zmin + form_fb.zmax) / 2,
+    )
+    ax, mag = _norm(axis)
+    if mag < 1e-9:
+        return False
+    rel = (fc[0] - cyl_c[0], fc[1] - cyl_c[1], fc[2] - cyl_c[2])
+    along = rel[0] * ax[0] + rel[1] * ax[1] + rel[2] * ax[2]
+    if abs(along) > length * 0.7 + 2:
+        return False
+    radial = math.sqrt(max(0.0, rel[0] ** 2 + rel[1] ** 2 + rel[2] ** 2 - along * along))
+    return abs(radial - cyl_r) <= max(2.5, cyl_r * 0.6)
+
+
 def _edge_kind(edge):
     try:
         return str(edge.geomType() or "").upper()
@@ -119,58 +163,71 @@ def detect_threads(path: str) -> list:
     except Exception:
         return []
 
-    found = []
+    cylinders = []
+    forms = []
     for face in compound.Faces():
-        if face.geomType() != "CYLINDER":
-            continue
-        radius = _cyl_radius(face)
-        if not radius or radius < 1.0 or radius > 20:
-            continue
-        normal = _face_normal(face)
-        if not normal:
-            continue
-        n, mag = _norm(normal)
-        if mag < 1e-9:
-            continue
-        # 内孔：法向大致指向轴。用面中心径向判断交给 hole；这里只认螺旋。
         fb = face.BoundingBox()
-        axis = (
-            1.0 if fb.xlen >= fb.ylen and fb.xlen >= fb.zlen else 0.0,
-            1.0 if fb.ylen > fb.xlen and fb.ylen >= fb.zlen else 0.0,
-            1.0 if fb.zlen > fb.xlen and fb.zlen > fb.ylen else 0.0,
+        kind = str(face.geomType() or "").upper()
+        if kind == "CYLINDER":
+            radius = _cyl_radius(face)
+            if not radius or radius < 1.0 or radius > 20:
+                continue
+            axis = _axis_from_bbox(fb)
+            cylinders.append({
+                "face": face, "fb": fb, "r": radius,
+                "c": _xyz(face.Center()), "axis": axis,
+                "length": max(fb.xlen, fb.ylen, fb.zlen),
+            })
+        elif _is_form_face(face):
+            forms.append({"face": face, "fb": fb})
+
+    found = []
+    for cyl in cylinders:
+        if cyl["length"] < 1.5:
+            continue
+        helical, pitch = _looks_helical(cyl["face"], cyl["axis"])
+        n_form = sum(
+            1 for form in forms
+            if _near_cylinder(form["fb"], cyl["c"], cyl["r"], cyl["axis"], cyl["length"])
         )
-        if axis == (0.0, 0.0, 0.0):
-            axis = (0.0, 0.0, 1.0)
-        helical, pitch = _looks_helical(face, axis)
-        if not helical:
+        # 牙型 STEP 常是底孔圆柱 + 若干 B 样条牙面，不是 HELIX 边
+        if not helical and n_form < 2:
             continue
-        length = max(fb.xlen, fb.ylen, fb.zlen)
-        if length < 1.5:
+        minor = 2 * cyl["r"]
+        major, metric_p = major_from_minor(minor)
+        if major is None:
+            major = minor
+            metric_p = pitch or infer_pitch(minor)
+        if metric_p is None:
             continue
-        diameter = round(2 * radius, 4)
         if pitch is None:
-            pitch = infer_pitch(diameter)
-        if pitch is None:
-            continue
-        loc = _point(face.Center())
+            pitch = metric_p
+        loc = _point(cyl["c"])
+        axis = cyl["axis"]
+        length = round(cyl["length"], 4)
         found.append({
             "feature_id": "thread-%d" % len(found),
             "type": "thread",
             "subtype": "recognized_thread",
             "selected": True,
-            "diameter_mm": diameter,
+            "diameter_mm": round(major, 4),
             "pitch": pitch,
-            "thread_length": round(length, 4),
+            "thread_length": length,
             "dimensions": {
-                "diameter_mm": diameter,
+                "diameter_mm": round(major, 4),
                 "pitch": pitch,
-                "thread_length": round(length, 4),
+                "thread_length": length,
             },
             "location": loc,
             "axis": {"x": round(axis[0], 6), "y": round(axis[1], 6), "z": round(axis[2], 6)},
             "occurrences": 1,
-            "confidence": 0.7,
-            "evidence": ["helix", "D=%.3f" % diameter, "P=%.3f" % pitch, "L=%.3f" % length],
+            "confidence": 0.78 if n_form else 0.7,
+            "evidence": [
+                "bspline-form x%d" % n_form if n_form else "helix",
+                "D=%.3f" % major,
+                "P=%.3f" % pitch,
+                "L=%.3f" % cyl["length"],
+            ],
             "warnings": [],
         })
     return found

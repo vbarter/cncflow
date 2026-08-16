@@ -5,19 +5,45 @@ import pytest
 
 from cncflow_core.geometry.plugins import run_thread
 from cncflow_core.geometry.service import parse_step_file
-from cncflow_core.geometry.thread import infer_pitch
+from cncflow_core.geometry.thread import infer_pitch, major_from_minor
 from cncflow_core.inquiries.api import _review_and_quote_features
 
 
 FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures")
 HOLE_D8_STEP = os.path.join(FIXTURES, "plate_hole_d8.step")
 OPEN_SLOT_STEP = os.path.join(FIXTURES, "rect_open_slot.step")
+M8_STEP = os.path.join(FIXTURES, "m8x125_through_thread.step")
 
 
 def test_infer_pitch_metric():
     assert infer_pitch(8) == 1.25
     assert infer_pitch(10) == 1.5
     assert infer_pitch(3.3) is None
+
+
+def test_major_from_minor_m8():
+    assert major_from_minor(6.8) == (8.0, 1.25)
+    assert major_from_minor(8.0) == (None, None)
+    assert major_from_minor(3.3) == (4.0, 0.7)  # 底孔碰巧是 M4，无牙面不当螺纹
+
+
+def test_m8_sample_emits_dpl():
+    pytest.importorskip("cadquery")
+    if not os.path.exists(M8_STEP):
+        pytest.skip("missing M8 fixture")
+    threads = run_thread(M8_STEP)
+    assert threads, "expected recognized thread"
+    th = threads[0]
+    assert th["diameter_mm"] == pytest.approx(8, abs=0.3)
+    assert th["pitch"] == pytest.approx(1.25, abs=0.05)
+    assert th["thread_length"] == pytest.approx(12, abs=1.5)
+    result = parse_step_file(M8_STEP)
+    rec = [f for f in result["features"] if f.get("subtype") == "recognized_thread"]
+    assert rec
+    assert rec[0]["selected"] is True
+    holes = [f for f in result["features"] if f.get("subtype") == "recognized_hole" and f.get("selected")]
+    fake = [h for h in holes if abs((h.get("diameter_mm") or 0) - 6.8) < 0.3]
+    assert fake == [], fake
 
 
 def test_plain_hole_is_not_a_thread():
