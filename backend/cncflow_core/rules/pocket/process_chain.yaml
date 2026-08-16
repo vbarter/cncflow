@@ -1,6 +1,7 @@
 version: 1
+# 手册：粗铣 →（半精/精铣）→ 清角 → 倒角。实际链由 pipeline 按 IT/Ra/R 生成。
 chains:
-  D1: [{op: pocket_mill, tool_type: end_mill}]
-  D2: [{op: rough_pocket, tool_type: end_mill}, {op: finish_pocket, tool_type: end_mill}]
-  D3: [{op: rough_pocket, tool_type: end_mill}, {op: rest_mill, tool_type: small_end_mill}, {op: finish_pocket, tool_type: end_mill}]
-  default: [{op: pocket_mill, tool_type: end_mill}]
+  D1: [{op: rough_pocket, tool_type: end_mill}, {op: chamfer, tool_type: chamfer}]
+  D2: [{op: rough_pocket, tool_type: end_mill}, {op: rest_mill, tool_type: small_end_mill}, {op: chamfer, tool_type: chamfer}]
+  D3: [{op: rough_pocket, tool_type: end_mill}, {op: rest_mill, tool_type: small_end_mill}, {op: chamfer, tool_type: chamfer}]
+  default: [{op: rough_pocket, tool_type: end_mill}, {op: chamfer, tool_type: chamfer}]

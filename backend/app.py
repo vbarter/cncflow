@@ -56,6 +56,7 @@ FEATURE_PIPELINES = {
     "hole": hole_pipeline.run,
     "face": face_pipeline.run,
     "pocket": pocket_pipeline.run,
+    "slot": pocket_pipeline.run,
     "thread": thread_pipeline.run,
     "surface": surface_pipeline.run,
     "fixture": fixture_pipeline.run,

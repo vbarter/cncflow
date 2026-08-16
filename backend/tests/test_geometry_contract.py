@@ -13,7 +13,7 @@ def test_geometry_contract_lists_plugins(client):
     ids = [p["id"] for p in body["plugins"]]
     assert ids == ["hole", "slot", "face"]
     assert body["plugins"][0]["status"] == "active"
-    assert body["plugins"][1]["status"] == "stub"
+    assert body["plugins"][1]["status"] == "active"
     assert body["plugins"][2]["status"] == "stub"
 
 
@@ -34,8 +34,11 @@ def test_geometry_contract_lists_hole_fields(client):
         assert hole["version"] == "hole-v3"
         for name in HOLE_FIELDS:
             assert name in hole["fields"]
-        assert output["features"]["slot"]["status"] == "stub"
+        assert output["features"]["slot"]["status"] == "active"
+        assert output["features"]["slot"].get("accepted") is True
         assert output["features"]["face"]["status"] == "stub"
+        for name in ("pocket_type", "length", "width", "depth", "corner_radius"):
+            assert name in output["features"]["slot"]["fields"]
 
 
 def test_geometry_parse_requires_step(client):

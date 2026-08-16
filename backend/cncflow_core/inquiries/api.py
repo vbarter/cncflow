@@ -69,9 +69,32 @@ def _hole_for_pipeline(feat, fid):
     }
 
 
+def _pocket_for_pipeline(feat, fid):
+    dim = feat.get("dimensions") or {}
+    length = feat.get("length") if feat.get("length") is not None else dim.get("length")
+    width = feat.get("width") if feat.get("width") is not None else dim.get("width")
+    depth = feat.get("depth") if feat.get("depth") is not None else dim.get("depth")
+    if depth is None:
+        depth = feat.get("depth_mm") or dim.get("depth_mm")
+    if not length or not width or not depth:
+        return None
+    corner = feat.get("corner_radius")
+    if corner is None:
+        corner = dim.get("corner_radius") or 1
+    return {
+        "type": "pocket",
+        "feature_id": fid,
+        "pocket_type": feat.get("pocket_type") or dim.get("pocket_type") or "封闭",
+        "length": float(length),
+        "width": float(width),
+        "depth": float(depth),
+        "corner_radius": float(corner),
+    }
+
+
 def _review_and_quote_features(parsed_feats, selected_ids, L, W):
     review = []
-    holes = []
+    quoted = []
     selected = set(str(x) for x in selected_ids) if selected_ids is not None else None
     for i, feat in enumerate(parsed_feats or []):
         if not isinstance(feat, dict):
@@ -82,12 +105,17 @@ def _review_and_quote_features(parsed_feats, selected_ids, L, W):
             on = False
         item = {**feat, "feature_id": fid, "selected": on}
         review.append(item)
-        if feat.get("type") == "hole" and on:
+        if not on:
+            continue
+        if feat.get("type") == "hole":
             mapped = _hole_for_pipeline(feat, fid)
             if mapped:
-                holes.append(mapped)
-    # 本轮只跑通孔：报价吃识别出来的勾选孔，不塞空默认面
-    features = holes
+                quoted.append(mapped)
+        elif feat.get("type") in {"pocket", "slot"}:
+            mapped = _pocket_for_pipeline(feat, fid)
+            if mapped:
+                quoted.append(mapped)
+    features = quoted
     return review, features
 
 
@@ -186,7 +214,10 @@ def _flatten_hole_fields(feat):
         return feat
     dim = feat.get("dimensions") or {}
     out = dict(feat)
-    for key in ("diameter_mm", "depth_mm", "hole_type", "position_type", "cut_depth_mm"):
+    for key in (
+        "diameter_mm", "depth_mm", "hole_type", "position_type", "cut_depth_mm",
+        "pocket_type", "length", "width", "depth", "corner_radius",
+    ):
         if out.get(key) is None and dim.get(key) is not None:
             out[key] = dim[key]
     return _ensure_pose(out)

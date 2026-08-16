@@ -1,39 +1,46 @@
 """几何特征服务：询价 parse-job 进程内调用；孔字段与 hole-v3 现网一致。"""
-from . import FEATURE_SCHEMA, HOLE_FEATURE_FIELDS, SERVICE_NAME
+from . import FEATURE_SCHEMA, HOLE_FEATURE_FIELDS, SERVICE_NAME, SLOT_FEATURE_FIELDS, SLOT_SCHEMA
 from .plugins import list_plugins, plugin_names, run_face, run_slot
 
 
 def contract():
-    fields = list(HOLE_FEATURE_FIELDS)
+    hole_fields = list(HOLE_FEATURE_FIELDS)
+    slot_fields = list(SLOT_FEATURE_FIELDS)
     return {
         "service": SERVICE_NAME,
         "endpoint": "POST /api/v1/geometry/parse",
         "input": {"multipart": ["step_file"], "formats": ["step", "stp"]},
         "output": {
             "feature_schema": FEATURE_SCHEMA,
-            "feature_fields": fields,
+            "feature_fields": hole_fields,
             "features": {
                 "hole": {
                     "status": "active",
                     "version": FEATURE_SCHEMA,
-                    "fields": fields,
+                    "fields": hole_fields,
                 },
-                "slot": {"status": "stub", "accepted": False},
+                "slot": {
+                    "status": "active",
+                    "accepted": True,
+                    "version": SLOT_SCHEMA,
+                    "fields": slot_fields,
+                },
                 "face": {"status": "stub", "accepted": False},
             },
-            "plugins": "hole active; slot/face stub",
+            "plugins": "hole+slot active; face stub",
         },
         "plugins": list_plugins(),
         "notes": [
             "询价 parse-job 进程内调用 geometry service，Ø8/ZN-010 仍走现网 parse-jobs",
             "Ø8 / ZN-010 hole-v3 不得回退",
-            "槽/面只留插件位，本轮不验收",
+            "槽本轮验收；孔五字段不回退",
+            "槽腔最小集 pocket_type/L/W/H/R 本轮验收；平面仍留桩",
         ],
     }
 
 
 def parse_step_file(path):
-    """STEP → features。hole 走现网 parse_step 一次；slot/face 空桩。"""
+    """STEP → features。hole 走现网 parse_step 一次；slot 识别凹腔；face 空桩。"""
     from cncflow_core.ingestion.step_parser import parse_step
 
     result = parse_step(path)
