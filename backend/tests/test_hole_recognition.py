@@ -167,3 +167,8 @@ def test_plate_through_cylinder_is_hole():
     assert likely_plate_hole(8, 0, 12, 0, 12, (80, 60, 12)) is True
     assert likely_plate_hole(80, 0, 12, 0, 12, (80, 60, 12)) is False
     assert likely_plate_hole(8, 0, 6, 0, 12, (80, 60, 12)) is False
+
+
+def test_short_span_plate_still_hole():
+    assert likely_plate_hole(8, 0, 10, 0, 12, (80, 60, 12)) is True
+    assert likely_plate_hole(8, 0, 5, 0, 12, (80, 60, 12)) is False

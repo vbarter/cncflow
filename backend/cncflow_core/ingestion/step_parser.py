@@ -105,11 +105,10 @@ def classify_by_containment(toward_axis_inside, away_inside):
 
 
 def likely_plate_hole(diameter, cyl_min, cyl_max, solid_min, solid_max, extents):
-    """圆柱打穿最薄方向且直径小于薄边 → 当孔，不靠法向。"""
-    if classify_through_blind(cyl_min, cyl_max, solid_min, solid_max) != "through":
-        return False
+    """圆柱接近最薄边厚度、直径明显更小 → 当孔。"""
     shortest = min(extents)
-    return diameter < shortest * 0.9 and (cyl_max - cyl_min) >= shortest * THROUGH_SPAN
+    depth = cyl_max - cyl_min
+    return diameter < shortest * 0.95 and depth >= shortest * 0.7
 
 
 def _axis_from_face(face):
@@ -134,6 +133,14 @@ def _cylinder_axis_and_span(face):
     for vertex in face.Vertices():
         pt = vertex.Center()
         projections.append(_project((pt.x, pt.y, pt.z), axis))
+    try:
+        fb = face.BoundingBox()
+        for dx in (fb.xmin, fb.xmax):
+            for dy in (fb.ymin, fb.ymax):
+                for dz in (fb.zmin, fb.zmax):
+                    projections.append(_project((dx, dy, dz), axis))
+    except Exception:
+        pass
     if len(projections) < 2:
         return axis, origin, None, None
     return axis, origin, min(projections), max(projections)
@@ -177,13 +184,11 @@ def _point_inside(solid, xyz):
 
 
 def classify_side(solids, center, axis, origin, radius, normal=None):
-    radial, mag = _norm((
-        center[0] - origin[0] - _dot((center[0] - origin[0], center[1] - origin[1], center[2] - origin[2]), axis) * axis[0],
-        center[1] - origin[1] - _dot((center[0] - origin[0], center[1] - origin[1], center[2] - origin[2]), axis) * axis[1],
-        center[2] - origin[2] - _dot((center[0] - origin[0], center[1] - origin[1], center[2] - origin[2]), axis) * axis[2],
-    ))
+    vec = (center[0] - origin[0], center[1] - origin[1], center[2] - origin[2])
+    t = _dot(vec, axis)
+    radial, mag = _norm((vec[0] - t * axis[0], vec[1] - t * axis[1], vec[2] - t * axis[2]))
     if mag < 1e-9:
-        radial, mag = _norm((center[0] - origin[0], center[1] - origin[1], center[2] - origin[2]))
+        radial, mag = _norm(vec)
     offset = max(radius * 0.35, 0.25)
     toward = (center[0] - offset * radial[0], center[1] - offset * radial[1], center[2] - offset * radial[2])
     away = (center[0] + offset * radial[0], center[1] + offset * radial[1], center[2] + offset * radial[2])
@@ -316,17 +321,24 @@ def _hole_feature(group, bbox, all_faces, index):
     }
 
 
-def _candidate(index, radius, depth, location, axis=None):
+def _candidate(index, radius, depth, location, axis=None, hole_type=None, position_type=None):
     d = round(radius * 2, 4)
     h = round(depth, 4)
+    pos = position_type
+    surface = SURFACE_FROM_POSITION.get(pos) if pos else None
+    cut = through_cut_depth(d, h, hole_type) if hole_type else None
     return {
         "feature_id": "cylinder-%d" % index,
         "type": "hole",
         "subtype": "cylindrical_candidate",
         "diameter_mm": d,
         "depth_mm": h,
-        "hole_type": None,
-        "position_type": None,
+        "cut_depth_mm": cut,
+        "h_over_d": round(h / d, 4) if d else None,
+        "hole_type": hole_type,
+        "position_type": pos,
+        "surface": surface,
+        "bottom_shape": "cone",
         "dimensions": {"diameter_mm": d, "depth_mm": h},
         "location": location,
         "axis": axis,
@@ -406,7 +418,12 @@ def parse_step(path: str) -> dict:
                 outer.append(rec)
             else:
                 axis_d = {"x": round(axis[0], 6), "y": round(axis[1], 6), "z": round(axis[2], 6)}
-                unknown.append(_candidate(index, radius, cyl_max - cyl_min, _point(location), axis_d))
+                ht = classify_through_blind(cyl_min, cyl_max, solid_min, solid_max)
+                pos = classify_position(axis, (bbox.xlen, bbox.ylen, bbox.zlen))
+                unknown.append(_candidate(
+                    index, radius, cyl_max - cyl_min, _point(location), axis_d,
+                    hole_type=ht, position_type=pos,
+                ))
         elif kind == "CONE":
             other.append({
                 "feature_id": "cone-%d" % index, "type": "chamfer", "subtype": "conical_face",
