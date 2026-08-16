@@ -39,19 +39,41 @@ def _nearest_sku(conn, step: dict):
     return row["sku"] if row else None
 
 
-def _density(material: str, factory: dict) -> float:
+def _material_row(material: str, factory: dict, payload: dict):
+    from ..factory.store import resolve_material_code
+    codes = []
+    for raw in (payload.get("material_code"), material):
+        if not raw:
+            continue
+        codes.append(raw)
+        resolved = resolve_material_code(raw)
+        if resolved and resolved not in codes:
+            codes.append(resolved)
+    for row in factory.get("material_prices") or []:
+        if row.get("material_code") in codes:
+            return row
+    return None
+
+
+def _density(material: str, factory: dict, payload: dict | None = None) -> float:
+    row = _material_row(material, factory, payload or {})
+    if row and row.get("density_g_cm3"):
+        return float(row["density_g_cm3"])
     from ..features.fixture.pipeline import _mat
-    return float(_mat(material)["density"])
+    from ..factory.store import resolve_material_code
+    return float(_mat(resolve_material_code(material) or material)["density"])
 
 
 def _price(material: str, factory: dict, payload: dict):
     if payload.get("price_per_kg") is not None:
-        return float(payload["price_per_kg"]), float(payload.get("scrap_price_per_kg") or 0)
-    for row in factory.get("material_prices") or []:
-        if row["material_code"] == payload.get("material_code") or row.get("material_code") == material:
-            return float(row["price_per_kg"]), float(row.get("scrap_price_per_kg") or 0)
+        eta = payload.get("recycle_rate")
+        return float(payload["price_per_kg"]), float(payload.get("scrap_price_per_kg") or 0), float(eta) if eta is not None else 1.0
+    row = _material_row(material, factory, payload)
+    if row:
+        eta = row.get("recycle_rate")
+        return float(row["price_per_kg"]), float(row.get("scrap_price_per_kg") or 0), float(eta) if eta is not None else 1.0
     defaults = {"铝合金": 25, "钢": 8, "普通碳钢": 8, "不锈钢": 30, "钛合金": 200, "淬硬钢": 15, "铸铁": 6, "铜合金": 50}
-    return float(defaults.get(material, 25)), 0.0
+    return float(defaults.get(material, 25)), 0.0, 1.0
 
 
 def _rate(factory: dict, payload: dict) -> dict:
@@ -86,10 +108,10 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
     H = float(payload.get("height") or payload.get("H") or 0)
     if L <= 0 or D <= 0:
         raise ValueError("length 与 diameter/width 必填且须为正数")
-    dens = _density(material, factory)
+    dens = _density(material, factory, payload)
     vol = volume.compute(stock, L, D, H, density=dens, v_part_cad=payload.get("v_part_cad"))
-    price, scrap_price = _price(material, factory, payload)
-    mat_cost = vol["blank_weight_kg"] * price - vol["scrap_weight_kg"] * scrap_price
+    price, scrap_price, recycle_rate = _price(material, factory, payload)
+    mat_cost = vol["blank_weight_kg"] * price - vol["scrap_weight_kg"] * scrap_price * recycle_rate
 
     rate = _rate(factory, payload)
     hourly = float(payload.get("hourly_rate") or rate["hourly_rate"])
@@ -126,7 +148,9 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
         fid = feat.get("id") or feat.get("feature_id") or f"{ftype}-{i}"
         for step in steps:
             sel = step.get("selected_candidate") or {}
-            sku = sel.get("candidate_id") or ((step.get("sku_candidates") or [None])[0])
+            sku = sel.get("candidate_id") if sel.get("candidate_type") == "sku" else None
+            if not sku:
+                sku = next((c for c in (step.get("sku_candidates") or []) if c), None)
             if not sku:
                 sku = _nearest_sku(conn, step)
             seq.append({
@@ -136,7 +160,7 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
                 "cycle": step.get("cycle"),
                 "sku": sku,
                 "side": step.get("side"),
-                "match_status": step.get("match_status") if sel.get("candidate_id") else ("nearest" if sku else step.get("match_status")),
+                "match_status": step.get("match_status") if sel.get("candidate_type") == "sku" else ("nearest" if sku else step.get("match_status")),
                 "tool": sku or step.get("cycle") or step.get("process") or "—",
             })
             if step.get("name"):

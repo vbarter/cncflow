@@ -25,14 +25,14 @@ materials:
   - code: CARBON-STEEL-UNSPEC
     name: 普通碳钢（牌号未指定）
     family: 普通碳钢
-    aliases: [普通碳钢, 碳钢, 普通钢, 钢]
+    aliases: [普通碳钢, 碳钢, 普通钢, 钢, ST-02, 40Cr, 40Cr合金钢]
     planning_status: enabled_family_fallback
     verification_status: verified
     source_id: cncflow_verified
   - code: STAINLESS-UNSPEC
     name: 不锈钢（牌号未指定）
     family: 不锈钢
-    aliases: [不锈钢]
+    aliases: [不锈钢, SS-02, 316L, 316L不锈钢]
     planning_status: enabled_family_fallback
     verification_status: verified
     source_id: cncflow_verified
@@ -46,7 +46,7 @@ materials:
   - code: CAST-IRON-UNSPEC
     name: 铸铁（牌号未指定）
     family: 铸铁
-    aliases: [铸铁]
+    aliases: [铸铁, FE-01, HT250, HT250灰铸铁]
     planning_status: enabled_family_fallback
     verification_status: verified
     source_id: cncflow_verified
@@ -63,7 +63,7 @@ materials:
     family: 铝合金
     grade: 6061
     condition: T6
-    aliases: [6061, AL6061, 铝6061, 铝合金6061, 6061-T6, LD30]
+    aliases: [6061, AL6061, 铝6061, 铝合金6061, 6061-T6, LD30, AL-01, 6061-T6铝合金, AL6061-T6]
     density: 2.70
     hardness: HB 90-95
     machinability_rating: 5
@@ -80,7 +80,7 @@ materials:
     name: 铝合金 7075
     family: 铝合金
     grade: 7075
-    aliases: [7075, AL7075, 铝合金7075]
+    aliases: [7075, AL7075, 铝合金7075, AL-02, 7075-T6铝合金]
     density: 2.80
     planning_status: enabled_family_fallback
     verification_status: community_unverified
@@ -89,7 +89,7 @@ materials:
     name: 304 不锈钢
     family: 不锈钢
     grade: 304
-    aliases: [304, SUS304, 304不锈钢, 不锈钢304, 0Cr18Ni9]
+    aliases: [304, SUS304, 304不锈钢, 不锈钢304, 0Cr18Ni9, SS-01]
     density: 7.93
     hardness: HB 185-187
     machinability_rating: 2
@@ -106,7 +106,7 @@ materials:
     name: 45号钢
     family: 普通碳钢
     grade: 45#钢
-    aliases: [45#钢, 45号钢, 45钢]
+    aliases: [45#钢, 45号钢, 45钢, ST-01]
     density: 7.85
     hardness: HB 170-217
     machinability_rating: 4
@@ -120,7 +120,7 @@ materials:
     name: 钛合金 TC4 (Ti6Al4V)
     family: 钛合金
     grade: TC4
-    aliases: [TC4, Ti6Al4V, Ti-6Al-4V]
+    aliases: [TC4, Ti6Al4V, Ti-6Al-4V, TI-01, TC4钛合金]
     density: 4.43
     hardness: HRC 30-36
     machinability_rating: 1
@@ -137,7 +137,7 @@ materials:
     name: 黄铜 H59
     family: 铜合金
     grade: H59
-    aliases: [H59, 黄铜, 黄铜H59]
+    aliases: [H59, 黄铜, 黄铜H59, CU-02, H62, H62黄铜]
     density: 8.50
     hardness: HB 80-90
     machinability_rating: 5
@@ -151,7 +151,7 @@ materials:
     name: 紫铜 T2
     family: 铜合金
     grade: T2
-    aliases: [T2, 紫铜, 紫铜T2]
+    aliases: [T2, 紫铜, 紫铜T2, CU-01, T2紫铜]
     density: 8.90
     hardness: HB 35-45
     machinability_rating: 3
@@ -165,7 +165,7 @@ materials:
     name: ABS 工程塑料
     family: 工程塑料
     grade: ABS
-    aliases: [ABS, ABS塑料, ABS工程塑料]
+    aliases: [ABS, ABS塑料, ABS工程塑料, PL-01]
     density: 1.05
     hardness: HR R100-110
     machinability_rating: 5

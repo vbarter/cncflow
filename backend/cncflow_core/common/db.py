@@ -215,6 +215,10 @@ CREATE TABLE IF NOT EXISTS factory_material_prices (
   scrap_price_per_kg REAL NOT NULL DEFAULT 0,
   density_g_cm3 REAL,
   family TEXT,
+  display_name TEXT,
+  recycle_rate REAL,
+  warning TEXT,
+  extra_json TEXT,
   enabled INTEGER NOT NULL DEFAULT 1
 );
 
@@ -291,6 +295,10 @@ def init_schema(conn: sqlite3.Connection) -> None:
     _ensure_column(conn, "tools", "source", "TEXT")
     _ensure_column(conn, "factory_material_prices", "density_g_cm3", "REAL")
     _ensure_column(conn, "factory_material_prices", "family", "TEXT")
+    _ensure_column(conn, "factory_material_prices", "display_name", "TEXT")
+    _ensure_column(conn, "factory_material_prices", "recycle_rate", "REAL")
+    _ensure_column(conn, "factory_material_prices", "warning", "TEXT")
+    _ensure_column(conn, "factory_material_prices", "extra_json", "TEXT")
     _ensure_column(conn, "machines", "extra_json", "TEXT")
     # 一期数据库中的无来源刀具全部由 seed_tools.py 生成；迁移后不得冒充真实库存。
     conn.execute(
