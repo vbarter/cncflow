@@ -148,3 +148,63 @@ def test_factory_seeds_unchanged(client):
     assert len(body["machines"]) == 23
     skus = {t["sku"] for t in body["tools"]}
     assert {f"TK-{i:03d}" for i in range(1, 40)} <= skus
+
+
+FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures")
+OPEN_SLOT_STEP = os.path.join(FIXTURES, "rect_open_slot.step")
+HOLE_D8_STEP = os.path.join(FIXTURES, "plate_hole_d8.step")
+
+
+def test_open_slot_type_beats_keyway_ratio():
+    from cncflow_core.geometry.slot import _pocket_type
+    assert _pocket_type(40, 10, 3, False, True) == "开放"
+    assert _pocket_type(40, 10, 4, False, False) == "键槽"
+    assert _pocket_type(40, 30, 4, False, False) == "封闭"
+
+
+def test_drop_fillet_holes_keeps_real_d8():
+    from cncflow_core.geometry.service import _drop_slot_fillet_holes
+    features = [
+        {"subtype": "recognized_slot", "corner_radius": 3, "length": 40, "width": 10, "depth": 8,
+         "location": {"x": 0, "y": 0, "z": 4}},
+        {"subtype": "recognized_hole", "diameter_mm": 6.0, "location": {"x": 0, "y": 4, "z": 4}},
+        {"subtype": "recognized_hole", "diameter_mm": 6.0, "location": {"x": 0, "y": -4, "z": 4}},
+        {"subtype": "recognized_hole", "diameter_mm": 8.0, "location": {"x": -25, "y": 0, "z": 6},
+         "hole_type": "through", "position_type": "垂直", "cut_depth_mm": 14.4, "depth_mm": 12},
+    ]
+    kept = _drop_slot_fillet_holes(features)
+    holes = [f for f in kept if f.get("subtype") == "recognized_hole"]
+    assert [h["diameter_mm"] for h in holes] == [8.0]
+
+
+def test_open_slot_not_keyway_no_fillet_holes():
+    pytest.importorskip("cadquery")
+    if not os.path.exists(OPEN_SLOT_STEP):
+        pytest.skip("missing open-slot fixture")
+    slots = run_slot(OPEN_SLOT_STEP)
+    assert slots, "expected open slot"
+    slot = slots[0]
+    assert slot["pocket_type"] == "开放", slot
+    assert slot["length"] == pytest.approx(40, abs=1.5)
+    assert slot["width"] == pytest.approx(10, abs=1.5)
+    assert slot["depth"] == pytest.approx(8, abs=1.5)
+    assert slot["corner_radius"] == pytest.approx(3, abs=0.6)
+    result = parse_step_file(OPEN_SLOT_STEP)
+    holes = [f for f in result["features"] if f.get("subtype") == "recognized_hole"]
+    fake = [h for h in holes if abs((h.get("diameter_mm") or 0) - 6) < 0.6]
+    assert fake == [], fake
+    pockets = [f for f in result["features"] if f.get("subtype") == "recognized_slot"]
+    assert pockets[0]["pocket_type"] == "开放"
+    assert pockets[0]["length"] == pytest.approx(40, abs=1.5)
+
+
+def test_d8_hole_fixture_five_fields_hold():
+    pytest.importorskip("cadquery")
+    if not os.path.exists(HOLE_D8_STEP):
+        pytest.skip("missing Ø8 fixture")
+    result = parse_step_file(HOLE_D8_STEP)
+    holes = [f for f in result["features"] if f.get("subtype") == "recognized_hole"]
+    assert holes
+    assert holes[0]["diameter_mm"] == pytest.approx(8, abs=0.2)
+    for name in ("diameter_mm", "depth_mm", "hole_type", "position_type", "cut_depth_mm"):
+        assert name in holes[0]

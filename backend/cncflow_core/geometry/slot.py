@@ -102,7 +102,7 @@ def _corner_radius(bottom, walls, all_faces, pocket_box):
                 radii.append(r)
     if radii:
         return round(min(radii), 3)
-    return 1.0
+    return None
 
 
 def _connected_components(items):
@@ -240,9 +240,11 @@ def _opens_to_side(bottom, walls, bbox, pairs):
 def _pocket_type(length, width, n_walls, t_slot, opens):
     if t_slot:
         return "T型"
+    if opens:
+        return "开放"
     if length / max(width, 1e-6) >= 3 and width <= 12.0001:
         return "键槽"
-    if n_walls >= 4 and not opens:
+    if n_walls >= 4:
         return "封闭"
     return "开放"
 
@@ -357,12 +359,16 @@ def detect_slots(path: str) -> list:
         if depth < 0.8:
             continue
         opens = _opens_to_side(bottom, walls, bbox, pairs)
-        ptype = _pocket_type(length, width, len(walls), t_slot, opens)
-        radius = _corner_radius(
+        found_r = _corner_radius(
             bottom, walls, faces,
             (bottom["fb"].xmin, bottom["fb"].xmax, bottom["fb"].ymin, bottom["fb"].ymax,
              bottom["fb"].zmin, bottom["fb"].zmax),
         )
+        # 开口封闭端圆角吃掉一段直壁，L 要补回 R
+        if opens and found_r:
+            length = length + found_r
+        radius = found_r if found_r is not None else 1.0
+        ptype = _pocket_type(length, width, len(walls), t_slot, opens)
         loc = _point(bottom["c"])
         found.append({
             "feature_id": "slot-%d" % len(found),
