@@ -93,6 +93,25 @@ def through_cut_depth(diameter_mm, depth_mm, hole_type):
     return round(float(depth_mm) + extra, 4)
 
 
+def classify_by_containment(toward_axis_inside, away_inside):
+    """轴心侧是空腔、外侧是实体 → 内孔。"""
+    if toward_axis_inside is None or away_inside is None:
+        return None
+    if (not toward_axis_inside) and away_inside:
+        return "inner"
+    if toward_axis_inside and (not away_inside):
+        return "outer"
+    return None
+
+
+def likely_plate_hole(diameter, cyl_min, cyl_max, solid_min, solid_max, extents):
+    """圆柱打穿最薄方向且直径小于薄边 → 当孔，不靠法向。"""
+    if classify_through_blind(cyl_min, cyl_max, solid_min, solid_max) != "through":
+        return False
+    shortest = min(extents)
+    return diameter < shortest * 0.9 and (cyl_max - cyl_min) >= shortest * THROUGH_SPAN
+
+
 def _axis_from_face(face):
     cylinder = face._geomAdaptor().Cylinder()
     direction = cylinder.Axis().Direction()
@@ -131,13 +150,50 @@ def _radial_at_center(face, axis, origin):
 def _face_normal(face):
     try:
         n = face.normalAt()
-        return (float(n.x), float(n.y), float(n.z))
+        vec = (float(n.x), float(n.y), float(n.z))
     except Exception:
         try:
             n = face.normalAt(None)
-            return (float(n.x), float(n.y), float(n.z))
+            vec = (float(n.x), float(n.y), float(n.z))
         except Exception:
             return None
+    try:
+        if int(face.wrapped.Orientation()) == 1:
+            vec = (-vec[0], -vec[1], -vec[2])
+    except Exception:
+        pass
+    return vec
+
+
+def _point_inside(solid, xyz):
+    try:
+        import cadquery as cq
+        return bool(solid.isInside(cq.Vector(xyz[0], xyz[1], xyz[2])))
+    except Exception:
+        try:
+            return bool(solid.isInside(xyz))
+        except Exception:
+            return None
+
+
+def classify_side(solids, center, axis, origin, radius, normal=None):
+    radial, mag = _norm((
+        center[0] - origin[0] - _dot((center[0] - origin[0], center[1] - origin[1], center[2] - origin[2]), axis) * axis[0],
+        center[1] - origin[1] - _dot((center[0] - origin[0], center[1] - origin[1], center[2] - origin[2]), axis) * axis[1],
+        center[2] - origin[2] - _dot((center[0] - origin[0], center[1] - origin[1], center[2] - origin[2]), axis) * axis[2],
+    ))
+    if mag < 1e-9:
+        radial, mag = _norm((center[0] - origin[0], center[1] - origin[1], center[2] - origin[2]))
+    offset = max(radius * 0.35, 0.25)
+    toward = (center[0] - offset * radial[0], center[1] - offset * radial[1], center[2] - offset * radial[2])
+    away = (center[0] + offset * radial[0], center[1] + offset * radial[1], center[2] + offset * radial[2])
+    for solid in solids:
+        side = classify_by_containment(_point_inside(solid, toward), _point_inside(solid, away))
+        if side:
+            return side
+    if normal:
+        return classify_cylinder_side(normal, radial)
+    return None
 
 
 def _solid_span_on_axis(bbox, axis):
@@ -324,10 +380,14 @@ def parse_step(path: str) -> dict:
             if axis is None or cyl_min is None:
                 unknown.append(_candidate(index, radius, max(fb.xlen, fb.ylen, fb.zlen), _point(location)))
                 continue
-            radial = _radial_at_center(face, axis, origin)
-            normal = _face_normal(face)
-            side = classify_cylinder_side(normal, radial) if normal else None
+            center = (location.x, location.y, location.z)
+            side = classify_side(solids, center, axis, origin, radius, _face_normal(face))
             solid_min, solid_max = _solid_span_on_axis(bbox, axis)
+            if side is None and likely_plate_hole(
+                radius * 2, cyl_min, cyl_max, solid_min, solid_max,
+                (bbox.xlen, bbox.ylen, bbox.zlen),
+            ):
+                side = "inner"
             rec = {
                 "index": index,
                 "diameter_mm": radius * 2,
@@ -403,6 +463,7 @@ def parse_step(path: str) -> dict:
         warnings.append("圆柱面未能确认内孔，已标候选待工程师勾选")
     return {
         "parser": "cadquery-occ", "parser_version": getattr(cq, "__version__", "unknown"),
+        "feature_schema": "hole-v2",
         "geometry": {
             "unit": "mm", "solid_count": len(solids), "volume_cm3": round(volume / 1000, 6),
             "surface_area_cm2": round(area / 100, 6), "bounding_box_mm": _bbox(bbox),
