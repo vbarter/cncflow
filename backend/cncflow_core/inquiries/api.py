@@ -265,8 +265,9 @@ def _maybe_quote(conn, part):
         return part
     q = part.get("quote") if isinstance(part.get("quote"), dict) else {}
     already = isinstance(q.get("quote"), dict) and (q.get("quote") or {}).get("amount")
-    has_steps = bool(q.get("process_sequence"))
-    if already and has_steps and part.get("status") in {"quoted", "revising"}:
+    seq = q.get("process_sequence") or []
+    has_sku = any(s.get("sku") for s in seq)
+    if already and has_sku and part.get("status") in {"quoted", "revising"}:
         return part
     try:
         quoted = _quote_part(conn, part)

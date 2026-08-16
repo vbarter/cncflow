@@ -20,6 +20,25 @@ DIFF_MIN = {"D1": 2.0, "D2": 6.0, "D3": 15.0, "D4": 25.0, "NA": 20.0, 1: 2.0, 2:
 DIFF_FACTOR = {"D3": 1.3, "D4": 1.8, 3: 1.3, 4: 1.8}
 
 
+def _nearest_sku(conn, step: dict):
+    """非标孔径库存无全等时，同大类就近选一把在库 SKU。"""
+    attrs = step.get("tool_attrs") or {}
+    cat = attrs.get("category")
+    if not cat:
+        return None
+    d = attrs.get("nominal_diameter_mm")
+    if d is None:
+        row = conn.execute(
+            "SELECT sku FROM tools WHERE category=? AND in_stock=1 ORDER BY sku LIMIT 1", (cat,),
+        ).fetchone()
+    else:
+        row = conn.execute(
+            "SELECT sku FROM tools WHERE category=? AND in_stock=1 "
+            "ORDER BY ABS(diameter_mm-?) ASC, sku LIMIT 1", (cat, float(d)),
+        ).fetchone()
+    return row["sku"] if row else None
+
+
 def _density(material: str, factory: dict) -> float:
     from ..features.fixture.pipeline import _mat
     return float(_mat(material)["density"])
@@ -108,13 +127,15 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
         for step in steps:
             sel = step.get("selected_candidate") or {}
             sku = sel.get("candidate_id") or ((step.get("sku_candidates") or [None])[0])
+            if not sku:
+                sku = _nearest_sku(conn, step)
             seq.append({
                 "order": len(seq) + 1,
                 "feature_id": fid,
                 "process": step.get("process"),
                 "cycle": step.get("cycle"),
                 "sku": sku,
-                "match_status": step.get("match_status"),
+                "match_status": step.get("match_status") if sel.get("candidate_id") else ("nearest" if sku else step.get("match_status")),
                 "tool": sku or step.get("cycle") or step.get("process") or "—",
             })
         tags.extend(result.get("risk_tags") or [])
