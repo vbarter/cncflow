@@ -53,7 +53,7 @@ class TestHappyPath:
         resp = client.get("/api/v1/health")
         body = resp.get_json()
         assert body["status"] == "degraded"  # 测试环境未启动独立解析Worker
-        assert "hole" in body["features"] and "face" in body["features"]
+        assert set(body["features"]) >= {"hole", "face", "fixture"}
         assert body["parser"]["queued"] >= 0
         assert body["parser"]["available"] is False
 
