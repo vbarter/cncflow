@@ -171,3 +171,27 @@ def test_post_part_quote_one_click(client):
     assert part["quote"]["ui_cost"]["material"] >= 0
     # 无识别孔时本轮不出默认面工步，金额仍在
     assert part["quote"]["quote"]["amount"] > 0
+
+
+def test_steel_alias_quotes_hole_with_sku(client, seeded_db_path):
+    inq = client.post("/api/v1/inquiries", json={"customer": "华科"}).get_json()
+    pid = client.post(f"/api/v1/inquiries/{inq['id']}/parts", json={"name": "ZN-010", "material": "钢"}).get_json()["id"]
+    data = {"step_file": (BytesIO(MINIMAL_STEP), "part.step"), "part_id": pid}
+    job_id = client.post("/api/v1/parse-jobs", data=data, content_type="multipart/form-data").get_json()["job_id"]
+    conn = get_conn(seeded_db_path)
+    finish_job(conn, job_id, {
+        "geometry": {"volume_cm3": 12.5, "bounding_box_mm": {"x": 50, "y": 50, "z": 44}},
+        "features": [{
+            "type": "hole", "feature_id": "h0", "subtype": "recognized_hole", "selected": True,
+            "diameter_mm": 8.0, "depth_mm": 12, "hole_type": "through",
+            "position_type": "垂直", "cut_depth_mm": 14.4,
+        }],
+        "drawing": None, "warnings": [],
+    })
+    conn.close()
+    part = client.get(f"/api/v1/parts/{pid}").get_json()
+    assert part["status"] == "quoted"
+    seq = part["quote"]["process_sequence"]
+    assert seq, part["quote"].get("features")
+    assert any(s.get("sku") for s in seq), seq
+    assert not any((f.get("plan") or {}).get("error") for f in part["quote"].get("features") or [])

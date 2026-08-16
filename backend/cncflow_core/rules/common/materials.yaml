@@ -25,7 +25,7 @@ materials:
   - code: CARBON-STEEL-UNSPEC
     name: 普通碳钢（牌号未指定）
     family: 普通碳钢
-    aliases: [普通碳钢, 碳钢, 普通钢]
+    aliases: [普通碳钢, 碳钢, 普通钢, 钢]
     planning_status: enabled_family_fallback
     verification_status: verified
     source_id: cncflow_verified
