@@ -99,6 +99,34 @@ def _parse_geom(conn, part):
     return {}, []
 
 
+def _flatten_hole_fields(feat):
+    if not isinstance(feat, dict):
+        return feat
+    dim = feat.get("dimensions") or {}
+    out = dict(feat)
+    for key in ("diameter_mm", "depth_mm", "hole_type", "position_type", "cut_depth_mm"):
+        if out.get(key) is None and dim.get(key) is not None:
+            out[key] = dim[key]
+    return out
+
+
+def _attach_parsed_features(conn, part):
+    """零件详情在未报价时也能看到 parse-job 孔参数。"""
+    _, feats = _parse_geom(conn, part)
+    feats = [_flatten_hole_fields(f) for f in feats]
+    part["parsed_features"] = feats
+    quote = part.get("quote")
+    if not isinstance(quote, dict):
+        quote = {}
+        part["quote"] = quote
+    if not (quote.get("review_features") or quote.get("features")):
+        review, _ = _review_and_quote_features(feats, None, part.get("length") or 0, part.get("width") or 0)
+        quote = dict(quote)
+        quote["review_features"] = [_flatten_hole_fields(f) for f in review]
+        part["quote"] = quote
+    return part
+
+
 def _quote_part(conn, part, selected_ids=None, features_override=None):
     geometry, parsed_feats = _parse_geom(conn, part)
     L, W, H = _bbox_lwh(part, geometry)
@@ -201,7 +229,7 @@ def quote_inquiry(iid):
 def get_part(pid):
     conn = _conn()
     try:
-        return jsonify(store.get_part(conn, pid))
+        return jsonify(_attach_parsed_features(conn, store.get_part(conn, pid)))
     except KeyError:
         return jsonify({"error": "零件不存在"}), 404
     finally:

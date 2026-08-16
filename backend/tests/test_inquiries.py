@@ -113,3 +113,31 @@ def test_patch_material_and_unselect_hole_recalculates(client, seeded_db_path):
     assert by_id["f0"]["selected"] is True
     assert by_id["f1"]["selected"] is False
     assert part["quote"]["quote"]["amount"] > 0
+
+
+def test_part_detail_shows_parse_job_holes_before_quote(client, seeded_db_path):
+    inq = client.post("/api/v1/inquiries", json={"customer": "华科"}).get_json()
+    iid = inq["id"]
+    pid = client.post(f"/api/v1/inquiries/{iid}/parts", json={"name": "ZN-010", "material": "铝合金"}).get_json()["id"]
+    data = {"step_file": (BytesIO(MINIMAL_STEP), "part.step"), "part_id": pid}
+    job_id = client.post("/api/v1/parse-jobs", data=data, content_type="multipart/form-data").get_json()["job_id"]
+    conn = get_conn(seeded_db_path)
+    finish_job(conn, job_id, {
+        "geometry": {"volume_cm3": 12.5, "bounding_box_mm": {"x": 50, "y": 50, "z": 44}},
+        "features": [{
+            "type": "hole", "feature_id": "h0", "subtype": "recognized_hole", "selected": True,
+            "diameter_mm": 3.30, "depth_mm": 26, "hole_type": "through",
+            "position_type": "垂直", "cut_depth_mm": 26.99,
+        }],
+        "drawing": None, "warnings": [],
+    })
+    conn.close()
+    part = client.get(f"/api/v1/parts/{pid}").get_json()
+    assert part["status"] == "need_params"
+    assert part.get("quote") in (None, {}) or not (part.get("quote") or {}).get("quote")
+    holes = part.get("parsed_features") or (part.get("quote") or {}).get("review_features") or []
+    hole = next(f for f in holes if f.get("type") == "hole")
+    assert hole["diameter_mm"] == 3.30
+    assert hole["depth_mm"] == 26
+    assert hole["hole_type"] == "through"
+    assert hole["position_type"] == "垂直"
