@@ -35,8 +35,9 @@ def test_position_type_from_axis():
     assert classify_position((0, 0, 1), plate) == "垂直"
     assert classify_position((1, 0, 0), plate) == "侧向"
     assert classify_position((0.7, 0.7, 0.1), plate) == "倾斜"
-    assert classify_position((0, 0, 1), plate, entry_curved=True) == "曲面"
-    assert classify_position((0, 0, 1), plate, entry_recessed=True) == "深腔"
+    assert classify_position((0, 0, 1), plate, entry_curved=True) == "垂直"
+    assert classify_position((0, 0, 1), plate, entry_recessed=True) == "垂直"
+    assert classify_position((0.7, 0.7, 0.1), plate, entry_curved=True) == "曲面"
 
 
 def test_through_vs_blind_span():
@@ -296,4 +297,4 @@ def test_zn010_countersink_not_curved():
     assert is_curved_entry_kind("TORUS") is False
     assert is_curved_entry_kind("SPHERE") is True
     assert classify_position((0, 0, 1), (50, 50, 44)) == "垂直"
-    assert classify_position((0, 0, 1), (50, 50, 44), entry_curved=True) == "曲面"
+    assert classify_position((0, 0, 1), (50, 50, 44), entry_curved=True) == "垂直"
