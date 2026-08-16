@@ -46,10 +46,25 @@ def upload_job():
             raise ValueError("未选择有效文件")
         if sum(item["size_bytes"] for item in files) > MAX_JOB_BYTES:
             raise ValueError("单次任务文件总大小不能超过150MB")
-        options = {"allow_external_ai": request.form.get("allow_external_ai", "false").lower() == "true"}
+        part_id = (request.form.get("part_id") or "").strip()
+        options = {
+            "allow_external_ai": request.form.get("allow_external_ai", "false").lower() == "true",
+            "part_id": part_id or None,
+        }
+        if part_id:
+            part = conn.execute("SELECT id FROM parts WHERE id=?", (part_id,)).fetchone()
+            if part is None:
+                return jsonify({"error": "零件不存在"}), 404
         job_id = create_job(conn, files, options)
+        if part_id:
+            conn.execute(
+                "UPDATE parts SET parse_job_id=?, status='parsing', updated_at=datetime('now') WHERE id=?",
+                (job_id, part_id),
+            )
+            conn.commit()
         return jsonify({
-            "job_id": job_id, "status": "queued", "status_url": f"/api/v1/parse-jobs/{job_id}"
+            "job_id": job_id, "status": "queued", "part_id": part_id or None,
+            "status_url": f"/api/v1/parse-jobs/{job_id}"
         }), 202
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400

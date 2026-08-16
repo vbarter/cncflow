@@ -72,7 +72,7 @@ export function NewInquiry({ go }: { go: (h: string) => void }) {
         body: JSON.stringify({ customer, project, due_date: due, title: project || rfq }),
       })
       for (const p of usable) {
-        await json(`/inquiries/${inq.id}/parts`, {
+        const part = await json<any>(`/inquiries/${inq.id}/parts`, {
           method: "POST",
           body: JSON.stringify({
             name: p.name || (p.step ? stem(p.step) : "零件"),
@@ -90,6 +90,7 @@ export function NewInquiry({ go }: { go: (h: string) => void }) {
           const form = new FormData()
           if (p.step) form.append("step_file", p.step)
           if (p.pdf) form.append("drawing_file", p.pdf)
+          form.append("part_id", part.id)
           await upload("/parse-jobs", form)
         }
       }
@@ -134,7 +135,7 @@ export function NewInquiry({ go }: { go: (h: string) => void }) {
                   <option>AL6061-T6</option><option>SUS304</option><option>AL7075</option><option>POM</option><option>铝合金</option><option>钢</option><option>不锈钢</option>
                 </Select></td>
                 <td><Select value={p.surface_finish} onChange={e => upd(i, { surface_finish: e.target.value })}>
-                  <option>无</option><option>阳极氧化</option><option>镀锌</option>
+                  <option>无</option><option>阳极氧化</option><option>镀锌</option><option>喷砂</option>
                 </Select></td>
                 <td><Select value={p.precision} onChange={e => upd(i, { precision: e.target.value })}>
                   <option>普通(ISO 2768-m)</option><option>精密</option>
@@ -169,7 +170,8 @@ export function NewInquiry({ go }: { go: (h: string) => void }) {
       >
         <div>
           <UploadCloud className="mx-auto mb-2 text-slate-400" size={28} />
-          <div className="text-sm font-medium text-slate-700">拖拽或点击上传 .step / .stp / .pdf</div>
+          <div className="text-sm font-medium text-slate-700">拖拽或点击上传 STEP / PDF 工程文件</div>
+          <div className="mt-1 text-xs text-slate-500">推荐同时上传同一零件的三维模型和二维图纸</div>
           <div className="mt-1 font-mono text-[10px] text-slate-400">3D · STEP / STP　　2D · PDF　　≤ 100 MB</div>
         </div>
       </div>
@@ -178,7 +180,7 @@ export function NewInquiry({ go }: { go: (h: string) => void }) {
     {err && <div className="text-sm text-red-700">{err}</div>}
     <div className="flex justify-end gap-3">
       <Button variant="outline" type="button" onClick={() => go("")}>取消</Button>
-      <Button type="button" onClick={submit} disabled={busy}>{busy ? "分析中…" : "开始 AI 分析"}</Button>
+      <Button type="button" onClick={submit} disabled={busy}>{busy ? "分析中…" : "开始 AI 分析及报价 →"}</Button>
     </div>
   </div>
 }
