@@ -6,6 +6,7 @@ from flask import Blueprint, current_app, jsonify, request, Response
 from ..common.db import get_conn
 from ..ingestion.jobs import get_job
 from ..ingestion import r2
+from ..common.materials import resolve_material
 from ..quoting.engine import quote
 from . import store
 
@@ -234,8 +235,13 @@ def _quote_part(conn, part, selected_ids=None, features_override=None):
         rules_version = current_app.config.get("RULES_VERSION") or ""
     except RuntimeError:
         rules_version = ""
+    raw_mat = part.get("material_code") or "铝合金"
+    try:
+        material = resolve_material(conn, raw_mat).family or raw_mat
+    except ValueError:
+        material = raw_mat
     result = quote({
-        "material": part.get("material_code") or "铝合金",
+        "material": material,
         "stock_type": part.get("blank_type") or "板料",
         "length": L,
         "diameter": part.get("diameter") or W,
@@ -259,7 +265,8 @@ def _maybe_quote(conn, part):
         return part
     q = part.get("quote") if isinstance(part.get("quote"), dict) else {}
     already = isinstance(q.get("quote"), dict) and (q.get("quote") or {}).get("amount")
-    if already and part.get("status") in {"quoted", "revising"}:
+    has_steps = bool(q.get("process_sequence"))
+    if already and has_steps and part.get("status") in {"quoted", "revising"}:
         return part
     try:
         quoted = _quote_part(conn, part)
