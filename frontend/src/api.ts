@@ -9,3 +9,10 @@ export async function json<T>(path: string, init?: RequestInit): Promise<T> {
   if (!r.ok) throw new Error(data.error || r.statusText)
   return data
 }
+
+export async function upload<T>(path: string, form: FormData): Promise<T> {
+  const r = await fetch(`${API}${path}`, { method: "POST", body: form })
+  const data = await r.json()
+  if (!r.ok) throw new Error(data.error || r.statusText)
+  return data
+}
