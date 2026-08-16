@@ -21,11 +21,14 @@ class _BBox:
         self.zmin, self.zmax = zmin, zmax
 
 
-def test_face_position_top_bottom_side():
+def test_face_position_horizontal_vertical_tilt():
     bbox = _BBox(-40, 40, -30, 30, -6, 6)
-    assert _face_position((0, 0, 1), (0, 0, 6), bbox, 2) == "顶面"
-    assert _face_position((0, 0, -1), (0, 0, -6), bbox, 2) == "底面"
-    assert _face_position((1, 0, 0), (40, 0, 0), bbox, 2) == "侧面"
+    assert _face_position((0, 0, 1), (0, 0, 6), bbox, 2) == "水平"
+    assert _face_position((0, 0, -1), (0, 0, -6), bbox, 2) == "水平"
+    assert _face_position((1, 0, 0), (40, 0, 0), bbox, 2) == "垂直"
+    n = (0.6, 0.0, 0.8)
+    mag = (0.6 ** 2 + 0.8 ** 2) ** 0.5
+    assert _face_position((0.6 / mag, 0, 0.8 / mag), (0, 0, 4), bbox, 2) == "倾斜"
 
 
 def test_run_face_plain_box_has_top():
@@ -40,7 +43,7 @@ def test_run_face_plain_box_has_top():
     finally:
         os.unlink(path)
     assert faces, "expected outer faces"
-    tops = [f for f in faces if f["face_position"] == "顶面"]
+    tops = [f for f in faces if f["face_position"] == "水平" and f.get("selected")]
     assert tops
     top = tops[0]
     assert top["type"] == "face"
@@ -82,7 +85,7 @@ def test_d8_plate_face_and_hole_five_fields():
     faces = [f for f in result["features"] if f.get("subtype") == "recognized_face"]
     assert faces
     top = next(f for f in faces if f.get("selected"))
-    assert top["face_position"] == "顶面"
+    assert top["face_position"] == "水平"
     assert top["length"] == pytest.approx(80, abs=2)
     assert top["width"] == pytest.approx(60, abs=2)
 
@@ -103,7 +106,7 @@ def test_open_slot_still_open_no_fillet_holes():
 
 def test_face_chain_rough_only_default(client):
     resp = client.post("/api/v1/process-plan", json={
-        "feature": {"type": "face", "length": 80, "width": 60, "face_position": "顶面"},
+        "feature": {"type": "face", "length": 80, "width": 60, "face_position": "水平"},
         "material": "铝合金",
         "tolerance_it": 10,
         "roughness_ra": 3.2,
@@ -112,6 +115,7 @@ def test_face_chain_rough_only_default(client):
     body = resp.get_json()
     names = [s.get("name") or s.get("process") for s in body["process_chain"]]
     assert "粗铣" in names
+    assert "倒角" in names
     assert "半精铣" not in names
     assert "精铣" not in names
 
@@ -123,7 +127,7 @@ def test_face_quote_eats_tk_facemill(client):
         "length": 80,
         "width": 60,
         "height": 12,
-        "features": [{"type": "face", "length": 80, "width": 60, "face_position": "顶面"}],
+        "features": [{"type": "face", "length": 80, "width": 60, "face_position": "水平"}],
     })
     assert resp.status_code == 200
     body = resp.get_json()
@@ -134,14 +138,32 @@ def test_face_quote_eats_tk_facemill(client):
     assert any(str(s).startswith("TK-") for s in skus), seq
     names = [s.get("name") for s in seq]
     assert "粗铣" in names
-    assert any(s in {"TK-027", "TK-028"} for s in skus), skus
+    assert "倒角" in names
+    assert "TK-028" in skus, skus
+    chamfer = next(s for s in seq if s.get("name") == "倒角" or s.get("process") == "chamfer")
+    assert chamfer.get("sku") == "TK-036"
+
+
+def test_face_quote_narrow_uses_027(client):
+    resp = client.post("/api/v1/quotes", json={
+        "material": "铝合金",
+        "stock_type": "板料",
+        "length": 80,
+        "width": 40,
+        "height": 12,
+        "features": [{"type": "face", "length": 80, "width": 40, "face_position": "水平"}],
+    })
+    assert resp.status_code == 200
+    skus = [s.get("sku") for s in resp.get_json()["process_sequence"] if s.get("sku")]
+    assert "TK-027" in skus, skus
+    assert "TK-036" in skus, skus
 
 
 def test_review_includes_selected_face():
     review, features = _review_and_quote_features([
         {
             "type": "face", "feature_id": "face-0", "selected": True,
-            "length": 80, "width": 60, "face_position": "顶面",
+            "length": 80, "width": 60, "face_position": "水平",
         },
         {
             "type": "hole", "feature_id": "hole-0", "selected": False,
@@ -153,7 +175,7 @@ def test_review_includes_selected_face():
     assert features[0]["type"] == "face"
     assert features[0]["length"] == 80
     assert features[0]["width"] == 60
-    assert features[0]["face_position"] == "顶面"
+    assert features[0]["face_position"] == "水平"
 
 
 def test_factory_seeds_unchanged(client):

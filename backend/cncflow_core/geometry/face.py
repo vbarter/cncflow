@@ -3,14 +3,20 @@ from cncflow_core.ingestion.step_parser import _face_normal, _norm, _point, _xyz
 from cncflow_core.geometry.slot import _face_on_bbox, _is_hole_bottom
 
 
-def _face_position(normal, center, bbox, thick_axis):
+def _face_position(normal, _center, _bbox, thick_axis):
+    if abs(normal[thick_axis]) >= 0.85:
+        return "水平"
+    if max(abs(normal[0]), abs(normal[1]), abs(normal[2])) >= 0.85:
+        return "垂直"
+    return "倾斜"
+
+
+def _is_top_face(normal, center, bbox, thick_axis):
     lo = (bbox.xmin, bbox.ymin, bbox.zmin)[thick_axis]
     hi = (bbox.xmax, bbox.ymax, bbox.zmax)[thick_axis]
-    if abs(normal[thick_axis]) >= 0.85:
-        if abs(center[thick_axis] - hi) <= abs(center[thick_axis] - lo):
-            return "顶面"
-        return "底面"
-    return "侧面"
+    if abs(normal[thick_axis]) < 0.85:
+        return False
+    return abs(center[thick_axis] - hi) <= abs(center[thick_axis] - lo)
 
 
 def _measure_lw(fb):
@@ -82,7 +88,7 @@ def detect_faces(path: str) -> list:
             "feature_id": "face-%d" % len(found),
             "type": "face",
             "subtype": "recognized_face",
-            "selected": pos == "顶面",
+            "selected": False,
             "length": length,
             "width": width,
             "face_position": pos,
@@ -107,7 +113,11 @@ def detect_faces(path: str) -> list:
             ],
             "warnings": [],
         })
-    if found and not any(f["selected"] for f in found):
-        biggest = max(found, key=lambda f: f["length"] * f["width"])
-        biggest["selected"] = True
+    tops = [f for f in found if f["face_position"] == "水平" and _is_top_face(
+        (f["axis"]["x"], f["axis"]["y"], f["axis"]["z"]),
+        (f["location"]["x"], f["location"]["y"], f["location"]["z"]),
+        bbox, thick_axis,
+    )]
+    if tops:
+        max(tops, key=lambda f: f["length"] * f["width"])["selected"] = True
     return found
