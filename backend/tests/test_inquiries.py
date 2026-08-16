@@ -1,4 +1,13 @@
 """询价单 / 零件状态机。"""
+from io import BytesIO
+
+from cncflow_core.common.db import get_conn
+from cncflow_core.ingestion.jobs import finish_job
+
+
+MINIMAL_STEP = b"ISO-10303-21;\nHEADER;\nFILE_SCHEMA(('AUTOMOTIVE_DESIGN'));\nENDSEC;\nDATA;\nENDSEC;\nEND-ISO-10303-21;"
+
+
 
 
 def test_inquiry_quote_confirm_readonly(client):
@@ -45,3 +54,23 @@ def test_quote_skips_parts_without_dims(client):
     assert part["status"] == "draft"
     assert part.get("quote") in (None, {})
 
+
+
+def test_quote_uses_parse_bbox(client, seeded_db_path):
+    inq = client.post("/api/v1/inquiries", json={"customer": "华科"}).get_json()
+    iid = inq["id"]
+    pid = client.post(f"/api/v1/inquiries/{iid}/parts", json={"name": "底板", "material": "铝合金"}).get_json()["id"]
+    data = {"step_file": (BytesIO(MINIMAL_STEP), "part.step"), "part_id": pid}
+    job_id = client.post("/api/v1/parse-jobs", data=data, content_type="multipart/form-data").get_json()["job_id"]
+    conn = get_conn(seeded_db_path)
+    finish_job(conn, job_id, {
+        "geometry": {"volume_cm3": 12.5, "bounding_box_mm": {"x": 80, "y": 40, "z": 12}},
+        "features": [{"type": "hole", "selected": True, "dimensions": {"diameter_mm": 6, "depth_mm": 12}}],
+        "drawing": None, "warnings": [],
+    })
+    conn.close()
+    q = client.post(f"/api/v1/inquiries/{iid}/quote", json={})
+    assert q.status_code == 200, q.get_json()
+    part = q.get_json()["parts"][0]
+    assert part["status"] == "quoted"
+    assert part["quote"]["quote"]["amount"] > 0

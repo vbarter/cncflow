@@ -79,6 +79,30 @@ def update_job(conn, job_id, *, stage, progress, message=None):
     conn.commit()
 
 
+def _part_id(conn, job_id):
+    row = conn.execute("SELECT options_json FROM parse_jobs WHERE job_id=?", (job_id,)).fetchone()
+    if row is None:
+        return None
+    return (json.loads(row["options_json"] or "{}") or {}).get("part_id")
+
+
+def _apply_bbox(conn, part_id, result):
+    box = ((result or {}).get("geometry") or {}).get("bounding_box_mm") or {}
+    vals = [box.get("x"), box.get("y"), box.get("z")]
+    nums = [float(v) for v in vals if v is not None]
+    if len(nums) >= 3:
+        length, width, height = sorted(nums, reverse=True)
+        conn.execute(
+            "UPDATE parts SET length=?, width=?, height=?, status='need_params', updated_at=datetime('now') WHERE id=?",
+            (length, width, height, part_id),
+        )
+    else:
+        conn.execute(
+            "UPDATE parts SET status='need_params', updated_at=datetime('now') WHERE id=?",
+            (part_id,),
+        )
+
+
 def finish_job(conn, job_id, result):
     conn.execute(
         "UPDATE parse_jobs SET status='needs_review',stage='review',progress=100,result_json=?,"
@@ -86,6 +110,9 @@ def finish_job(conn, job_id, result):
         (json.dumps(result, ensure_ascii=False), job_id),
     )
     event(conn, job_id, "review", "解析完成，请确认识别结果")
+    pid = _part_id(conn, job_id)
+    if pid:
+        _apply_bbox(conn, pid, result)
     conn.commit()
 
 
@@ -97,6 +124,12 @@ def fail_job(conn, job_id, error):
         (status, str(error)[:2000], job_id),
     )
     event(conn, job_id, "failed", str(error)[:500])
+    pid = _part_id(conn, job_id)
+    if pid:
+        conn.execute(
+            "UPDATE parts SET status='parse_failed', updated_at=datetime('now') WHERE id=?",
+            (pid,),
+        )
     conn.commit()
 
 

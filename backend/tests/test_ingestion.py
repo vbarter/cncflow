@@ -92,3 +92,20 @@ def test_parse_job_binds_part_id(client, seeded_db_path):
     conn.close()
     assert row["parse_job_id"] == body["job_id"]
     assert row["status"] == "parsing"
+
+
+def test_finish_job_writes_bbox_to_part(client, seeded_db_path):
+    inq = client.post("/api/v1/inquiries", json={"customer": "华科"}).get_json()
+    pid = client.post(f"/api/v1/inquiries/{inq['id']}/parts", json={"name": "底板"}).get_json()["id"]
+    data = {"step_file": (BytesIO(MINIMAL_STEP), "part.step"), "part_id": pid}
+    job_id = client.post("/api/v1/parse-jobs", data=data, content_type="multipart/form-data").get_json()["job_id"]
+    conn = get_conn(seeded_db_path)
+    finish_job(conn, job_id, {
+        "geometry": {"volume_cm3": 12.5, "bounding_box_mm": {"x": 80, "y": 40, "z": 12}},
+        "features": [{"type": "hole", "selected": True, "dimensions": {"diameter_mm": 6, "depth_mm": 12}}],
+        "drawing": None, "warnings": [],
+    })
+    conn.close()
+    part = client.get(f"/api/v1/parts/{pid}").get_json()
+    assert part["status"] == "need_params"
+    assert sorted([part["length"], part["width"], part["height"]], reverse=True) == [80, 40, 12]
