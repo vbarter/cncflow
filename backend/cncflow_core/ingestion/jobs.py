@@ -3,6 +3,8 @@ import json
 import sqlite3
 import uuid
 
+from cncflow_core.common import persist
+
 
 PUBLIC_FIELDS = "job_id,status,stage,progress,result_json,confirmed_json,plans_json,error,attempts,created_at,updated_at"
 
@@ -103,6 +105,11 @@ def _apply_bbox(conn, part_id, result):
         )
 
 
+def _checkpoint_db():
+    """解析落库后立刻打检查点；备份失败不影响任务状态。"""
+    persist.try_backup_db()
+
+
 def finish_job(conn, job_id, result):
     conn.execute(
         "UPDATE parse_jobs SET status='needs_review',stage='review',progress=100,result_json=?,"
@@ -114,6 +121,7 @@ def finish_job(conn, job_id, result):
     if pid:
         _apply_bbox(conn, pid, result)
     conn.commit()
+    _checkpoint_db()
 
 
 def fail_job(conn, job_id, error):
@@ -131,6 +139,7 @@ def fail_job(conn, job_id, error):
             (pid,),
         )
     conn.commit()
+    _checkpoint_db()
 
 
 def recover_stale(conn):
