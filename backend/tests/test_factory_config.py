@@ -29,3 +29,19 @@ def test_put_roundtrip(client):
     assert rates["3轴立式加工中心"]["hourly_rate"] == 130
     again = client.get("/api/v1/factory-config").get_json()
     assert again["settings"]["ignore_available_machines"] is True
+
+
+def test_get_seeds_machines_and_material_prices(client, seeded_db_path):
+    from cncflow_core.common.db import get_conn
+    conn = get_conn(seeded_db_path)
+    conn.execute("DELETE FROM machines")
+    conn.execute("DELETE FROM factory_material_prices")
+    conn.commit()
+    conn.close()
+    body = client.get("/api/v1/factory-config").get_json()
+    ids = {m["id"] for m in body["machines"]}
+    assert "VM-3AX" in ids
+    prices = {r["material_code"]: r["price_per_kg"] for r in body["material_prices"]}
+    assert prices["AL6061-T6"] == 28
+    assert prices["铝合金"] == 25
+
