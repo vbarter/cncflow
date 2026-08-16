@@ -222,6 +222,39 @@ CREATE TABLE IF NOT EXISTS rate_table (
   programming_fee_new REAL NOT NULL DEFAULT 300
 );
 
+
+CREATE TABLE IF NOT EXISTS inquiries (
+  id TEXT PRIMARY KEY,
+  title TEXT,
+  customer TEXT,
+  project TEXT,
+  due_date TEXT,
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS parts (
+  id TEXT PRIMARY KEY,
+  inquiry_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  qty INTEGER NOT NULL DEFAULT 1,
+  material_code TEXT,
+  surface_finish TEXT,
+  tolerance_it INTEGER,
+  roughness_ra REAL,
+  batch_size INTEGER NOT NULL DEFAULT 1,
+  is_repeat_order INTEGER NOT NULL DEFAULT 0,
+  blank_type TEXT DEFAULT '板料',
+  length REAL, width REAL, height REAL, diameter REAL,
+  status TEXT NOT NULL DEFAULT 'draft',
+  parse_job_id TEXT,
+  slider TEXT DEFAULT '标准',
+  quote_json TEXT,
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now')),
+  FOREIGN KEY (inquiry_id) REFERENCES inquiries(id)
+);
+
 CREATE TABLE IF NOT EXISTS parser_workers (
   worker_id TEXT PRIMARY KEY,
   parser_version TEXT NOT NULL,
