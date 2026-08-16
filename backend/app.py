@@ -23,6 +23,7 @@ from cncflow_core.inquiries.api import bp as inquiries_bp
 from cncflow_core.factory.store import seed_factory
 from data.seed_tool_specs import seed_tool_specs
 from cncflow_core.ingestion.api import bp as ingestion_bp
+from cncflow_core.geometry.api import bp as geometry_bp
 
 
 def _install_cors(app: Flask) -> None:
@@ -98,6 +99,8 @@ def create_app(db_path=None) -> Flask:
     app.register_blueprint(quoting_bp, url_prefix="/cncflow", name="quoting_prefixed")
     app.register_blueprint(inquiries_bp)
     app.register_blueprint(inquiries_bp, url_prefix="/cncflow", name="inquiries_prefixed")
+    app.register_blueprint(geometry_bp)
+    app.register_blueprint(geometry_bp, url_prefix="/cncflow", name="geometry_prefixed")
 
     @app.errorhandler(413)
     def upload_too_large(_exc):
