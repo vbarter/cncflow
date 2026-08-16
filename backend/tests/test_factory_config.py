@@ -24,7 +24,8 @@ def test_put_roundtrip(client):
     body = resp.get_json()
     assert body["settings"]["profit_pct"] == 18
     assert body["settings"]["ignore_available_machines"] is True
-    assert body["machines"][0]["id"] == "vm850"
+    assert any(m["id"] == "vm850" for m in body["machines"])
+    assert {m["type"] for m in body["machines"] if m["type"] == "3轴立式加工中心"}
     rates = {r["equipment_type"]: r for r in body["rate_table"]}
     assert rates["3轴立式加工中心"]["hourly_rate"] == 130
     again = client.get("/api/v1/factory-config").get_json()
@@ -56,7 +57,7 @@ def test_get_machines_seed_travel_and_power(client, seeded_db_path):
     conn.commit()
     conn.close()
     body = client.get("/api/v1/factory-config").get_json()
-    assert len(body["machines"]) == 4
+    assert len(body["machines"]) == 12
     machines = {m["id"]: m for m in body["machines"]}
     assert machines["VM-3AX"]["travel_x"] == 850
     assert machines["VM-3AX"]["power_kw"] == 11
@@ -108,9 +109,9 @@ def test_put_add_tool_and_delete_machine_persists(client):
     assert resp.status_code == 200
     again = client.get("/api/v1/factory-config").get_json()
     ids = {m["id"] for m in again["machines"]}
-    assert "HMC-1" not in ids
     assert "VM-3AX" in ids
     assert "UI-DR-09900" in {t["sku"] for t in again["tools"]}
+    assert {m["type"] for m in again["machines"]} >= {"3轴立式加工中心", "龙门加工中心", "车削中心CNC车"}
 
 
 def test_catalog_groups_rate_types_and_material_family(client, seeded_db_path):
@@ -125,7 +126,13 @@ def test_catalog_groups_rate_types_and_material_family(client, seeded_db_path):
     assert types == {r["equipment_type"] for r in RATE_TABLE}
     assert len(types) == 12
     machine_types = {m["type"] for m in body["machines"]}
-    assert machine_types <= types
+    assert machine_types == types
+    by_type = {m["type"]: m for m in body["machines"]}
+    assert by_type["龙门加工中心"]["hourly_rate"] == 220
+    assert by_type["龙门加工中心"]["setup_fee"] == 600
+    assert by_type["精密坐标镗床"]["hourly_rate"] == 350
+    assert by_type["电火花线切割WEDM"]["hourly_rate"] == 60
+    assert by_type["车削中心CNC车"]["setup_fee"] == 150
     families = {p.get("family") for p in body["material_prices"]}
     assert "铝合金" in families
     assert "普通碳钢" in families

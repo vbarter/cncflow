@@ -20,14 +20,16 @@ def seed_factory(conn) -> None:
         "VALUES (:equipment_type, :hourly_rate, :setup_fee, :programming_fee_new)",
         RATE_TABLE,
     )
-    if conn.execute("SELECT COUNT(*) FROM machines").fetchone()[0] == 0:
-        conn.executemany(
-            "INSERT OR IGNORE INTO machines (id, type, axes, travel_x, travel_y, travel_z, max_rpm, power_kw, "
-            "tool_change_s, fixture_mode, hourly_rate, setup_fee, enabled) "
-            "VALUES (:id, :type, :axes, :travel_x, :travel_y, :travel_z, :max_rpm, :power_kw, "
-            ":tool_change_s, :fixture_mode, :hourly_rate, :setup_fee, :enabled)",
-            MACHINE_SEEDS,
-        )
+    for machine in MACHINE_SEEDS:
+        n = conn.execute("SELECT COUNT(*) FROM machines WHERE type=?", (machine["type"],)).fetchone()[0]
+        if n == 0:
+            conn.execute(
+                "INSERT OR IGNORE INTO machines (id, type, axes, travel_x, travel_y, travel_z, max_rpm, power_kw, "
+                "tool_change_s, fixture_mode, hourly_rate, setup_fee, enabled) "
+                "VALUES (:id, :type, :axes, :travel_x, :travel_y, :travel_z, :max_rpm, :power_kw, "
+                ":tool_change_s, :fixture_mode, :hourly_rate, :setup_fee, :enabled)",
+                machine,
+            )
     for machine in MACHINE_SEEDS:
         conn.execute(
             "UPDATE machines SET "

@@ -20,6 +20,14 @@ MACHINE_SEEDS = [
     {"id": "VM-4AX", "type": "4轴立式加工中心", "axes": 4, "travel_x": 800, "travel_y": 500, "travel_z": 500, "max_rpm": 10000, "power_kw": 11, "tool_change_s": 3.5, "fixture_mode": "第四轴转台", "hourly_rate": 150, "setup_fee": 300, "enabled": 1},
     {"id": "VM-5AX", "type": "5轴联动加工中心", "axes": 5, "travel_x": 650, "travel_y": 550, "travel_z": 500, "max_rpm": 12000, "power_kw": 15, "tool_change_s": 3.2, "fixture_mode": "五轴摇篮", "hourly_rate": 280, "setup_fee": 500, "enabled": 1},
     {"id": "HMC-1", "type": "卧式加工中心", "axes": 4, "travel_x": 800, "travel_y": 700, "travel_z": 700, "max_rpm": 8000, "power_kw": 18, "tool_change_s": 4.0, "fixture_mode": "卧式托盘", "hourly_rate": 180, "setup_fee": 400, "enabled": 1},
+    {"id": "GANTRY-1", "type": "龙门加工中心", "axes": 3, "travel_x": 2000, "travel_y": 1500, "travel_z": 800, "max_rpm": 6000, "power_kw": 22, "tool_change_s": 6.0, "fixture_mode": "压板", "hourly_rate": 220, "setup_fee": 600, "enabled": 1},
+    {"id": "JIG-1", "type": "精密坐标镗床", "axes": 3, "travel_x": 800, "travel_y": 500, "travel_z": 400, "max_rpm": 3000, "power_kw": 8, "tool_change_s": 8.0, "fixture_mode": "精密台钳", "hourly_rate": 350, "setup_fee": 250, "enabled": 1},
+    {"id": "EDM-1", "type": "电火花成型机EDM", "axes": 3, "travel_x": 400, "travel_y": 300, "travel_z": 300, "max_rpm": 0, "power_kw": 6, "tool_change_s": 0, "fixture_mode": "电极装夹", "hourly_rate": 180, "setup_fee": 250, "enabled": 1},
+    {"id": "WEDM-1", "type": "电火花线切割WEDM", "axes": 4, "travel_x": 400, "travel_y": 300, "travel_z": 250, "max_rpm": 0, "power_kw": 4, "tool_change_s": 0, "fixture_mode": "线切割夹具", "hourly_rate": 60, "setup_fee": 250, "enabled": 1},
+    {"id": "LATHE-1", "type": "车削中心CNC车", "axes": 2, "travel_x": 300, "travel_y": 0, "travel_z": 500, "max_rpm": 4000, "power_kw": 11, "tool_change_s": 2.5, "fixture_mode": "三爪卡盘", "hourly_rate": 100, "setup_fee": 150, "enabled": 1},
+    {"id": "MT-1", "type": "车铣复合中心", "axes": 5, "travel_x": 400, "travel_y": 200, "travel_z": 500, "max_rpm": 5000, "power_kw": 15, "tool_change_s": 3.0, "fixture_mode": "卡盘+C轴", "hourly_rate": 200, "setup_fee": 400, "enabled": 1},
+    {"id": "ODGR-1", "type": "外圆磨床", "axes": 2, "travel_x": 200, "travel_y": 0, "travel_z": 600, "max_rpm": 2000, "power_kw": 7, "tool_change_s": 0, "fixture_mode": "顶尖", "hourly_rate": 160, "setup_fee": 250, "enabled": 1},
+    {"id": "SURFGR-1", "type": "平面磨床", "axes": 3, "travel_x": 600, "travel_y": 300, "travel_z": 350, "max_rpm": 1800, "power_kw": 5, "tool_change_s": 0, "fixture_mode": "电磁吸盘", "hourly_rate": 140, "setup_fee": 250, "enabled": 1},
 ]
 
 MATERIAL_PRICES = [
