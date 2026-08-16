@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react"
-import { CircleDotDashed } from "lucide-react"
 import { Badge, Button } from "./components/ui"
 import { Workbench } from "./pages/Workbench"
 import { NewInquiry } from "./pages/NewInquiry"
@@ -19,9 +18,9 @@ export function App(){
   useEffect(()=>{ fetch(`${API}/health`).then(r=>r.json()).then(d=>setParser(!!d.parser?.available)).catch(()=>setParser(false)) },[])
   const go=(h:string)=>{ location.hash = h ? "#/"+h : "#/"; setHash(h) }
   const [seg,id] = hash.split("/")
-  return <main className="min-h-screen bg-[#f7f7f5] text-zinc-950">
-    <header className="border-b border-zinc-200 bg-white"><div className="mx-auto flex h-14 max-w-[1440px] items-center justify-between px-5">
-      <button className="flex items-center gap-3" onClick={()=>go("")}><div className="grid h-8 w-8 place-items-center bg-zinc-950 text-white"><CircleDotDashed size={18}/></div><div className="text-left"><div className="text-sm font-semibold">CNCFlow</div><div className="text-[10px] uppercase tracking-[.18em] text-zinc-500">Quote MVP</div></div></button>
+  return <main className="min-h-screen bg-[#eef2f5] text-slate-900">
+    <header className="border-b border-[#cedae6] bg-white"><div className="mx-auto flex h-14 max-w-[1440px] items-center justify-between px-5">
+      <button className="flex items-center gap-3" onClick={()=>go("")}><div className="grid h-8 w-8 place-items-center bg-blue-600 text-[11px] font-semibold leading-none text-white" style={{clipPath:"polygon(0 0,100% 0,100% 72%,72% 100%,0 100%)"}}>C/</div><div className="text-left"><div className="text-sm font-semibold">C/AI CNC</div><div className="text-[10px] tracking-[.18em] text-slate-500">报价助手</div></div></button>
       <nav className="flex items-center gap-2 text-sm">
         <Button variant="ghost" onClick={()=>go("")}>工作台</Button>
         <Button variant="ghost" onClick={()=>go("new")}>新建</Button>
