@@ -8,7 +8,8 @@ from cncflow_core.features.hole.models import HoleSpec
 from cncflow_core.features.hole.process_chain import generate_chain
 from cncflow_core.ingestion.jobs import finish_job
 from cncflow_core.ingestion.step_parser import (
-    classify_cylinder_side, classify_position, classify_through_blind, through_cut_depth,
+    classify_by_containment, classify_cylinder_side, classify_position,
+    classify_through_blind, likely_plate_hole, through_cut_depth,
 )
 from cncflow_core.inquiries.api import _hole_for_pipeline, _review_and_quote_features
 
@@ -153,3 +154,21 @@ def test_cadquery_plate_with_through_hole():
     ods = [f for f in result["features"] if f.get("type") == "outer_cylinder"]
     assert not any(f.get("selected") for f in ods)
 
+
+
+def test_containment_inner_vs_outer():
+    assert classify_by_containment(False, True) == "inner"
+    assert classify_by_containment(True, False) == "outer"
+    assert classify_by_containment(True, True) is None
+    assert classify_by_containment(None, True) is None
+
+
+def test_plate_through_cylinder_is_hole():
+    assert likely_plate_hole(8, 0, 12, 0, 12, (80, 60, 12)) is True
+    assert likely_plate_hole(80, 0, 12, 0, 12, (80, 60, 12)) is False
+    assert likely_plate_hole(8, 0, 6, 0, 12, (80, 60, 12)) is False
+
+
+def test_short_span_plate_still_hole():
+    assert likely_plate_hole(8, 0, 10, 0, 12, (80, 60, 12)) is True
+    assert likely_plate_hole(8, 0, 5, 0, 12, (80, 60, 12)) is False
