@@ -93,14 +93,14 @@ def create_app(db_path=None) -> Flask:
     conn.close()
     app.register_blueprint(ingestion_bp)
     app.register_blueprint(ingestion_bp, url_prefix="/cncflow", name="ingestion_prefixed")
-    app.register_blueprint(geometry_bp)
-    app.register_blueprint(geometry_bp, url_prefix="/cncflow", name="geometry_prefixed")
     app.register_blueprint(factory_bp)
     app.register_blueprint(factory_bp, url_prefix="/cncflow", name="factory_prefixed")
     app.register_blueprint(quoting_bp)
     app.register_blueprint(quoting_bp, url_prefix="/cncflow", name="quoting_prefixed")
     app.register_blueprint(inquiries_bp)
     app.register_blueprint(inquiries_bp, url_prefix="/cncflow", name="inquiries_prefixed")
+    app.register_blueprint(geometry_bp)
+    app.register_blueprint(geometry_bp, url_prefix="/cncflow", name="geometry_prefixed")
 
     @app.errorhandler(413)
     def upload_too_large(_exc):
