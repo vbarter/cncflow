@@ -5,7 +5,44 @@ import { json } from "../api"
 const TABS = ["基本信息", "设备库", "刀具库", "材料价格", "默认报价规则"]
 
 function emptyMachine() {
-  return { id: "VM" + String(Date.now()).slice(-4), type: "立式加工中心", axes: 3, max_rpm: 12000, hourly_rate: 80, setup_fee: 200, enabled: 1 }
+  return {
+    id: "VM" + String(Date.now()).slice(-4),
+    type: "立式加工中心",
+    axes: 3,
+    travel_x: 850,
+    travel_y: 500,
+    travel_z: 500,
+    max_rpm: 12000,
+    power_kw: 11,
+    tool_change_s: 3.5,
+    fixture_mode: "虎钳",
+    hourly_rate: 80,
+    setup_fee: 200,
+    enabled: 1,
+  }
+}
+
+function emptyTool() {
+  return {
+    sku: "SKU-NEW-" + String(Date.now()).slice(-6),
+    category: "钻头",
+    diameter_mm: 3,
+    structure: "标准",
+    base_material: "硬质合金",
+    coating: "无涂层",
+    precision_grade: "普通",
+    in_stock: 1,
+  }
+}
+
+function emptyMaterial() {
+  return { material_code: "", density_g_cm3: 2.7, price_per_kg: 0, scrap_price_per_kg: 0, enabled: 1 }
+}
+
+function patchList(list: any[], i: number, patch: Record<string, unknown>) {
+  const next = [...list]
+  next[i] = { ...list[i], ...patch }
+  return next
 }
 
 export function FactoryConfig() {
@@ -25,6 +62,7 @@ export function FactoryConfig() {
   if (!cfg) return <div className="text-sm text-slate-500">{err || "加载中…"}</div>
   const s = cfg.settings || {}
   const machines = cfg.machines || []
+  const tools = cfg.tools || []
   const rates = cfg.rate_table || []
   const materials = cfg.material_prices || []
   return <div className="space-y-5">
@@ -58,45 +96,86 @@ export function FactoryConfig() {
 
         {tab === 1 && <Card className="p-5">
           <div className="mb-3 flex items-center justify-between">
-            <div className="text-sm font-medium">可用加工设备</div>
-            <button type="button" className="text-xs font-medium text-blue-600" onClick={() => setCfg({ ...cfg, machines: [...machines, emptyMachine()] })}>+ 添加新设备</button>
+            <div className="text-sm font-medium">设备库</div>
+            <button type="button" className="text-xs font-medium text-blue-600" onClick={() => setCfg({ ...cfg, machines: [...machines, emptyMachine()] })}>+ 添加设备</button>
           </div>
-          <table className="w-full text-left text-sm">
-            <thead><tr className="border-b border-[#e2e8f0] text-xs text-slate-500">
-              <th className="py-2">设备名称/型号</th><th>类型</th><th>小时成本</th><th>最大转速</th><th>状态</th><th>操作</th>
-            </tr></thead>
-            <tbody>
-              {machines.map((m: any, i: number) => (
-                <tr key={i} className="border-b border-slate-100">
-                  <td className="py-2 pr-2"><Input value={m.id} onChange={e => { const list = [...machines]; list[i] = { ...m, id: e.target.value }; setCfg({ ...cfg, machines: list }) }} /></td>
-                  <td className="pr-2"><Input value={m.type || ""} onChange={e => { const list = [...machines]; list[i] = { ...m, type: e.target.value }; setCfg({ ...cfg, machines: list }) }} /></td>
-                  <td className="pr-2"><Input type="number" value={m.hourly_rate ?? 80} onChange={e => { const list = [...machines]; list[i] = { ...m, hourly_rate: Number(e.target.value) }; setCfg({ ...cfg, machines: list }) }} /></td>
-                  <td className="pr-2"><Input type="number" value={m.max_rpm ?? 12000} onChange={e => { const list = [...machines]; list[i] = { ...m, max_rpm: Number(e.target.value) }; setCfg({ ...cfg, machines: list }) }} /></td>
-                  <td><Select value={m.enabled ? "1" : "0"} onChange={e => { const list = [...machines]; list[i] = { ...m, enabled: Number(e.target.value) }; setCfg({ ...cfg, machines: list }) }}><option value="1">启用</option><option value="0">停用</option></Select></td>
-                  <td><button type="button" className="text-xs text-slate-400 hover:text-red-500" onClick={() => setCfg({ ...cfg, machines: machines.filter((_: any, idx: number) => idx !== i) })}>删除</button></td>
-                </tr>
-              ))}
-              {!machines.length && <tr><td colSpan={6} className="py-8 text-center text-slate-400">还没有设备，点右上角添加</td></tr>}
-            </tbody>
-          </table>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[1100px] text-left text-sm">
+              <thead><tr className="border-b border-[#e2e8f0] text-xs text-slate-500">
+                <th className="py-2">型号</th><th>类型</th><th>轴数</th><th>行程X</th><th>行程Y</th><th>行程Z</th>
+                <th>最大转速</th><th>功率kW</th><th>换刀s</th><th>装夹</th><th>小时费率</th><th>调机费</th><th>启用</th><th>操作</th>
+              </tr></thead>
+              <tbody>
+                {machines.map((m: any, i: number) => (
+                  <tr key={i} className="border-b border-slate-100">
+                    <td className="py-2 pr-2"><Input value={m.id} onChange={e => setCfg({ ...cfg, machines: patchList(machines, i, { id: e.target.value }) })} /></td>
+                    <td className="pr-2"><Input value={m.type || ""} onChange={e => setCfg({ ...cfg, machines: patchList(machines, i, { type: e.target.value }) })} /></td>
+                    <td className="pr-2"><Input type="number" value={m.axes ?? 3} onChange={e => setCfg({ ...cfg, machines: patchList(machines, i, { axes: Number(e.target.value) }) })} /></td>
+                    <td className="pr-2"><Input type="number" value={m.travel_x ?? ""} onChange={e => setCfg({ ...cfg, machines: patchList(machines, i, { travel_x: Number(e.target.value) }) })} /></td>
+                    <td className="pr-2"><Input type="number" value={m.travel_y ?? ""} onChange={e => setCfg({ ...cfg, machines: patchList(machines, i, { travel_y: Number(e.target.value) }) })} /></td>
+                    <td className="pr-2"><Input type="number" value={m.travel_z ?? ""} onChange={e => setCfg({ ...cfg, machines: patchList(machines, i, { travel_z: Number(e.target.value) }) })} /></td>
+                    <td className="pr-2"><Input type="number" value={m.max_rpm ?? 12000} onChange={e => setCfg({ ...cfg, machines: patchList(machines, i, { max_rpm: Number(e.target.value) }) })} /></td>
+                    <td className="pr-2"><Input type="number" value={m.power_kw ?? ""} onChange={e => setCfg({ ...cfg, machines: patchList(machines, i, { power_kw: Number(e.target.value) }) })} /></td>
+                    <td className="pr-2"><Input type="number" value={m.tool_change_s ?? ""} onChange={e => setCfg({ ...cfg, machines: patchList(machines, i, { tool_change_s: Number(e.target.value) }) })} /></td>
+                    <td className="pr-2"><Input value={m.fixture_mode || ""} onChange={e => setCfg({ ...cfg, machines: patchList(machines, i, { fixture_mode: e.target.value }) })} /></td>
+                    <td className="pr-2"><Input type="number" value={m.hourly_rate ?? 80} onChange={e => setCfg({ ...cfg, machines: patchList(machines, i, { hourly_rate: Number(e.target.value) }) })} /></td>
+                    <td className="pr-2"><Input type="number" value={m.setup_fee ?? 200} onChange={e => setCfg({ ...cfg, machines: patchList(machines, i, { setup_fee: Number(e.target.value) }) })} /></td>
+                    <td className="pr-2"><Select value={m.enabled ? "1" : "0"} onChange={e => setCfg({ ...cfg, machines: patchList(machines, i, { enabled: Number(e.target.value) }) })}><option value="1">启用</option><option value="0">停用</option></Select></td>
+                    <td><button type="button" className="text-xs text-slate-400 hover:text-red-500" onClick={() => setCfg({ ...cfg, machines: machines.filter((_: any, idx: number) => idx !== i) })}>删除</button></td>
+                  </tr>
+                ))}
+                {!machines.length && <tr><td colSpan={14} className="py-8 text-center text-slate-400">还没有设备，点右上角添加</td></tr>}
+              </tbody>
+            </table>
+          </div>
         </Card>}
 
-        {tab === 2 && <Card className="p-5 text-sm text-slate-600">
-          刀具勾选对接现有 tools 目录。当前勾选 {cfg.tools?.length || 0} 条。MVP 先在保存时保留现有勾选。
+        {tab === 2 && <Card className="p-5">
+          <div className="mb-3 flex items-center justify-between">
+            <div className="text-sm font-medium">刀具库（{tools.length}）</div>
+            <button type="button" className="text-xs font-medium text-blue-600" onClick={() => setCfg({ ...cfg, tools: [...tools, emptyTool()] })}>+ 添加刀具</button>
+          </div>
+          <div className="overflow-x-auto max-h-[560px] overflow-y-auto">
+            <table className="w-full min-w-[900px] text-left text-sm">
+              <thead><tr className="border-b border-[#e2e8f0] text-xs text-slate-500">
+                <th className="py-2">SKU</th><th>类型</th><th>直径</th><th>结构</th><th>材质</th><th>涂层</th><th>精度</th><th>在库</th><th>操作</th>
+              </tr></thead>
+              <tbody>
+                {tools.map((t: any, i: number) => (
+                  <tr key={t.sku + "-" + i} className="border-b border-slate-100">
+                    <td className="py-2 pr-2"><Input value={t.sku || ""} onChange={e => setCfg({ ...cfg, tools: patchList(tools, i, { sku: e.target.value }) })} /></td>
+                    <td className="pr-2"><Input value={t.category || ""} onChange={e => setCfg({ ...cfg, tools: patchList(tools, i, { category: e.target.value }) })} /></td>
+                    <td className="pr-2"><Input type="number" value={t.diameter_mm ?? ""} onChange={e => setCfg({ ...cfg, tools: patchList(tools, i, { diameter_mm: Number(e.target.value) }) })} /></td>
+                    <td className="pr-2"><Input value={t.structure || ""} onChange={e => setCfg({ ...cfg, tools: patchList(tools, i, { structure: e.target.value }) })} /></td>
+                    <td className="pr-2"><Input value={t.base_material || ""} onChange={e => setCfg({ ...cfg, tools: patchList(tools, i, { base_material: e.target.value }) })} /></td>
+                    <td className="pr-2"><Input value={t.coating || ""} onChange={e => setCfg({ ...cfg, tools: patchList(tools, i, { coating: e.target.value }) })} /></td>
+                    <td className="pr-2"><Input value={t.precision_grade || ""} onChange={e => setCfg({ ...cfg, tools: patchList(tools, i, { precision_grade: e.target.value }) })} /></td>
+                    <td className="pr-2"><Select value={t.in_stock ? "1" : "0"} onChange={e => setCfg({ ...cfg, tools: patchList(tools, i, { in_stock: Number(e.target.value) }) })}><option value="1">在库</option><option value="0">缺货</option></Select></td>
+                    <td><button type="button" className="text-xs text-slate-400 hover:text-red-500" onClick={() => setCfg({ ...cfg, tools: tools.filter((_: any, idx: number) => idx !== i) })}>删除</button></td>
+                  </tr>
+                ))}
+                {!tools.length && <tr><td colSpan={9} className="py-8 text-center text-slate-400">还没有刀具，点右上角添加</td></tr>}
+              </tbody>
+            </table>
+          </div>
         </Card>}
 
         {tab === 3 && <Card className="p-5">
           <div className="mb-3 flex items-center justify-between">
-            <div className="text-sm font-medium">材料价格（元/kg）</div>
-            <button type="button" className="text-xs font-medium text-blue-600" onClick={() => setCfg({ ...cfg, material_prices: [...materials, { material_code: "AL6061-T6", price_per_kg: 28, scrap_price_per_kg: 8, enabled: 1 }] })}>+ 添加材料</button>
+            <div className="text-sm font-medium">材料价格</div>
+            <button type="button" className="text-xs font-medium text-blue-600" onClick={() => setCfg({ ...cfg, material_prices: [...materials, emptyMaterial()] })}>+ 添加材料</button>
           </div>
           <table className="w-full text-left text-sm">
-            <thead><tr className="border-b border-[#e2e8f0] text-xs text-slate-500"><th className="py-2">材料</th><th>采购价</th><th>废料价</th><th></th></tr></thead>
+            <thead><tr className="border-b border-[#e2e8f0] text-xs text-slate-500">
+              <th className="py-2">牌号</th><th>密度 g/cm³</th><th>采购价</th><th>废料回收</th><th>启用</th><th>操作</th>
+            </tr></thead>
             <tbody>{materials.map((m: any, i: number) => (
               <tr key={i} className="border-b border-slate-100">
-                <td className="py-2 pr-2"><Input value={m.material_code} onChange={e => { const list = [...materials]; list[i] = { ...m, material_code: e.target.value }; setCfg({ ...cfg, material_prices: list }) }} /></td>
-                <td className="pr-2"><Input type="number" value={m.price_per_kg} onChange={e => { const list = [...materials]; list[i] = { ...m, price_per_kg: Number(e.target.value) }; setCfg({ ...cfg, material_prices: list }) }} /></td>
-                <td className="pr-2"><Input type="number" value={m.scrap_price_per_kg} onChange={e => { const list = [...materials]; list[i] = { ...m, scrap_price_per_kg: Number(e.target.value) }; setCfg({ ...cfg, material_prices: list }) }} /></td>
+                <td className="py-2 pr-2"><Input value={m.material_code} onChange={e => setCfg({ ...cfg, material_prices: patchList(materials, i, { material_code: e.target.value }) })} /></td>
+                <td className="pr-2"><Input type="number" step="0.01" value={m.density_g_cm3 ?? ""} onChange={e => setCfg({ ...cfg, material_prices: patchList(materials, i, { density_g_cm3: Number(e.target.value) }) })} /></td>
+                <td className="pr-2"><Input type="number" value={m.price_per_kg} onChange={e => setCfg({ ...cfg, material_prices: patchList(materials, i, { price_per_kg: Number(e.target.value) }) })} /></td>
+                <td className="pr-2"><Input type="number" value={m.scrap_price_per_kg} onChange={e => setCfg({ ...cfg, material_prices: patchList(materials, i, { scrap_price_per_kg: Number(e.target.value) }) })} /></td>
+                <td className="pr-2"><Select value={m.enabled ? "1" : "0"} onChange={e => setCfg({ ...cfg, material_prices: patchList(materials, i, { enabled: Number(e.target.value) }) })}><option value="1">启用</option><option value="0">停用</option></Select></td>
                 <td><button type="button" className="text-xs text-slate-400 hover:text-red-500" onClick={() => setCfg({ ...cfg, material_prices: materials.filter((_: any, idx: number) => idx !== i) })}>删除</button></td>
               </tr>
             ))}</tbody>

@@ -4,6 +4,12 @@ import json
 from .defaults import MACHINE_SEEDS, MATERIAL_PRICES, RATE_TABLE
 
 
+def _opt_float(value):
+    if value is None or value == "":
+        return None
+    return float(value)
+
+
 def seed_factory(conn) -> None:
     conn.execute(
         "INSERT OR IGNORE INTO factory_settings (id, profit_pct, floor_charge, inspect_fee, "
@@ -16,15 +22,36 @@ def seed_factory(conn) -> None:
     )
     if conn.execute("SELECT COUNT(*) FROM machines").fetchone()[0] == 0:
         conn.executemany(
-            "INSERT OR IGNORE INTO machines (id, type, axes, max_rpm, hourly_rate, setup_fee, enabled) "
-            "VALUES (:id, :type, :axes, :max_rpm, :hourly_rate, :setup_fee, :enabled)",
+            "INSERT OR IGNORE INTO machines (id, type, axes, travel_x, travel_y, travel_z, max_rpm, power_kw, "
+            "tool_change_s, fixture_mode, hourly_rate, setup_fee, enabled) "
+            "VALUES (:id, :type, :axes, :travel_x, :travel_y, :travel_z, :max_rpm, :power_kw, "
+            ":tool_change_s, :fixture_mode, :hourly_rate, :setup_fee, :enabled)",
             MACHINE_SEEDS,
+        )
+    for machine in MACHINE_SEEDS:
+        conn.execute(
+            "UPDATE machines SET "
+            "travel_x=COALESCE(travel_x, :travel_x), "
+            "travel_y=COALESCE(travel_y, :travel_y), "
+            "travel_z=COALESCE(travel_z, :travel_z), "
+            "power_kw=COALESCE(power_kw, :power_kw), "
+            "tool_change_s=COALESCE(tool_change_s, :tool_change_s), "
+            "fixture_mode=COALESCE(fixture_mode, :fixture_mode) "
+            "WHERE id=:id",
+            machine,
         )
     if conn.execute("SELECT COUNT(*) FROM factory_material_prices").fetchone()[0] == 0:
         conn.executemany(
-            "INSERT OR IGNORE INTO factory_material_prices (material_code, price_per_kg, scrap_price_per_kg, enabled) "
-            "VALUES (:material_code, :price_per_kg, :scrap_price_per_kg, 1)",
+            "INSERT OR IGNORE INTO factory_material_prices "
+            "(material_code, price_per_kg, scrap_price_per_kg, density_g_cm3, enabled) "
+            "VALUES (:material_code, :price_per_kg, :scrap_price_per_kg, :density_g_cm3, 1)",
             MATERIAL_PRICES,
+        )
+    for row in MATERIAL_PRICES:
+        conn.execute(
+            "UPDATE factory_material_prices SET density_g_cm3=:density_g_cm3 "
+            "WHERE material_code=:material_code AND density_g_cm3 IS NULL",
+            row,
         )
     conn.commit()
 
@@ -42,7 +69,10 @@ def get_config(conn) -> dict:
     return {
         "settings": settings,
         "machines": [dict(r) for r in conn.execute("SELECT * FROM machines ORDER BY id")],
-        "tools": [dict(r) for r in conn.execute("SELECT * FROM factory_tools ORDER BY ref_id")],
+        "tools": [dict(r) for r in conn.execute(
+            "SELECT sku, category, diameter_mm, structure, base_material, coating, precision_grade, in_stock "
+            "FROM tools ORDER BY sku"
+        )],
         "material_prices": [dict(r) for r in conn.execute("SELECT * FROM factory_material_prices ORDER BY material_code")],
         "rate_table": [dict(r) for r in conn.execute("SELECT * FROM rate_table ORDER BY equipment_type")],
     }
@@ -89,23 +119,50 @@ def put_config(conn, payload: dict) -> dict:
     if "tools" in payload:
         if not isinstance(payload["tools"], list):
             raise ValueError("tools 须为数组")
-        conn.execute("DELETE FROM factory_tools")
+        keep = []
         for item in payload["tools"]:
+            sku = item["sku"]
+            keep.append(sku)
             conn.execute(
-                "INSERT INTO factory_tools (ref_id, ref_kind, enabled) VALUES (?,?,?)",
-                (item["ref_id"], item.get("ref_kind", "sku"), 1 if item.get("enabled", True) else 0),
+                "INSERT INTO tools (sku, category, diameter_mm, structure, base_material, coating, "
+                "precision_grade, in_stock, extra_attrs, is_mock, source) "
+                "VALUES (?,?,?,?,?,?,?,?,NULL,0,'factory_ui') "
+                "ON CONFLICT(sku) DO UPDATE SET "
+                "category=excluded.category, diameter_mm=excluded.diameter_mm, "
+                "structure=excluded.structure, base_material=excluded.base_material, "
+                "coating=excluded.coating, precision_grade=excluded.precision_grade, "
+                "in_stock=excluded.in_stock",
+                (
+                    sku,
+                    item.get("category") or "钻头",
+                    float(item["diameter_mm"]) if item.get("diameter_mm") is not None else 3.0,
+                    item.get("structure") or "标准",
+                    item.get("base_material") or "硬质合金",
+                    item.get("coating") or "无涂层",
+                    item.get("precision_grade") or "普通",
+                    1 if item.get("in_stock", True) else 0,
+                ),
             )
+        if keep:
+            conn.execute(
+                f"DELETE FROM tools WHERE sku NOT IN ({','.join('?' * len(keep))})",
+                keep,
+            )
+        else:
+            conn.execute("DELETE FROM tools")
     if "material_prices" in payload:
         if not isinstance(payload["material_prices"], list):
             raise ValueError("material_prices 须为数组")
         conn.execute("DELETE FROM factory_material_prices")
         for item in payload["material_prices"]:
             conn.execute(
-                "INSERT INTO factory_material_prices (material_code, price_per_kg, scrap_price_per_kg, enabled) "
-                "VALUES (?,?,?,?)",
+                "INSERT INTO factory_material_prices "
+                "(material_code, price_per_kg, scrap_price_per_kg, density_g_cm3, enabled) "
+                "VALUES (?,?,?,?,?)",
                 (
                     item["material_code"], float(item["price_per_kg"]),
                     float(item.get("scrap_price_per_kg", 0)),
+                    _opt_float(item.get("density_g_cm3")),
                     1 if item.get("enabled", True) else 0,
                 ),
             )
