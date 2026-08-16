@@ -363,12 +363,17 @@ def _solid_span_on_axis(bbox, axis):
     return min(corners), max(corners)
 
 
+def is_curved_entry_kind(kind):
+    """沉头锥/圆角不当曲面入口；球面或自由曲面才是。"""
+    return kind in ("SPHERE", "BSPLINE", "BEZIER")
+
+
 def _entry_is_curved(faces, axis, cyl_min, cyl_max, radius):
     for face in faces:
         kind = face.geomType()
         if kind in ("PLANE", "CYLINDER"):
             continue
-        if kind not in ("SPHERE", "TORUS", "CONE", "BSPLINE", "BEZIER"):
+        if not is_curved_entry_kind(kind):
             continue
         c = _xyz(face.Center())
         t = _project(c, axis)
