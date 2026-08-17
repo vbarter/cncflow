@@ -7,7 +7,7 @@ from ..features.pocket import pipeline as pocket_pipeline
 from ..features.step import pipeline as step_pipeline
 from ..features.surface import pipeline as surface_pipeline
 from ..features.thread import pipeline as thread_pipeline
-from . import confidence, hole_time, slider, volume
+from . import confidence, hole_time, sequence, slider, volume
 
 PIPELINES = {
     "hole": hole_pipeline.run,
@@ -185,6 +185,9 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
         tags.extend(result.get("risk_tags") or [])
         if order.get(level, 1) > order.get(worst, 1):
             worst = level
+
+    feat_types = {p["feature_id"]: p["type"] for p in plans}
+    seq = sequence.sort_steps(seq, feat_types)
 
     fixture_feat = {
         "type": "fixture", "length": L,
