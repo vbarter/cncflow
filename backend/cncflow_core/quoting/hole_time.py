@@ -149,12 +149,16 @@ def _toolchange_min(factory: dict) -> float:
     return 5.0 / 60.0
 
 
-def compute(result: dict, factory: dict, material: str) -> dict:
+def compute(result: dict, factory: dict, material: str, slide: dict | None = None) -> dict:
     hole = result.get("hole") or {}
     D = float(hole.get("diameter_mm") or 0)
     family = _family(material)
     max_rpm = _max_rpm(factory)
     t_chg = _toolchange_min(factory)
+    slide = slide or {}
+    k_vc = float(slide.get("vc") or 1.0)
+    k_fz = float(slide.get("fz") or 1.0)
+    k_slow = float(slide.get("slowdown") or 1.2)
     chain = result.get("tool_chain") or result.get("process_chain") or []
     steps, tags = [], []
     total = 0.0
@@ -167,11 +171,12 @@ def compute(result: dict, factory: dict, material: str) -> dict:
         group = _tool_group(attrs.get("base_material") or "硬质合金", attrs.get("coating") or "")
         finish = proc in FINISH
         vc, fz = _vc_fz(family, group, finish)
+        vc, fz = vc * k_vc, fz * k_fz
         n_req = 1000.0 * vc / (math.pi * d)
         n_act = min(n_req, max_rpm)
         if proc == "tap":
             n_act = min(n_act, 1000.0)
-        compensate = 1.2 if n_act + 1e-6 < n_req else 1.0
+        compensate = k_slow if n_act + 1e-6 < n_req else 1.0
         f = n_act * fz * z
         cut, passes = _cut_passes(proc, hole)
         if proc == "tap":

@@ -151,13 +151,12 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
         except ValueError as exc:
             result = {"error": str(exc), "difficulty": {"level": "NA", "na": True}, "risk_tags": [str(exc)]}
         if ftype == "hole" and not result.get("error"):
-            result["time"] = hole_time.compute(result, factory, material)
+            result["time"] = hole_time.compute(result, factory, material, slide)
             result.setdefault("risk_tags", []).extend(result["time"].get("tags") or [])
         elif ftype in {"face", "pocket", "slot", "thread", "step"} and not result.get("error"):
-            result["time"] = mill_time.compute(ftype, feat, result, factory, material)
+            result["time"] = mill_time.compute(ftype, feat, result, factory, material, slide)
             result.setdefault("risk_tags", []).extend(result["time"].get("tags") or [])
         mins, level, na = _feature_minutes(result, ftype)
-        mins = mins / max(slide["vc"], 0.4) * slide["slowdown"]
         cut_min += mins
         steps_n = max(len(result.get("process_chain") or result.get("tool_chain") or [1]), 1)
         if ftype not in {"hole", "face", "pocket", "slot", "thread", "step"}:
@@ -188,7 +187,7 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
                 seq[-1]["name"] = step["name"]
             if si < len(timed_steps):
                 ts = timed_steps[si]
-                seq[-1]["minutes"] = round(float(ts["t_step"]) / max(slide["vc"], 0.4) * slide["slowdown"], 4)
+                seq[-1]["minutes"] = round(float(ts["t_step"]), 4)
                 seq[-1]["time"] = ts
         tags.extend(result.get("risk_tags") or [])
         if order.get(level, 1) > order.get(worst, 1):
