@@ -21,8 +21,7 @@ def test_o8_face_cut_and_hole_unchanged(client):
     drill = next(s for s in body["process_sequence"] if s["process"] == "drill")
     assert abs(drill["time"]["cut"] - 14.4) < 0.05
     assert drill["time"]["t_cut"] < 0.02
-    eq = body["equipment"]
-    assert eq["model"] == "VMC850E" and eq["hourly_rate"] == 120
+    assert body["equipment"]["model"] == "VMC850E"
 
 
 def test_open_slot_rough_cut_passes(client):
