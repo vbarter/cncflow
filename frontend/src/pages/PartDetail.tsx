@@ -229,7 +229,8 @@ export function PartDetail({ id, go }: { id: string; go: (h: string) => void }) 
           const minutes = s.minutes != null ? `${Number(s.minutes).toFixed(1)} min` : "—"
           const amount = s.amount != null ? `¥${yen(s.amount)}` : "—"
           const tm = s.time
-          const formula = tm ? `n=${tm.n_act} f=${tm.f} cut=${tm.cut} passes=${tm.passes} t=${tm.t_cut != null ? `${(Number(tm.t_cut) * 60).toFixed(1)}s` : "—"}` : ""
+          const bound = (tm?.tags || []).join(" ")
+          const formula = tm ? `n=${tm.n_act} f=${tm.f} cut=${tm.cut} passes=${tm.passes} t=${tm.t_cut != null ? `${(Number(tm.t_cut) * 60).toFixed(1)}s` : "—"}${bound ? ` ${bound}` : ""}` : ""
           return <div key={i} className="border-b border-[#e2e8f0] py-2">
             <div className="md:hidden">
               <div className="flex items-center justify-between gap-2">

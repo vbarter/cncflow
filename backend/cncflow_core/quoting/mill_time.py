@@ -130,6 +130,9 @@ def compute(ftype: str, feat: dict, result: dict, factory: dict, material: str) 
         else:
             t_cut = ((cut * passes / f) * compensate) if f else 0.0
         t_step = t_cut + t_chg
+        flag = hole_time._flag(t_cut, hole_time._bounds(proc, d))
+        if flag:
+            tags.append(flag)
         steps.append({
             "step": i,
             "process": proc,
@@ -142,6 +145,7 @@ def compute(ftype: str, feat: dict, result: dict, factory: dict, material: str) 
             "t_cut": round(t_cut, 4),
             "t_tool": round(t_chg, 4),
             "t_step": round(t_step, 4),
+            "tags": [flag] if flag else [],
         })
         total += t_step
-    return {"steps": steps, "total_min": round(total, 4), "tags": tags}
+    return {"steps": steps, "total_min": round(total, 4), "tags": list(dict.fromkeys(tags))}

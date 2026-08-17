@@ -155,6 +155,7 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
             result.setdefault("risk_tags", []).extend(result["time"].get("tags") or [])
         elif ftype in {"face", "pocket", "slot", "thread", "step"} and not result.get("error"):
             result["time"] = mill_time.compute(ftype, feat, result, factory, material)
+            result.setdefault("risk_tags", []).extend(result["time"].get("tags") or [])
         mins, level, na = _feature_minutes(result, ftype)
         mins = mins / max(slide["vc"], 0.4) * slide["slowdown"]
         cut_min += mins
