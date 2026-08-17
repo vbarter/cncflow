@@ -237,6 +237,8 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
         floor_applied = False
     profit = amount - cost
     conf = confidence.score(ops)
+    if any("低于下限" in str(t) for t in tags):
+        conf["confidence"] = max(0, int(conf["confidence"]) - 5)
     tags.extend(conf["tags"])
     if any(op["na"] for op in ops):
         conf["level"] = "high" if conf["confidence"] >= 30 else conf["level"]

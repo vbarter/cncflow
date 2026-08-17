@@ -67,5 +67,6 @@ def test_quote_eats_step_t(client):
 def test_drill_bound_flags_review():
     factory = {"machines": [{"type": "3轴立式加工中心", "enabled": 1, "max_rpm": 12000}]}
     timed = hole_time.compute(_hole(8, 12), factory, "铝合金")
-    # 公式数量级远小于 t_min=0.1，应打防错
-    assert "需人工复核" in timed["tags"]
+    # 公式秒级低于 0.1min，只打标不改 t
+    assert "低于下限" in timed["tags"]
+    assert abs(drill := next(s for s in timed["steps"] if s["process"] == "drill")["t_cut"] - 0.0075) < 0.01
