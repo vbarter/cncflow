@@ -1,5 +1,5 @@
-"""识别器插件位。hole / slot / face / thread / step 现网可用。"""
-from . import FACE_SCHEMA, FEATURE_SCHEMA, SLOT_SCHEMA, STEP_SCHEMA, THREAD_SCHEMA
+"""识别器插件位。hole / slot / face / thread / step / surface 现网可用。"""
+from . import FACE_SCHEMA, FEATURE_SCHEMA, SLOT_SCHEMA, STEP_SCHEMA, SURFACE_SCHEMA, THREAD_SCHEMA
 
 PLUGINS = (
     {"id": "hole", "status": "active", "version": FEATURE_SCHEMA},
@@ -7,6 +7,7 @@ PLUGINS = (
     {"id": "face", "status": "active", "version": FACE_SCHEMA},
     {"id": "thread", "status": "active", "version": THREAD_SCHEMA},
     {"id": "step", "status": "active", "version": STEP_SCHEMA},
+    {"id": "surface", "status": "active", "version": SURFACE_SCHEMA},
 )
 
 
@@ -56,3 +57,14 @@ def run_step(path):
         return []
     except Exception:
         return []
+
+
+def run_surface(path):
+    try:
+        from .surface import detect_surfaces
+        return detect_surfaces(path)
+    except FileNotFoundError:
+        return []
+    except Exception:
+        return []
+

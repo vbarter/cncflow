@@ -11,7 +11,7 @@ def test_geometry_contract_lists_plugins(client):
     assert body["endpoint"] == "POST /api/v1/geometry/parse"
     assert body["output"]["feature_schema"] == "hole-v3"
     ids = [p["id"] for p in body["plugins"]]
-    assert ids == ["hole", "slot", "face", "thread", "step"]
+    assert ids == ["hole", "slot", "face", "thread", "step", "surface"]
     assert body["plugins"][0]["status"] == "active"
     assert body["plugins"][1]["status"] == "active"
     assert body["plugins"][2]["status"] == "active"
@@ -48,6 +48,9 @@ def test_geometry_contract_lists_hole_fields(client):
         assert output["features"]["step"]["status"] == "active"
         for name in ("profile_type", "length", "height"):
             assert name in output["features"]["step"]["fields"]
+        assert output["features"]["surface"]["status"] == "active"
+        for name in ("surface_type", "curvature_radius", "position"):
+            assert name in output["features"]["surface"]["fields"]
 
 
 def test_geometry_parse_requires_step(client):
