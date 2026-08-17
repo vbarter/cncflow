@@ -227,6 +227,8 @@ export function PartDetail({ id, go }: { id: string; go: (h: string) => void }) 
           const sku = s.sku || s.tool || s.cycle || "—"
           const minutes = s.minutes != null ? `${Number(s.minutes).toFixed(1)} min` : "—"
           const amount = s.amount != null ? `¥${yen(s.amount)}` : "—"
+          const tm = s.time
+          const formula = tm ? `n=${tm.n_act} f=${tm.f} cut=${tm.cut} passes=${tm.passes} t=${tm.t_cut != null ? `${(Number(tm.t_cut) * 60).toFixed(1)}s` : "—"}` : ""
           return <div key={i} className="border-b border-[#e2e8f0] py-2">
             <div className="md:hidden">
               <div className="flex items-center justify-between gap-2">
@@ -235,10 +237,11 @@ export function PartDetail({ id, go }: { id: string; go: (h: string) => void }) 
               </div>
               <div className="mt-1">{name}</div>
               <div className="mt-1 text-xs text-slate-500">{sku} · {minutes}</div>
+              {formula && <div className="mt-1 font-mono text-[11px] text-slate-500">{formula}</div>}
             </div>
             <div className="hidden grid-cols-[72px_1fr_88px_72px_72px] gap-2 md:grid">
               <span className="text-slate-500">{step}</span>
-              <span>{name}</span>
+              <span>{name}{formula && <div className="mt-0.5 font-mono text-[11px] text-slate-500">{formula}</div>}</span>
               <span className="text-slate-500">{sku}</span>
               <span className="text-right text-slate-500">{minutes}</span>
               <span className="text-right">{amount}</span>

@@ -102,6 +102,8 @@ def _cut_passes(proc: str, hole: dict) -> tuple[float, int]:
 
 def _bounds(proc: str, D: float) -> tuple[float, float] | None:
     if proc in DRILL:
+        if D <= 6:
+            return (0.05, 5.0)
         return (0.1, 5.0) if D <= 25 else (0.5, 20.0)
     if proc in TAP:
         return (0.1, 5.0) if D <= 24 else (1.0, 15.0)
@@ -160,7 +162,10 @@ def compute(result: dict, factory: dict, material: str) -> dict:
             t_cut = ((cut * passes / f) * compensate) if f else 0.0
         t_step = t_cut + t_chg
         bound = _bounds(proc, D)
-        if bound and (t_step < bound[0] or t_step > bound[1]):
+        # 防错只打标不改 t：比的是切削时间 t_cut
+        if bound and t_cut < bound[0]:
+            tags.append("低于下限")
+        elif bound and t_cut > bound[1]:
             tags.append("需人工复核")
         steps.append({
             "step": i,
