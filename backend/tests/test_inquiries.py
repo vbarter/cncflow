@@ -246,5 +246,9 @@ def test_zn010_deep_hole_risk_and_double_chamfer(client, seeded_db_path):
     tags = (q.get("risk") or {}).get("tags") or []
     assert "深孔高风险" in tags
     assert q["risk"]["level"] == "high"
+    plan = next(f["plan"] for f in q["features"] if f["type"] == "hole")
+    chain = plan.get("tool_chain") or plan.get("process_chain") or []
+    assert [s.get("name") for s in chain if s.get("process") == "chamfer"] == ["入口倒角", "出口倒角"]
     ch = [s for s in q["process_sequence"] if s.get("process") == "chamfer"]
-    assert [s.get("name") for s in ch] == ["入口倒角", "出口倒角"]
+    assert len(ch) == 1
+    assert ch[0].get("name") == "倒角"
