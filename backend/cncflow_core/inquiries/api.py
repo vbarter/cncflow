@@ -133,6 +133,24 @@ def _thread_for_pipeline(feat, fid):
     }
 
 
+
+def _step_for_pipeline(feat, fid):
+    dim = feat.get("dimensions") or {}
+    length = feat.get("length") if feat.get("length") is not None else dim.get("length")
+    height = feat.get("height") if feat.get("height") is not None else dim.get("height")
+    if height is None:
+        height = feat.get("depth") or dim.get("depth") or feat.get("depth_mm")
+    if not length or not height:
+        return None
+    return {
+        "type": "step",
+        "feature_id": fid,
+        "profile_type": feat.get("profile_type") or dim.get("profile_type") or "台阶",
+        "length": float(length),
+        "height": float(height),
+    }
+
+
 def _review_and_quote_features(parsed_feats, selected_ids, L, W):
     review = []
     quoted = []
@@ -162,6 +180,10 @@ def _review_and_quote_features(parsed_feats, selected_ids, L, W):
                 quoted.append(mapped)
         elif feat.get("type") == "thread":
             mapped = _thread_for_pipeline(feat, fid)
+            if mapped:
+                quoted.append(mapped)
+        elif feat.get("type") == "step":
+            mapped = _step_for_pipeline(feat, fid)
             if mapped:
                 quoted.append(mapped)
     features = quoted
@@ -265,7 +287,7 @@ def _flatten_hole_fields(feat):
     out = dict(feat)
     for key in (
         "diameter_mm", "depth_mm", "hole_type", "position_type", "cut_depth_mm",
-        "pocket_type", "length", "width", "depth", "corner_radius",
+        "pocket_type", "length", "width", "depth", "corner_radius", "profile_type", "height",
     ):
         if out.get(key) is None and dim.get(key) is not None:
             out[key] = dim[key]

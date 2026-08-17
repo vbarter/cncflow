@@ -4,6 +4,7 @@ from ..features.face import pipeline as face_pipeline
 from ..features.fixture import pipeline as fixture_pipeline
 from ..features.hole import pipeline as hole_pipeline
 from ..features.pocket import pipeline as pocket_pipeline
+from ..features.step import pipeline as step_pipeline
 from ..features.surface import pipeline as surface_pipeline
 from ..features.thread import pipeline as thread_pipeline
 from . import confidence, slider, volume
@@ -15,6 +16,7 @@ PIPELINES = {
     "slot": pocket_pipeline.run,
     "thread": thread_pipeline.run,
     "surface": surface_pipeline.run,
+    "step": step_pipeline.run,
 }
 
 DIFF_MIN = {"D1": 2.0, "D2": 6.0, "D3": 15.0, "D4": 25.0, "NA": 20.0, 1: 2.0, 2: 6.0, 3: 15.0, 4: 25.0}

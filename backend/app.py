@@ -17,6 +17,7 @@ from cncflow_core.features.face import pipeline as face_pipeline
 from cncflow_core.features.pocket import pipeline as pocket_pipeline
 from cncflow_core.features.thread import pipeline as thread_pipeline
 from cncflow_core.features.surface import pipeline as surface_pipeline
+from cncflow_core.features.step import pipeline as step_pipeline
 from cncflow_core.features.fixture import pipeline as fixture_pipeline
 from cncflow_core.factory.api import bp as factory_bp
 from cncflow_core.quoting.api import bp as quoting_bp
@@ -59,6 +60,7 @@ FEATURE_PIPELINES = {
     "slot": pocket_pipeline.run,
     "thread": thread_pipeline.run,
     "surface": surface_pipeline.run,
+    "step": step_pipeline.run,
     "fixture": fixture_pipeline.run,
 }
 

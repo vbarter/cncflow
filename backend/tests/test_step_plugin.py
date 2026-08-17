@@ -1,0 +1,125 @@
+"""台阶插件：profile_type / L / H；默认粗铣+倒角吃 TK；孔槽面螺纹不回退。"""
+import os
+
+import pytest
+
+from cncflow_core.geometry.plugins import run_step
+from cncflow_core.geometry.service import parse_step_file
+from cncflow_core.inquiries.api import _review_and_quote_features
+
+
+FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures")
+HOLE_D8_STEP = os.path.join(FIXTURES, "plate_hole_d8.step")
+OPEN_SLOT_STEP = os.path.join(FIXTURES, "rect_open_slot.step")
+M8_STEP = os.path.join(FIXTURES, "m8x125_through_thread.step")
+
+
+def test_plain_plate_is_not_a_step():
+    pytest.importorskip("cadquery")
+    if not os.path.exists(HOLE_D8_STEP):
+        pytest.skip("missing Ø8 fixture")
+    assert run_step(HOLE_D8_STEP) == []
+    result = parse_step_file(HOLE_D8_STEP)
+    steps = [f for f in result["features"] if f.get("subtype") == "recognized_step"]
+    assert steps == []
+    holes = [f for f in result["features"] if f.get("subtype") == "recognized_hole"]
+    assert holes
+    assert holes[0]["diameter_mm"] == pytest.approx(8, abs=0.2)
+
+
+def test_open_slot_is_not_a_step():
+    pytest.importorskip("cadquery")
+    if not os.path.exists(OPEN_SLOT_STEP):
+        pytest.skip("missing open-slot fixture")
+    result = parse_step_file(OPEN_SLOT_STEP)
+    steps = [f for f in result["features"] if f.get("subtype") == "recognized_step"]
+    assert steps == []
+    slots = [f for f in result["features"] if f.get("subtype") == "recognized_slot"]
+    assert slots
+    assert slots[0]["pocket_type"] == "开放"
+
+
+def test_m8_is_not_a_step():
+    pytest.importorskip("cadquery")
+    if not os.path.exists(M8_STEP):
+        pytest.skip("missing M8 fixture")
+    result = parse_step_file(M8_STEP)
+    steps = [f for f in result["features"] if f.get("subtype") == "recognized_step"]
+    assert steps == []
+    threads = [f for f in result["features"] if f.get("subtype") == "recognized_thread"]
+    assert threads
+
+
+def test_l_step_emits_profile_lh():
+    cadquery = pytest.importorskip("cadquery")
+    import tempfile
+    plate = cadquery.Workplane("XY").box(80, 60, 12, centered=(True, True, False))
+    cut = cadquery.Workplane("XY").center(-20, 0).box(40, 60, 6, centered=(True, True, False)).translate((0, 0, 6))
+    body = plate.cut(cut)
+    fd, path = tempfile.mkstemp(suffix=".step")
+    os.close(fd)
+    try:
+        cadquery.exporters.export(body, path)
+        steps = run_step(path)
+        result = parse_step_file(path)
+    finally:
+        os.unlink(path)
+    assert steps, "expected recognized step"
+    st = steps[0]
+    assert st["profile_type"] == "台阶"
+    assert st["length"] == pytest.approx(60, abs=2)
+    assert st["height"] == pytest.approx(6, abs=1.2)
+    rec = [f for f in result["features"] if f.get("subtype") == "recognized_step"]
+    assert rec
+    assert rec[0]["selected"] is True
+
+
+def test_step_chain_default_rough_chamfer(client):
+    resp = client.post("/api/v1/process-plan", json={
+        "feature": {"type": "step", "profile_type": "台阶", "length": 60, "height": 6},
+        "material": "铝合金",
+    })
+    assert resp.status_code == 200
+    names = [s.get("name") or s.get("process") for s in resp.get_json()["process_chain"]]
+    assert "粗铣" in names
+    assert "倒角" in names
+    assert "精铣" not in names
+
+
+def test_step_quote_eats_tk(client):
+    resp = client.post("/api/v1/quotes", json={
+        "material": "铝合金",
+        "stock_type": "板料",
+        "length": 80,
+        "width": 60,
+        "height": 12,
+        "features": [{"type": "step", "profile_type": "台阶", "length": 60, "height": 6}],
+    })
+    assert resp.status_code == 200
+    seq = resp.get_json()["process_sequence"]
+    skus = [s.get("sku") for s in seq if s.get("sku")]
+    assert any(str(s).startswith("TK-") for s in skus), seq
+    names = [s.get("name") for s in seq]
+    assert "粗铣" in names
+    assert "倒角" in names
+    assert "TK-036" in skus, skus
+
+
+def test_review_includes_selected_step():
+    review, features = _review_and_quote_features([
+        {
+            "type": "step", "feature_id": "step-0", "selected": True,
+            "profile_type": "台阶", "length": 60, "height": 6,
+        },
+    ], None, 80, 60)
+    assert any(f["feature_id"] == "step-0" and f["selected"] for f in review)
+    assert features[0]["type"] == "step"
+    assert features[0]["length"] == 60
+    assert features[0]["height"] == 6
+
+
+def test_factory_seeds_unchanged(client):
+    body = client.get("/api/v1/factory-config").get_json()
+    assert len(body["machines"]) == 23
+    skus = {t["sku"] for t in body["tools"]}
+    assert {f"TK-{i:03d}" for i in range(1, 40)} <= skus

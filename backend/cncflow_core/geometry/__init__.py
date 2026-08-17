@@ -33,3 +33,10 @@ THREAD_FEATURE_FIELDS = (
     "thread_length",
 )
 
+
+STEP_SCHEMA = "step-v1"
+STEP_FEATURE_FIELDS = (
+    "profile_type",
+    "length",
+    "height",
+)

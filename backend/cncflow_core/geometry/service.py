@@ -1,6 +1,6 @@
 """几何特征服务：询价 parse-job 进程内调用；孔字段与 hole-v3 现网一致。"""
-from . import FEATURE_SCHEMA, FACE_FEATURE_FIELDS, FACE_SCHEMA, HOLE_FEATURE_FIELDS, SERVICE_NAME, SLOT_FEATURE_FIELDS, SLOT_SCHEMA, THREAD_FEATURE_FIELDS, THREAD_SCHEMA
-from .plugins import list_plugins, plugin_names, run_face, run_slot, run_thread
+from . import FEATURE_SCHEMA, FACE_FEATURE_FIELDS, FACE_SCHEMA, HOLE_FEATURE_FIELDS, SERVICE_NAME, SLOT_FEATURE_FIELDS, SLOT_SCHEMA, STEP_FEATURE_FIELDS, STEP_SCHEMA, THREAD_FEATURE_FIELDS, THREAD_SCHEMA
+from .plugins import list_plugins, plugin_names, run_face, run_slot, run_step, run_thread
 
 
 def contract():
@@ -39,15 +39,21 @@ def contract():
                     "version": THREAD_SCHEMA,
                     "fields": thread_fields,
                 },
+                "step": {
+                    "status": "active",
+                    "accepted": True,
+                    "version": STEP_SCHEMA,
+                    "fields": list(STEP_FEATURE_FIELDS),
+                },
             },
-            "plugins": "hole+slot+face+thread active",
+            "plugins": "hole+slot+face+thread+step active",
         },
         "plugins": list_plugins(),
         "notes": [
             "询价 parse-job 进程内调用 geometry service，Ø8/ZN-010 仍走现网 parse-jobs",
             "Ø8 / ZN-010 hole-v3 不得回退",
-            "螺纹本轮验收；孔五字段、槽腔、平面不回退",
-            "螺纹最小集 D/P/L 本轮验收；有螺旋才出，没有当孔走；台阶/曲面仍留桩",
+            "台阶本轮验收；孔五字段、槽腔、平面、螺纹不回退",
+            "台阶最小集 profile_type/L/H 本轮验收；孔/槽/面/螺纹不回退；曲面仍留桩",
         ],
     }
 
@@ -117,7 +123,7 @@ def _drop_threaded_holes(features):
     return kept
 
 def parse_step_file(path):
-    """STEP → features。hole/slot/face/thread；无螺旋螺纹当孔走。"""
+    """STEP → features。hole/slot/face/thread/step。"""
     from cncflow_core.ingestion.step_parser import parse_step
 
     result = parse_step(path)
@@ -125,7 +131,9 @@ def parse_step_file(path):
     features.extend(run_slot(path))
     features.extend(run_face(path))
     features.extend(run_thread(path))
+    features.extend(run_step(path))
     features = _drop_slot_fillet_holes(features)
+    features = _drop_slot_as_steps(features)
     features = _drop_threaded_holes(features)
     result["service"] = SERVICE_NAME
     result["parser"] = "geometry-service"
