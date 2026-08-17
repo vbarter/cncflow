@@ -1,0 +1,13 @@
+version: 1
+# 对齐《台阶轮廓特征加工报价》：H>30 D3 / H>10 D2
+checks:
+  - id: STEP-H
+    name: 台阶高度
+    metric: height
+    bands:
+      - min: 30
+        level: D3
+      - min: 10
+        level: D2
+      - max: 10
+        level: D1

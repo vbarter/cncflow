@@ -1,11 +1,12 @@
-"""识别器插件位。hole / slot / face / thread 现网可用。"""
-from . import FACE_SCHEMA, FEATURE_SCHEMA, SLOT_SCHEMA, THREAD_SCHEMA
+"""识别器插件位。hole / slot / face / thread / step 现网可用。"""
+from . import FACE_SCHEMA, FEATURE_SCHEMA, SLOT_SCHEMA, STEP_SCHEMA, THREAD_SCHEMA
 
 PLUGINS = (
     {"id": "hole", "status": "active", "version": FEATURE_SCHEMA},
     {"id": "slot", "status": "active", "version": SLOT_SCHEMA},
     {"id": "face", "status": "active", "version": FACE_SCHEMA},
     {"id": "thread", "status": "active", "version": THREAD_SCHEMA},
+    {"id": "step", "status": "active", "version": STEP_SCHEMA},
 )
 
 
@@ -41,6 +42,16 @@ def run_thread(path):
     try:
         from .thread import detect_threads
         return detect_threads(path)
+    except FileNotFoundError:
+        return []
+    except Exception:
+        return []
+
+
+def run_step(path):
+    try:
+        from .step_profile import detect_steps
+        return detect_steps(path)
     except FileNotFoundError:
         return []
     except Exception:
