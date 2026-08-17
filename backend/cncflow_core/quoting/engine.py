@@ -7,7 +7,7 @@ from ..features.pocket import pipeline as pocket_pipeline
 from ..features.step import pipeline as step_pipeline
 from ..features.surface import pipeline as surface_pipeline
 from ..features.thread import pipeline as thread_pipeline
-from . import confidence, hole_time, sequence, slider, volume
+from . import confidence, dedup, hole_time, sequence, slider, volume
 
 PIPELINES = {
     "hole": hole_pipeline.run,
@@ -133,6 +133,7 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
     order = {"D1": 1, "D2": 2, "D3": 3, "D4": 4, "NA": 5, 1: 1, 2: 2, 3: 3, 4: 4}
     cut_min = 0.0
     n_tools = 0
+    features = dedup.absorb_holes(features)
     for i, feat in enumerate(features, 1):
         ftype = feat.get("type")
         fn = PIPELINES.get(ftype)
@@ -188,6 +189,7 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
 
     feat_types = {p["feature_id"]: p["type"] for p in plans}
     seq = sequence.sort_steps(seq, feat_types)
+    seq = dedup.merge_chamfers(seq)
 
     fixture_feat = {
         "type": "fixture", "length": L,

@@ -23,6 +23,10 @@ def _handbook_chain(nominal_d, pitch, thread_length, material):
             "process": "thread_mill", "op": "thread_mill", "name": "螺纹铣", "cycle": None,
             "tool_attrs": {"category": "螺纹铣刀", "nominal_diameter_mm": 6.0},
         })
+    steps.append({
+        "process": "chamfer", "op": "chamfer", "name": "倒角", "cycle": None,
+        "tool_attrs": {"category": "倒角刀", "nominal_diameter_mm": 6.0},
+    })
     return steps
 
 
