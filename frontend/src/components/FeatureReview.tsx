@@ -1,7 +1,8 @@
-import { Suspense, useMemo, useState } from "react"
+import { Suspense, useEffect, useMemo, useState } from "react"
 import { Canvas } from "@react-three/fiber"
-import { OrbitControls, useGLTF } from "@react-three/drei"
+import { OrbitControls } from "@react-three/drei"
 import * as THREE from "three"
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js"
 import { API } from "../api"
 
 type Feat = any
@@ -12,10 +13,17 @@ function holeLabel(ht: string | undefined) {
   return ht || "—"
 }
 
+function xyz(v: any): THREE.Vector3 | null {
+  if (!v) return null
+  if (typeof v.x === "number") return new THREE.Vector3(v.x, v.y, v.z)
+  return null
+}
+
 function poseOf(f: Feat) {
   const pose = f.pose
   if (pose?.origin && pose?.axis && pose.diameter_mm) {
     return {
+      kind: "cyl" as const,
       origin: new THREE.Vector3(pose.origin.x, pose.origin.y, pose.origin.z),
       axis: new THREE.Vector3(pose.axis.x, pose.axis.y, pose.axis.z).normalize(),
       length: Number(pose.length_mm || f.depth_mm || 1),
@@ -24,13 +32,21 @@ function poseOf(f: Feat) {
   }
   const loc = f.location
   const ax = f.axis
-  if (loc && ax && f.diameter_mm) {
+  if (loc && ax && (f.diameter_mm || f.nominal_d)) {
     return {
+      kind: "cyl" as const,
       origin: new THREE.Vector3(loc.x, loc.y, loc.z),
       axis: new THREE.Vector3(ax.x, ax.y, ax.z).normalize(),
-      length: Number(f.depth_mm || 1),
-      diameter: Number(f.diameter_mm),
+      length: Number(f.depth_mm || f.thread_length || 1),
+      diameter: Number(f.diameter_mm || f.nominal_d),
     }
+  }
+  const center = xyz(f.location) || xyz(f.center) || xyz(f.position)
+  if (center) {
+    const L = Number(f.length || f.dimensions?.length || 8)
+    const W = Number(f.width || f.dimensions?.width || 8)
+    const H = Number(f.depth || f.height || f.dimensions?.depth || 2)
+    return { kind: "box" as const, origin: center, size: [L, H, W] as [number, number, number] }
   }
   return null
 }
@@ -41,9 +57,21 @@ function quatFromAxis(axis: THREE.Vector3) {
   return q
 }
 
+function useGltfScene(url: string) {
+  const [scene, setScene] = useState<THREE.Object3D | null>(null)
+  useEffect(() => {
+    let live = true
+    const loader = new GLTFLoader()
+    loader.load(url, (gltf) => { if (live) setScene(gltf.scene) }, undefined, () => { if (live) setScene(null) })
+    return () => { live = false }
+  }, [url])
+  return scene
+}
+
 function Body({ url }: { url: string }) {
-  const gltf = useGLTF(url)
-  return <primitive object={gltf.scene} />
+  const scene = useGltfScene(url)
+  if (!scene) return null
+  return <primitive object={scene} />
 }
 
 function FeatureMark({
@@ -51,18 +79,34 @@ function FeatureMark({
 }: { feat: Feat; selected: boolean; onPick: (id: string) => void }) {
   const pose = poseOf(feat)
   if (!pose) return null
-  const mid = pose.origin.clone().add(pose.axis.clone().multiplyScalar(pose.length / 2))
+  if (pose.kind === "cyl") {
+    const mid = pose.origin.clone().add(pose.axis.clone().multiplyScalar(pose.length / 2))
+    return (
+      <mesh
+        position={mid}
+        quaternion={quatFromAxis(pose.axis)}
+        onClick={(e) => { e.stopPropagation(); onPick(feat.feature_id) }}
+      >
+        <cylinderGeometry args={[pose.diameter / 2, pose.diameter / 2, pose.length, 24]} />
+        <meshStandardMaterial
+          color={selected ? "#2563eb" : "#38bdf8"}
+          transparent
+          opacity={selected ? 0.55 : 0.18}
+          depthWrite={false}
+        />
+      </mesh>
+    )
+  }
   return (
     <mesh
-      position={mid}
-      quaternion={quatFromAxis(pose.axis)}
+      position={pose.origin}
       onClick={(e) => { e.stopPropagation(); onPick(feat.feature_id) }}
     >
-      <cylinderGeometry args={[pose.diameter / 2, pose.diameter / 2, pose.length, 24]} />
+      <boxGeometry args={pose.size} />
       <meshStandardMaterial
         color={selected ? "#2563eb" : "#38bdf8"}
         transparent
-        opacity={selected ? 0.55 : 0.18}
+        opacity={selected ? 0.45 : 0.16}
         depthWrite={false}
       />
     </mesh>
@@ -144,10 +188,10 @@ export function FeatureReview({
             <dl className="grid grid-cols-[72px_1fr] gap-y-1 text-xs">
               <dt className="text-slate-500">id</dt><dd>{selected.feature_id}</dd>
               <dt className="text-slate-500">类型</dt><dd>{selected.type || "—"}</dd>
-              <dt className="text-slate-500">D</dt><dd>{selected.diameter_mm != null ? `Ø${selected.diameter_mm}` : "—"}</dd>
-              <dt className="text-slate-500">H</dt><dd>{selected.depth_mm != null ? selected.depth_mm : "—"}</dd>
+              <dt className="text-slate-500">D</dt><dd>{selected.diameter_mm != null ? `Ø${selected.diameter_mm}` : (selected.nominal_d != null ? `Ø${selected.nominal_d}` : "—")}</dd>
+              <dt className="text-slate-500">H</dt><dd>{selected.depth_mm != null ? selected.depth_mm : (selected.thread_length != null ? selected.thread_length : "—")}</dd>
               <dt className="text-slate-500">通盲</dt><dd>{holeLabel(selected.hole_type)}</dd>
-              <dt className="text-slate-500">方位</dt><dd>{selected.position_type || "—"}</dd>
+              <dt className="text-slate-500">方位</dt><dd>{selected.position_type || selected.face_position || "—"}</dd>
             </dl>
           ) : (
             <div className="text-xs text-slate-400">点列表或模型上的特征</div>

@@ -6,3 +6,4 @@ pypdfium2>=4.30,<5
 pytesseract>=0.3.13,<1
 openai>=1.50,<2
 Pillow>=10,<13
+cascadio>=0.0.13
