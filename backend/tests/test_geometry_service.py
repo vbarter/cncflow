@@ -5,7 +5,7 @@ import pytest
 
 from cncflow_core.common.db import get_conn
 from cncflow_core.geometry import FEATURE_SCHEMA, HOLE_FEATURE_FIELDS
-from cncflow_core.geometry.plugins import plugin_names, run_face, run_slot, run_step, run_thread
+from cncflow_core.geometry.plugins import plugin_names, run_face, run_slot, run_step, run_surface, run_thread
 from cncflow_core.geometry.service import parse_step_file
 from cncflow_core.ingestion.jobs import get_job
 
@@ -22,7 +22,7 @@ def local_storage(monkeypatch, tmp_path):
 
 
 def test_plugin_registry_hole_slot_face():
-    assert plugin_names() == ["hole", "slot", "face", "thread", "step"]
+    assert plugin_names() == ["hole", "slot", "face", "thread", "step", "surface"]
     assert FEATURE_SCHEMA == "hole-v3"
     assert list(HOLE_FEATURE_FIELDS) == [
         "diameter_mm", "depth_mm", "hole_type", "position_type", "cut_depth_mm",
@@ -31,6 +31,7 @@ def test_plugin_registry_hole_slot_face():
     assert run_face("unused.step") == []
     assert run_thread("unused.step") == []
     assert run_step("unused.step") == []
+    assert run_surface("unused.step") == []
     from cncflow_core.geometry.plugins import list_plugins
     assert list_plugins()[1]["status"] == "active"
 
@@ -54,7 +55,7 @@ def test_parse_step_file_uses_hole_v3_and_stubs(monkeypatch, tmp_path):
     assert result["parser_version"] == "hole-v3"
     assert result["feature_schema"] == "hole-v3"
     ids = [plugin["id"] for plugin in result["plugins"]]
-    assert ids == ["hole", "slot", "face", "thread", "step"]
+    assert ids == ["hole", "slot", "face", "thread", "step", "surface"]
     assert result["plugins"][0]["status"] == "active"
     assert result["plugins"][1]["status"] == "active"
     assert result["plugins"][2]["status"] == "active"
@@ -104,6 +105,7 @@ def test_process_claimed_emits_geometry_parse_event(client, seeded_db_path, monk
                 {"id": "face", "status": "active", "version": "face-v1"},
                 {"id": "thread", "status": "active", "version": "thread-v1"},
                 {"id": "step", "status": "active", "version": "step-v1"},
+                {"id": "surface", "status": "active", "version": "surface-v1"},
             ],
         }
 
@@ -122,7 +124,7 @@ def test_process_claimed_emits_geometry_parse_event(client, seeded_db_path, monk
     assert job["result"]["parser"] == "geometry-service"
     assert job["result"]["feature_schema"] == "hole-v3"
     ids = [plugin["id"] for plugin in job["result"]["plugins"]]
-    assert ids == ["hole", "slot", "face", "thread", "step"]
+    assert ids == ["hole", "slot", "face", "thread", "step", "surface"]
 
 
 def test_service_o8_plate_no_regress():
@@ -140,7 +142,7 @@ def test_service_o8_plate_no_regress():
         os.unlink(path)
     assert result["feature_schema"] == "hole-v3"
     ids = [plugin["id"] for plugin in result["plugins"]]
-    assert ids == ["hole", "slot", "face", "thread", "step"]
+    assert ids == ["hole", "slot", "face", "thread", "step", "surface"]
     holes = [feat for feat in result["features"] if feat.get("subtype") == "recognized_hole"]
     assert holes, result["features"]
     hole = holes[0]

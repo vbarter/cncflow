@@ -40,3 +40,11 @@ STEP_FEATURE_FIELDS = (
     "length",
     "height",
 )
+
+SURFACE_SCHEMA = "surface-v1"
+SURFACE_FEATURE_FIELDS = (
+    "surface_type",
+    "curvature_radius",
+    "position",
+)
+

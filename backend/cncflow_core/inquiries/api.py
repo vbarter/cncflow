@@ -151,6 +151,31 @@ def _step_for_pipeline(feat, fid):
     }
 
 
+
+def _surface_for_pipeline(feat, fid):
+    dim = feat.get("dimensions") or {}
+    surface_type = feat.get("surface_type") or dim.get("surface_type")
+    radius = feat.get("curvature_radius")
+    if radius is None:
+        radius = dim.get("curvature_radius")
+    if radius is None:
+        radius = feat.get("radius")
+    if not surface_type:
+        return None
+    try:
+        radius = float(radius) if radius is not None else None
+    except (TypeError, ValueError):
+        return None
+    return {
+        "type": "surface",
+        "feature_id": fid,
+        "surface_type": surface_type,
+        "curvature_radius": radius,
+        "position": feat.get("position") or dim.get("position"),
+        "manual_hours": float(feat.get("manual_hours") or 0),
+    }
+
+
 def _review_and_quote_features(parsed_feats, selected_ids, L, W):
     review = []
     quoted = []
@@ -184,6 +209,10 @@ def _review_and_quote_features(parsed_feats, selected_ids, L, W):
                 quoted.append(mapped)
         elif feat.get("type") == "step":
             mapped = _step_for_pipeline(feat, fid)
+            if mapped:
+                quoted.append(mapped)
+        elif feat.get("type") == "surface":
+            mapped = _surface_for_pipeline(feat, fid)
             if mapped:
                 quoted.append(mapped)
     features = quoted
