@@ -7,7 +7,7 @@ from ..features.pocket import pipeline as pocket_pipeline
 from ..features.step import pipeline as step_pipeline
 from ..features.surface import pipeline as surface_pipeline
 from ..features.thread import pipeline as thread_pipeline
-from . import confidence, slider, volume
+from . import confidence, hole_time, slider, volume
 
 PIPELINES = {
     "hole": hole_pipeline.run,
@@ -94,6 +94,9 @@ def _feature_minutes(result: dict, ftype: str) -> tuple[float, object, bool]:
     if ftype == "hole":
         level = (result.get("machinability") or {}).get("level", 1)
         na = int(level or 1) >= 4
+        timed = result.get("time") or {}
+        if timed.get("total_min") is not None:
+            return float(timed["total_min"]), level, na
         return DIFF_MIN.get(level, 6.0), level, na
     diff = result.get("difficulty") or {}
     level = diff.get("level", "D1")
@@ -142,15 +145,21 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
             result = fn(plan_payload, conn)
         except ValueError as exc:
             result = {"error": str(exc), "difficulty": {"level": "NA", "na": True}, "risk_tags": [str(exc)]}
+        if ftype == "hole" and not result.get("error"):
+            result["time"] = hole_time.compute(result, factory, material)
+            result.setdefault("risk_tags", []).extend(result["time"].get("tags") or [])
         mins, level, na = _feature_minutes(result, ftype)
         mins = mins / max(slide["vc"], 0.4) * slide["slowdown"]
         cut_min += mins
-        n_tools += max(len(result.get("process_chain") or result.get("tool_chain") or [1]), 1)
+        steps_n = max(len(result.get("process_chain") or result.get("tool_chain") or [1]), 1)
+        if ftype != "hole":
+            n_tools += steps_n
         ops.append({"op": ftype, "minutes": mins, "na": na})
         plans.append({"feature_id": feat.get("id") or f"{ftype}-{i}", "type": ftype, "plan": result})
         steps = result.get("tool_chain") or result.get("process_chain") or []
         fid = feat.get("id") or feat.get("feature_id") or f"{ftype}-{i}"
-        for step in steps:
+        timed_steps = (result.get("time") or {}).get("steps") or []
+        for si, step in enumerate(steps):
             sel = step.get("selected_candidate") or {}
             sku = sel.get("candidate_id") if sel.get("candidate_type") == "sku" else None
             if not sku:
@@ -169,6 +178,10 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
             })
             if step.get("name"):
                 seq[-1]["name"] = step["name"]
+            if si < len(timed_steps):
+                ts = timed_steps[si]
+                seq[-1]["minutes"] = round(float(ts["t_step"]) / max(slide["vc"], 0.4) * slide["slowdown"], 4)
+                seq[-1]["time"] = ts
         tags.extend(result.get("risk_tags") or [])
         if order.get(level, 1) > order.get(worst, 1):
             worst = level
