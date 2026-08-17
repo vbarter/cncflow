@@ -13,25 +13,34 @@ def test_get_seeds_rate_table(client):
 
 
 def test_put_roundtrip(client):
+    orig = client.get("/api/v1/factory-config").get_json()
     payload = {
         "settings": {"profit_pct": 18, "ignore_available_machines": True, "inspect_fee": 80},
         "machines": [{"id": "vm850", "type": "3轴立式加工中心", "axes": 3, "enabled": True}],
         "material_prices": [{"material_code": "AL-6061", "price_per_kg": 28, "scrap_price_per_kg": 8}],
         "rate_table": [{"equipment_type": "3轴立式加工中心", "hourly_rate": 130, "setup_fee": 200, "programming_fee_new": 300}],
     }
-    resp = client.put("/api/v1/factory-config", json=payload)
-    assert resp.status_code == 200
-    body = resp.get_json()
-    assert body["settings"]["profit_pct"] == 18
-    assert body["settings"]["ignore_available_machines"] is True
-    assert any(m["id"] == "vm850" for m in body["machines"])
-    assert any(m["id"] == "VMC850E" for m in body["machines"])
-    rates = {r["equipment_type"]: r for r in body["rate_table"]}
-    assert rates["3轴立式加工中心"]["hourly_rate"] == 130
-    again = client.get("/api/v1/factory-config").get_json()
-    assert again["settings"]["ignore_available_machines"] is True
-    skus = [t["sku"] for t in again["tools"]]
-    assert any(s == "TK-001" for s in skus)
+    try:
+        resp = client.put("/api/v1/factory-config", json=payload)
+        assert resp.status_code == 200
+        body = resp.get_json()
+        assert body["settings"]["profit_pct"] == 18
+        assert body["settings"]["ignore_available_machines"] is True
+        assert any(m["id"] == "vm850" for m in body["machines"])
+        assert any(m["id"] == "VMC850E" for m in body["machines"])
+        rates = {r["equipment_type"]: r for r in body["rate_table"]}
+        assert rates["3轴立式加工中心"]["hourly_rate"] == 130
+        again = client.get("/api/v1/factory-config").get_json()
+        assert again["settings"]["ignore_available_machines"] is True
+        skus = [t["sku"] for t in again["tools"]]
+        assert any(s == "TK-001" for s in skus)
+    finally:
+        client.put("/api/v1/factory-config", json={
+            "settings": orig["settings"],
+            "machines": orig["machines"],
+            "material_prices": orig["material_prices"],
+            "rate_table": orig["rate_table"],
+        })
 
 
 def test_get_seeds_machines_and_material_prices(client, seeded_db_path):
