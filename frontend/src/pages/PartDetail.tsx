@@ -2,6 +2,7 @@ import { useEffect, useState } from "react"
 import { Button, Card, Select } from "../components/ui"
 import { FeatureReview } from "../components/FeatureReview"
 import { json } from "../api"
+import { hoursLabel, quoteHours } from "../quoteHours"
 
 const COST_LABEL: Record<string, string> = {
   material: "原材料", machining: "加工工时", setup: "装夹", programming: "编程",
@@ -134,6 +135,7 @@ export function PartDetail({ id, go }: { id: string; go: (h: string) => void }) 
           <div>单件报价 <span className="text-xl font-semibold">¥{yen(quote.amount)}</span></div>
           <div>单件成本 ¥{yen(quote.cost)}</div>
           <div>毛利率 {quote.margin ?? "—"}%</div>
+          <div>加工时间 {hoursLabel(quoteHours(q))}</div>
           <div>工艺风险 <span className={risk.tags?.length ? "text-red-300" : ""}>{risk.tags?.length || 0}项</span></div>
         </div>
       </div>

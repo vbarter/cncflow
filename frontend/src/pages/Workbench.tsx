@@ -2,6 +2,7 @@ import { useEffect, useState } from "react"
 import { Plus } from "lucide-react"
 import { Badge, Button, Card, Input, Select } from "../components/ui"
 import { json } from "../api"
+import { hoursLabel, quoteHours } from "../quoteHours"
 
 const LABELS: Record<string, string> = { pending: "待处理", quoting: "报价中", review: "待审核", done: "已完成" }
 
@@ -12,15 +13,18 @@ function yen(n: any) {
 
 function totals(inq: any) {
   const parts = inq.parts || []
-  let amount = 0, cost = 0
+  let amount = 0, cost = 0, hours = 0
+  let hasHours = false
   for (const p of parts) {
     const q = p.quote?.quote || {}
     const qty = Number(p.qty) || 1
     amount += (Number(q.amount) || 0) * qty
     cost += (Number(q.cost) || 0) * qty
+    const h = quoteHours(p.quote)
+    if (h != null) { hours += h * qty; hasHours = true }
   }
   const margin = amount ? ((amount - cost) / amount) * 100 : 0
-  return { amount, cost, margin, n: parts.length }
+  return { amount, cost, margin, hours: hasHours ? Math.round(hours * 10) / 10 : null, n: parts.length }
 }
 
 export function Workbench({ go }: { go: (h: string) => void }) {
@@ -97,7 +101,7 @@ export function Workbench({ go }: { go: (h: string) => void }) {
     <Card className="hidden overflow-x-auto md:block">
       <table className="w-full text-left text-sm">
         <thead><tr className="border-b border-[#e2e8f0] text-xs text-slate-500">
-          <th className="px-4 py-3">询价单号</th><th>客户</th><th>零件</th><th>报价金额</th><th>成本</th><th>综合毛利</th><th>状态</th><th>操作</th>
+          <th className="px-4 py-3">询价单号</th><th>客户</th><th>零件</th><th>报价金额</th><th>成本</th><th>综合毛利</th><th>加工时间</th><th>状态</th><th>操作</th>
         </tr></thead>
         <tbody>
           {shown.map(i => {
@@ -109,11 +113,12 @@ export function Workbench({ go }: { go: (h: string) => void }) {
               <td>{yen(t.amount)}</td>
               <td>{yen(t.cost)}</td>
               <td>{t.amount ? `${t.margin.toFixed(0)}%` : "—"}</td>
+              <td>{hoursLabel(t.hours)}</td>
               <td><Badge>{LABELS[i.ui_status] || i.ui_status}</Badge></td>
               <td><button type="button" className="text-sm text-blue-600" onClick={() => go("inquiry/" + i.id)}>查看询价单 →</button></td>
             </tr>
           })}
-          {!shown.length && <tr><td colSpan={8} className="px-4 py-10 text-center text-slate-500">还没有询价单</td></tr>}
+          {!shown.length && <tr><td colSpan={9} className="px-4 py-10 text-center text-slate-500">还没有询价单</td></tr>}
         </tbody>
       </table>
     </Card>
