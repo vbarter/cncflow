@@ -89,7 +89,8 @@ def _rate(factory: dict, payload: dict) -> dict:
 
 def _feature_minutes(result: dict, ftype: str) -> tuple[float, object, bool]:
     if ftype == "surface":
-        return float(result.get("manual_hours") or 0) * 60, "NA", True
+        level = (result.get("difficulty") or {}).get("level") or "D1"
+        return float(result.get("manual_hours") or 0) * 60, level, False
     if ftype == "hole":
         level = (result.get("machinability") or {}).get("level", 1)
         na = int(level or 1) >= 4

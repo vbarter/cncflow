@@ -350,7 +350,28 @@ def _attach_parsed_features(conn, part):
     return part
 
 
-def _quote_part(conn, part, selected_ids=None, features_override=None):
+
+def _overlay_manual_hours(features, override, part_hours=None):
+    """PATCH 手补工时接到已映射的曲面特征。"""
+    by_id = {}
+    for item in override or []:
+        if not isinstance(item, dict):
+            continue
+        fid = str(item.get("feature_id") or item.get("id") or "")
+        if fid and item.get("manual_hours") is not None:
+            by_id[fid] = item.get("manual_hours")
+    for feat in features:
+        if feat.get("type") != "surface":
+            continue
+        fid = str(feat.get("feature_id") or feat.get("id") or "")
+        if fid in by_id:
+            feat["manual_hours"] = float(by_id[fid] or 0)
+        elif part_hours is not None:
+            feat["manual_hours"] = float(part_hours or 0)
+    return features
+
+
+def _quote_part(conn, part, selected_ids=None, features_override=None, extra=None):
     geometry, parsed_feats = _parse_geom(conn, part)
     L, W, H = _bbox_lwh(part, geometry)
     box = (geometry or {}).get("bounding_box_mm") or {}
@@ -359,9 +380,25 @@ def _quote_part(conn, part, selected_ids=None, features_override=None):
         part = store.get_part(conn, part["id"])
     if not L or not W:
         return None
+    extra = extra or {}
+    override = features_override
+    if override is None:
+        override = extra.get("features") or extra.get("review_features")
     review, features = _review_and_quote_features(parsed_feats, selected_ids, L, W)
-    if features_override:
-        features = features_override
+    if override and all(
+        isinstance(item, dict) and item.get("type") in {"hole", "slot", "pocket", "face", "thread", "step", "surface"}
+        and not item.get("subtype")
+        for item in override
+    ):
+        remapped = []
+        for item in override:
+            if item.get("type") == "surface":
+                mapped = _surface_for_pipeline(item, item.get("feature_id") or item.get("id") or "surface-0")
+                remapped.append(mapped or item)
+            else:
+                remapped.append(item)
+        features = remapped
+    features = _overlay_manual_hours(features, override, extra.get("manual_hours"))
     try:
         rules_version = current_app.config.get("RULES_VERSION") or ""
     except RuntimeError:
@@ -463,7 +500,7 @@ def quote_inquiry(iid):
             if part["status"] == "confirmed":
                 out.append(part)
                 continue
-            quoted = _quote_part(conn, part, selected_ids=None, features_override=req.get("features"))
+            quoted = _quote_part(conn, part, selected_ids=None, features_override=req.get("features") or req.get("review_features"), extra=req)
             out.append(quoted if quoted is not None else part)
         return jsonify(store.get_inquiry(conn, iid))
     except KeyError:
@@ -512,7 +549,9 @@ def patch_part(pid):
             selected_ids = None
         if part["status"] not in {"confirmed", "abandoned"}:
             quoted = _quote_part(
-                conn, part, selected_ids=selected_ids, features_override=payload.get("features"),
+                conn, part, selected_ids=selected_ids,
+                features_override=payload.get("features") or payload.get("review_features"),
+                extra=payload,
             )
             if quoted is not None:
                 part = quoted
