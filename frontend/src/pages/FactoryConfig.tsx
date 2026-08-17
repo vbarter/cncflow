@@ -138,7 +138,7 @@ function CatalogBlock({ title, count, onAdd, children }: { title: string; count:
         <div className="text-sm font-medium text-slate-800">{title}<span className="ml-2 text-xs font-normal text-slate-400">{count} 条</span></div>
         <button type="button" className="text-xs font-medium text-blue-600" onClick={onAdd}>+ 添加</button>
       </div>
-      <div className="overflow-x-auto p-3">{children}</div>
+      <div className="factory-table-scroll max-w-full p-3">{children}</div>
     </div>
   )
 }
@@ -178,14 +178,14 @@ export function FactoryConfig() {
     <div className="rounded border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-800">
       当前报价规则版本：工厂默认报价规则 {s.extra?.rules_version || "v1"} ｜ 保存后新询价自动使用最新规则
     </div>
-    <div className="grid gap-6 overflow-x-hidden md:grid-cols-[200px_1fr]">
-      <div className="flex flex-wrap gap-1 md:block md:space-y-1">
+    <div className="flex flex-col gap-6 md:grid md:grid-cols-[200px_1fr]">
+      <div className="flex shrink-0 flex-wrap gap-1 md:block md:space-y-1">
         {TABS.map((t, i) => (
           <button key={t} type="button" onClick={() => setTab(i)}
             className={`min-h-11 rounded px-3 py-2 text-left text-sm md:block md:w-full md:min-h-0 ${tab === i ? "bg-blue-600 text-white" : "text-slate-700 hover:bg-slate-100"}`}><span className="md:hidden">{TABS_MOBILE[i]}</span><span className="hidden md:inline">{t}</span></button>
         ))}
       </div>
-      <div>
+      <div className="min-w-0 w-full">
         {tab === 0 && <Card className="grid gap-3 p-5 md:grid-cols-3">
           <label className="text-xs text-slate-500">利润 %<Input className="mt-1" type="number" value={s.profit_pct ?? 15} onChange={e => setCfg({ ...cfg, settings: { ...s, profit_pct: Number(e.target.value) } })} /></label>
           <label className="text-xs text-slate-500">最低收费<Input className="mt-1" type="number" value={s.floor_charge ?? 0} onChange={e => setCfg({ ...cfg, settings: { ...s, floor_charge: Number(e.target.value) } })} /></label>
@@ -288,7 +288,7 @@ export function FactoryConfig() {
 
         {tab === 4 && <Card className="p-5">
           <div className="mb-3 text-sm font-medium">机时费率</div>
-          <div className="overflow-x-auto">
+          <div className="factory-table-scroll max-w-full">
           <table className="w-full text-left text-sm">
             <thead><tr className="border-b border-[#e2e8f0] text-xs text-slate-500"><th className="py-2">设备类型</th><th>机时</th><th>调机</th><th>编程</th></tr></thead>
             <tbody>{rates.map((r: any, i: number) => (

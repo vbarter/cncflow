@@ -6,3 +6,4 @@
 .font-mono{font-family:'DM Mono',ui-monospace,SFMono-Regular,Menlo,monospace}
 @media(max-width:640px){h1,h2,p{overflow-wrap:anywhere;word-break:break-word}}
 @media(max-width:767px){main{overflow-x:hidden}canvas{touch-action:none}}
+.factory-table-scroll{max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;overscroll-behavior-x:contain;touch-action:pan-x pan-y}
