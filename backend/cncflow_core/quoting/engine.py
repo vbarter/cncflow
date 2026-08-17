@@ -7,7 +7,7 @@ from ..features.pocket import pipeline as pocket_pipeline
 from ..features.step import pipeline as step_pipeline
 from ..features.surface import pipeline as surface_pipeline
 from ..features.thread import pipeline as thread_pipeline
-from . import confidence, dedup, hole_time, sequence, slider, volume
+from . import confidence, dedup, equipment, hole_time, sequence, slider, volume
 
 PIPELINES = {
     "hole": hole_pipeline.run,
@@ -120,7 +120,9 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
     price, scrap_price, recycle_rate = _price(material, factory, payload)
     mat_cost = vol["blank_weight_kg"] * price - vol["scrap_weight_kg"] * scrap_price * recycle_rate
 
-    rate = _rate(factory, payload)
+    features = dedup.absorb_holes(features)
+    picked = equipment.select(factory, payload, features, L, D, H)
+    rate = picked["rate"]
     hourly = float(payload.get("hourly_rate") or rate["hourly_rate"])
     batch = int(payload.get("batch_size") or settings.get("batch_size") or 1)
     repeat = bool(payload.get("is_repeat_order"))
@@ -133,7 +135,6 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
     order = {"D1": 1, "D2": 2, "D3": 3, "D4": 4, "NA": 5, 1: 1, 2: 2, 3: 3, 4: 4}
     cut_min = 0.0
     n_tools = 0
-    features = dedup.absorb_holes(features)
     for i, feat in enumerate(features, 1):
         ftype = feat.get("type")
         fn = PIPELINES.get(ftype)
@@ -202,6 +203,8 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
         "ignore_available_machines": settings.get("ignore_available_machines"),
     }, conn)
     if not fixture.get("is_machinable"):
+        tags.append("设备不匹配")
+    if not picked["matched"]:
         tags.append("设备不匹配")
 
     factor = DIFF_FACTOR.get(worst, 1.0)
@@ -311,6 +314,11 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
         "volume": vol,
         "features": plans,
         "process_sequence": seq,
+        "equipment": {
+            "model": picked.get("model"),
+            "type": picked.get("type"),
+            "hourly_rate": picked.get("hourly_rate"),
+        },
         "fixture": {
             "type": fixture.get("fixture_type"),
             "method": fixture.get("fixture_method"),

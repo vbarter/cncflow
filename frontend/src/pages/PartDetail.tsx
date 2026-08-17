@@ -221,6 +221,7 @@ export function PartDetail({ id, go }: { id: string; go: (h: string) => void }) 
       <Card className="p-5">
         <div className="mb-1 text-xs uppercase tracking-wide text-slate-400">05</div>
         <div className="mb-3 font-medium">加工工艺方案</div>
+        {q.equipment && <div className="mb-2 text-xs text-slate-500">设备 {q.equipment.model || "—"} · {q.equipment.type || "—"} · {q.equipment.hourly_rate != null ? `${q.equipment.hourly_rate} 元/h` : "—"}</div>}
         <div className="space-y-2 text-sm">{(q.process_sequence || []).length ? (q.process_sequence || []).map((s: any, i: number) => {
           const step = `STEP ${String(s.order || i + 1).padStart(2, "0")}`
           const name = s.name || PROCESS_NAME[s.process] || s.op || s.process || s.feature_id || "工序"
