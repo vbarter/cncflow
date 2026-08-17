@@ -22,9 +22,9 @@ def test_o8_hole_and_face_below_min(client):
     drill = next(s for s in body["process_sequence"] if s["process"] == "drill")
     chamfer = next(s for s in body["process_sequence"] if s["process"] == "chamfer")
     assert abs(face["time"]["cut"] - 85.714) < 0.2
-    assert abs(face["time"]["t_cut"] - 0.1496) < 0.01
+    assert 0.12 < face["time"]["t_cut"] < 0.16  # 标准 Vc×1.1 ≈8.2s
     assert abs(drill["time"]["cut"] - 14.4) < 0.05
-    assert abs(drill["time"]["t_cut"] - 0.0075) < 0.01
+    assert 0.005 < drill["time"]["t_cut"] < 0.009  # ≈0.41s
     assert "低于下限" in _flags(face)
     assert "低于下限" in _flags(drill)
     assert "低于下限" not in _flags(chamfer)
@@ -49,7 +49,7 @@ def test_open_slot_rough_and_face_below_min(client):
     face = next(s for s in body["process_sequence"] if s["process"] == "rough_face")
     assert abs(slot["time"]["cut"] - 95.238) < 0.3
     assert slot["time"]["passes"] == 8
-    assert abs(slot["time"]["t_cut"] - 0.1995) < 0.02
+    assert 0.15 < slot["time"]["t_cut"] < 0.22  # ≈11s
     assert "低于下限" in _flags(slot)
     assert "低于下限" in _flags(face)
     assert "低于下限" in body["risk"]["tags"]

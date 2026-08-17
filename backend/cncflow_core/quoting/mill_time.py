@@ -57,11 +57,12 @@ def _lookup_tool(factory: dict, attrs: dict, sku: str | None) -> dict:
     return {}
 
 
-def _cut_passes(ftype: str, proc: str, dims: dict, d: float) -> tuple[float, int]:
+def _cut_passes(ftype: str, proc: str, dims: dict, d: float, ap: float = 1.0) -> tuple[float, int]:
     L, W, H, D, area = dims["L"], dims["W"], dims["H"], dims["D"], dims["area"]
     if not area and L and W:
         area = L * W
     d = d or 1.0
+    layer = 1.0 * (ap or 1.0)
     if proc == "chamfer":
         if ftype in {"face", "pocket", "slot"}:
             return 2 * (L + W) * 0.2, 1
@@ -69,17 +70,17 @@ def _cut_passes(ftype: str, proc: str, dims: dict, d: float) -> tuple[float, int
             return L * 0.2, 1
         return 0.2 * (D or d), 1
     if proc in {"rough_face", "semi_face"}:
-        return (area / (0.7 * d)) if d else 0.0, max(1, int(math.ceil((H or 1) / 1.0))) if proc == "rough_face" else 1
+        return (area / (0.7 * d)) if d else 0.0, max(1, int(math.ceil((H or 1) / layer))) if proc == "rough_face" else 1
     if proc == "finish_face":
         return (area / (0.5 * d)) if d else 0.0, 1
     if proc == "rough_pocket":
         width_pass = max(1.0, W / (0.7 * d)) if d else 1.0
-        return L * width_pass, max(1, int(math.ceil((H or 1) / 1.0)))
+        return L * width_pass, max(1, int(math.ceil((H or 1) / layer)))
     if proc in {"semi_finish_pocket", "finish_pocket", "rest_mill"}:
         cut = 2 * (L + W) * (0.1 if proc == "rest_mill" else 1)
         return cut, 1
     if proc == "rough_step":
-        layers = max(1, int(math.ceil((H or 1) / 1.0)))
+        layers = max(1, int(math.ceil((H or 1) / layer)))
         return L * layers, layers
     if proc in {"semi_step", "finish_step"}:
         return L, 1
@@ -92,11 +93,16 @@ def _cut_passes(ftype: str, proc: str, dims: dict, d: float) -> tuple[float, int
     return max(L, area, H, 1.0), 1
 
 
-def compute(ftype: str, feat: dict, result: dict, factory: dict, material: str) -> dict:
+def compute(ftype: str, feat: dict, result: dict, factory: dict, material: str, slide: dict | None = None) -> dict:
     dims = _dims(feat, result)
     family = hole_time._family(material)
     max_rpm = hole_time._max_rpm(factory)
     t_chg = hole_time._toolchange_min(factory)
+    slide = slide or {}
+    k_vc = float(slide.get("vc") or 1.0)
+    k_fz = float(slide.get("fz") or 1.0)
+    k_ap = float(slide.get("ap") or 1.0)
+    k_slow = float(slide.get("slowdown") or 1.2)
     chain = result.get("tool_chain") or result.get("process_chain") or []
     steps, tags = [], []
     total = 0.0
@@ -117,13 +123,14 @@ def compute(ftype: str, feat: dict, result: dict, factory: dict, material: str) 
         )
         finish = proc in FINISH
         vc, fz = hole_time._vc_fz(family, group, finish)
+        vc, fz = vc * k_vc, fz * k_fz
         n_req = 1000.0 * vc / (math.pi * d)
         n_act = min(n_req, max_rpm)
         if proc == "tap":
             n_act = min(n_act, 1000.0)
-        compensate = 1.2 if n_act + 1e-6 < n_req else 1.0
+        compensate = k_slow if n_act + 1e-6 < n_req else 1.0
         f = n_act * fz * z
-        cut, passes = _cut_passes(ftype, proc, dims, d)
+        cut, passes = _cut_passes(ftype, proc, dims, d, ap=k_ap)
         if proc == "tap":
             pitch = dims["P"] or 1.25
             t_cut = (cut / (n_act * pitch) if n_act and pitch else 0.0)
