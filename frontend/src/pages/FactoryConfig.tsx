@@ -3,6 +3,7 @@ import { Button, Card, Input, Select } from "../components/ui"
 import { json } from "../api"
 
 const TABS = ["基本信息", "设备库", "刀具库", "材料价格", "默认报价规则"]
+const TABS_MOBILE = ["基本", "设备", "刀具", "材料", "规则"]
 
 type Col = { key: string; label: string; kind?: "num" | "text" }
 const RATE: Record<string, { hourly_rate: number; setup_fee: number; axes: number }> = {
@@ -165,23 +166,23 @@ export function FactoryConfig() {
   const groupedTypes = new Set(TOOL_GROUPS.flatMap(g => g.types))
   const otherTools = tools.filter((t: any) => !groupedTypes.has(toolTypeOf(t)))
 
-  return <div className="space-y-5">
-    <div className="flex items-end justify-between gap-4">
+  return <div className="space-y-5 overflow-x-hidden">
+    <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between md:gap-4">
       <div>
         <div className="font-mono text-[10px] uppercase tracking-[.18em] text-slate-500">FACTORY ENGINE</div>
         <h1 className="font-serif mt-2 text-3xl font-semibold tracking-tight text-slate-900">数字工厂配置引擎</h1>
         <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">按文档分类维护设备、刀具、材料，保存后直接参与报价。</p>
       </div>
-      <Button onClick={save}>保存最新配置</Button>
+      <Button className="min-h-11 md:min-h-10" onClick={save}>保存最新配置</Button>
     </div>
     <div className="rounded border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-800">
       当前报价规则版本：工厂默认报价规则 {s.extra?.rules_version || "v1"} ｜ 保存后新询价自动使用最新规则
     </div>
-    <div className="grid gap-6 md:grid-cols-[200px_1fr]">
-      <div className="space-y-1">
+    <div className="grid gap-6 overflow-x-hidden md:grid-cols-[200px_1fr]">
+      <div className="flex flex-wrap gap-1 md:block md:space-y-1">
         {TABS.map((t, i) => (
           <button key={t} type="button" onClick={() => setTab(i)}
-            className={`block w-full rounded px-3 py-2 text-left text-sm ${tab === i ? "bg-blue-600 text-white" : "text-slate-700 hover:bg-slate-100"}`}>{t}</button>
+            className={`min-h-11 rounded px-3 py-2 text-left text-sm md:block md:w-full md:min-h-0 ${tab === i ? "bg-blue-600 text-white" : "text-slate-700 hover:bg-slate-100"}`}><span className="md:hidden">{TABS_MOBILE[i]}</span><span className="hidden md:inline">{t}</span></button>
         ))}
       </div>
       <div>
@@ -287,6 +288,7 @@ export function FactoryConfig() {
 
         {tab === 4 && <Card className="p-5">
           <div className="mb-3 text-sm font-medium">机时费率</div>
+          <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
             <thead><tr className="border-b border-[#e2e8f0] text-xs text-slate-500"><th className="py-2">设备类型</th><th>机时</th><th>调机</th><th>编程</th></tr></thead>
             <tbody>{rates.map((r: any, i: number) => (
@@ -298,6 +300,7 @@ export function FactoryConfig() {
               </tr>
             ))}</tbody>
           </table>
+          </div>
         </Card>}
       </div>
     </div>

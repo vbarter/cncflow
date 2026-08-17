@@ -104,8 +104,29 @@ export function NewInquiry({ go }: { go: (h: string) => void }) {
     } catch (e: any) { setErr(e.message) } finally { setBusy(false) }
   }
 
+  const materialSelect = (p: PartDraft, i: number) => (
+    <Select value={p.material} onChange={e => upd(i, { material: e.target.value })}>
+      <option>AL6061-T6</option><option>SUS304</option><option>AL7075</option><option>POM</option><option>铝合金</option><option>钢</option><option>不锈钢</option>
+    </Select>
+  )
+  const finishSelect = (p: PartDraft, i: number) => (
+    <Select value={p.surface_finish} onChange={e => upd(i, { surface_finish: e.target.value })}>
+      <option>无</option><option>阳极氧化</option><option>镀锌</option><option>喷砂</option>
+    </Select>
+  )
+  const precisionSelect = (p: PartDraft, i: number) => (
+    <Select value={p.precision} onChange={e => upd(i, { precision: e.target.value })}>
+      <option>普通(ISO 2768-m)</option><option>精密</option>
+    </Select>
+  )
+  const raSelect = (p: PartDraft, i: number) => (
+    <Select value={p.roughness_ra} onChange={e => upd(i, { roughness_ra: e.target.value })}>
+      <option value="3.2">Ra3.2</option><option value="1.6">Ra1.6</option><option value="0.8">Ra0.8</option>
+    </Select>
+  )
+
   return <div className="space-y-6">
-    <button type="button" className="text-sm text-blue-600" onClick={() => go("")}>← 返回报价工作台</button>
+    <button type="button" className="min-h-11 text-sm text-blue-600 md:min-h-0" onClick={() => go("")}>← 返回报价工作台</button>
     <div>
       <div className="font-mono text-[10px] uppercase tracking-[.18em] text-slate-500">CREATE RFQ / STEP 01</div>
       <h1 className="font-serif mt-2 text-3xl font-semibold tracking-tight text-slate-900">新建报价</h1>
@@ -125,9 +146,36 @@ export function NewInquiry({ go }: { go: (h: string) => void }) {
     <Card className="p-5">
       <div className="mb-4 flex items-center justify-between">
         <div className="text-sm font-medium text-slate-800">02. 零件列表</div>
-        <button type="button" className="text-xs font-medium text-blue-600 hover:underline" onClick={() => setParts(p => [...p, empty()])}>+ 添加零件</button>
+        <button type="button" className="min-h-11 text-xs font-medium text-blue-600 hover:underline md:min-h-0" onClick={() => setParts(p => [...p, empty()])}>+ 添加零件</button>
       </div>
-      <div className="overflow-x-auto">
+      <div className="space-y-3 md:hidden">
+        {parts.map((p, i) => (
+          <div key={i} className="rounded border border-[#e2e8f0] p-4">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div className="text-sm font-medium text-slate-800">零件 {i + 1}</div>
+              <button type="button" className="min-h-11 text-xs text-slate-400 hover:text-red-500" onClick={() => setParts(ps => ps.filter((_, idx) => idx !== i))}>删除</button>
+            </div>
+            <div className="space-y-3">
+              <label className="block text-xs text-slate-500">零件名称<Input className="mt-1" value={p.name} onChange={e => upd(i, { name: e.target.value })} /></label>
+              <div className="grid grid-cols-2 gap-3">
+                <label className="text-xs text-slate-500">数量<Input className="mt-1" type="number" min={1} value={p.qty} onChange={e => upd(i, { qty: e.target.value })} /></label>
+                <label className="text-xs text-slate-500">材料<div className="mt-1">{materialSelect(p, i)}</div></label>
+              </div>
+              <label className="block text-xs text-slate-500">表面处理<div className="mt-1">{finishSelect(p, i)}</div></label>
+              <div className="grid grid-cols-2 gap-3">
+                <label className="text-xs text-slate-500">关键精度<div className="mt-1">{precisionSelect(p, i)}</div></label>
+                <label className="text-xs text-slate-500">粗糙度<div className="mt-1">{raSelect(p, i)}</div></label>
+              </div>
+              <div className="flex gap-2">
+                <button type="button" className="min-h-11 flex-1 rounded border border-[#e2e8f0] px-3 text-xs text-slate-600" onClick={() => { fileRow.current = { i, kind: "step" }; stepRef.current?.click() }}>{p.step ? p.step.name : "⇪ 上传 STEP"}</button>
+                <button type="button" className="min-h-11 flex-1 rounded border border-[#e2e8f0] px-3 text-xs text-slate-600" onClick={() => { fileRow.current = { i, kind: "pdf" }; pdfRef.current?.click() }}>{p.pdf ? p.pdf.name : "⇪ 上传 PDF"}</button>
+              </div>
+              <div className="text-xs text-slate-400">状态：待分析</div>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="hidden overflow-x-auto md:block">
         <table className="w-full border-collapse text-left text-sm">
           <thead><tr className="border-b border-[#e2e8f0] bg-slate-50 text-xs text-slate-500">
             <th className="py-2 pr-2 font-normal">零件名称</th><th className="font-normal">数量</th><th className="font-normal">材料</th><th className="font-normal">表面处理</th><th className="font-normal">关键精度</th><th className="font-normal">粗糙度</th><th className="font-normal">图纸</th><th className="font-normal">状态</th><th className="font-normal">操作</th>
@@ -137,18 +185,10 @@ export function NewInquiry({ go }: { go: (h: string) => void }) {
               <tr key={i} className="border-b border-slate-100 hover:bg-slate-50">
                 <td className="py-2 pr-2"><Input value={p.name} onChange={e => upd(i, { name: e.target.value })} /></td>
                 <td className="w-20"><Input type="number" min={1} value={p.qty} onChange={e => upd(i, { qty: e.target.value })} /></td>
-                <td><Select value={p.material} onChange={e => upd(i, { material: e.target.value })}>
-                  <option>AL6061-T6</option><option>SUS304</option><option>AL7075</option><option>POM</option><option>铝合金</option><option>钢</option><option>不锈钢</option>
-                </Select></td>
-                <td><Select value={p.surface_finish} onChange={e => upd(i, { surface_finish: e.target.value })}>
-                  <option>无</option><option>阳极氧化</option><option>镀锌</option><option>喷砂</option>
-                </Select></td>
-                <td><Select value={p.precision} onChange={e => upd(i, { precision: e.target.value })}>
-                  <option>普通(ISO 2768-m)</option><option>精密</option>
-                </Select></td>
-                <td><Select value={p.roughness_ra} onChange={e => upd(i, { roughness_ra: e.target.value })}>
-                  <option value="3.2">Ra3.2</option><option value="1.6">Ra1.6</option><option value="0.8">Ra0.8</option>
-                </Select></td>
+                <td>{materialSelect(p, i)}</td>
+                <td>{finishSelect(p, i)}</td>
+                <td>{precisionSelect(p, i)}</td>
+                <td>{raSelect(p, i)}</td>
                 <td className="whitespace-nowrap">
                   <button type="button" className="mr-2 text-xs text-slate-500 hover:underline" onClick={() => { fileRow.current = { i, kind: "step" }; stepRef.current?.click() }}>{p.step ? p.step.name : "⇪ STEP"}</button>
                   <button type="button" className="text-xs text-slate-500 hover:underline" onClick={() => { fileRow.current = { i, kind: "pdf" }; pdfRef.current?.click() }}>{p.pdf ? p.pdf.name : "⇪ PDF"}</button>
@@ -184,9 +224,9 @@ export function NewInquiry({ go }: { go: (h: string) => void }) {
     </Card>
 
     {err && <div className="text-sm text-red-700">{err}</div>}
-    <div className="flex justify-end gap-3">
-      <Button variant="outline" type="button" onClick={() => go("")}>取消</Button>
-      <Button type="button" onClick={submit} disabled={busy}>{busy ? "分析中…" : "开始 AI 分析及报价 →"}</Button>
+    <div className="flex flex-col-reverse gap-3 md:flex-row md:justify-end">
+      <Button variant="outline" className="min-h-11 md:min-h-10" type="button" onClick={() => go("")}>取消</Button>
+      <Button className="min-h-11 md:min-h-10" type="button" onClick={submit} disabled={busy}>{busy ? "分析中…" : "开始 AI 分析及报价 →"}</Button>
     </div>
   </div>
 }
