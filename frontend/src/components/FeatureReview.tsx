@@ -7,6 +7,12 @@ import { API } from "../api"
 
 type Feat = any
 
+type Pose =
+  | { kind: "cyl"; origin: THREE.Vector3; axis: THREE.Vector3; length: number; diameter: number; centered: boolean }
+  | { kind: "plate"; origin: THREE.Vector3; axis: THREE.Vector3; size: [number, number, number] }
+  | { kind: "box"; origin: THREE.Vector3; axis: THREE.Vector3; size: [number, number, number] }
+  | { kind: "surface"; origin: THREE.Vector3; radius: number }
+
 function holeLabel(ht: string | undefined) {
   if (ht === "through" || ht === "通孔") return "通孔"
   if (ht === "blind" || ht === "盲孔") return "盲孔"
@@ -19,35 +25,62 @@ function xyz(v: any): THREE.Vector3 | null {
   return null
 }
 
-function poseOf(f: Feat) {
-  const pose = f.pose
-  if (pose?.origin && pose?.axis && pose.diameter_mm) {
-    return {
-      kind: "cyl" as const,
-      origin: new THREE.Vector3(pose.origin.x, pose.origin.y, pose.origin.z),
-      axis: new THREE.Vector3(pose.axis.x, pose.axis.y, pose.axis.z).normalize(),
-      length: Number(pose.length_mm || f.depth_mm || 1),
-      diameter: Number(pose.diameter_mm || f.diameter_mm || 1),
-    }
+function num(...vals: any[]): number | null {
+  for (const v of vals) {
+    if (v == null || v === "") continue
+    const n = Number(v)
+    if (Number.isFinite(n)) return n
   }
-  const loc = f.location
-  const ax = f.axis
-  if (loc && ax && (f.diameter_mm || f.nominal_d)) {
-    return {
-      kind: "cyl" as const,
-      origin: new THREE.Vector3(loc.x, loc.y, loc.z),
-      axis: new THREE.Vector3(ax.x, ax.y, ax.z).normalize(),
-      length: Number(f.depth_mm || f.thread_length || 1),
-      diameter: Number(f.diameter_mm || f.nominal_d),
-    }
+  return null
+}
+
+function featType(f: Feat): string {
+  return String(f.type || f.kind || f.feature_type || "").toLowerCase()
+}
+
+function poseOf(f: Feat): Pose | null {
+  const t = featType(f)
+  const dim = f.dimensions || {}
+  const origin = xyz(f.pose?.origin) || xyz(f.location) || xyz(f.center) || xyz(f.position)
+  const axisRaw = xyz(f.pose?.axis) || xyz(f.axis)
+  const axis = (axisRaw || new THREE.Vector3(0, 0, 1)).clone().normalize()
+
+  if (t === "hole" || t === "thread") {
+    if (!origin) return null
+    const diameter = num(f.pose?.diameter_mm, f.diameter_mm, f.nominal_d, dim.diameter_mm) || 1
+    const length = num(f.pose?.length_mm, f.depth_mm, f.thread_length, dim.thread_length, dim.depth_mm) || 1
+    return { kind: "cyl", origin, axis, length, diameter, centered: !f.pose?.origin }
   }
-  const center = xyz(f.location) || xyz(f.center) || xyz(f.position)
-  if (center) {
-    const L = Number(f.length || f.dimensions?.length || 8)
-    const W = Number(f.width || f.dimensions?.width || 8)
-    const H = Number(f.depth || f.height || f.dimensions?.depth || 2)
-    return { kind: "box" as const, origin: center, size: [L, H, W] as [number, number, number] }
+
+  if (t === "face") {
+    if (!origin) return null
+    const L = num(f.length, dim.length) || 8
+    const W = num(f.width, dim.width) || 8
+    return { kind: "plate", origin, axis, size: [L, 1.2, W] }
   }
+
+  if (t === "pocket" || t === "slot") {
+    if (!origin) return null
+    const L = num(f.length, dim.length) || 8
+    const W = num(f.width, dim.width) || 8
+    const H = num(f.depth, dim.depth, f.height, dim.height) || 4
+    return { kind: "box", origin, axis, size: [L, H, W] }
+  }
+
+  if (t === "step") {
+    if (!origin) return null
+    const L = num(f.length, dim.length) || 8
+    const W = num(f.width, dim.width) || 8
+    const H = num(f.height, dim.height, f.depth, dim.depth) || 4
+    return { kind: "box", origin, axis, size: [L, H, W] }
+  }
+
+  if (t === "surface") {
+    if (!origin) return null
+    const radius = num(dim.curvature_radius, f.radius_mm, f.R, dim.R) || 8
+    return { kind: "surface", origin, radius }
+  }
+
   return null
 }
 
@@ -74,43 +107,74 @@ function Body({ url }: { url: string }) {
   return <primitive object={scene} />
 }
 
+function MarkMaterial({ selected, opacity }: { selected: boolean; opacity: number }) {
+  return (
+    <meshStandardMaterial
+      color={selected ? "#2563eb" : "#38bdf8"}
+      transparent
+      opacity={opacity}
+      depthWrite={false}
+    />
+  )
+}
+
 function FeatureMark({
   feat, selected, onPick,
 }: { feat: Feat; selected: boolean; onPick: (id: string) => void }) {
   const pose = poseOf(feat)
   if (!pose) return null
+  const pick = (e: any) => { e.stopPropagation(); onPick(feat.feature_id) }
+
   if (pose.kind === "cyl") {
-    const mid = pose.origin.clone().add(pose.axis.clone().multiplyScalar(pose.length / 2))
+    const mid = pose.centered
+      ? pose.origin
+      : pose.origin.clone().add(pose.axis.clone().multiplyScalar(pose.length / 2))
     return (
-      <mesh
-        position={mid}
-        quaternion={quatFromAxis(pose.axis)}
-        onClick={(e) => { e.stopPropagation(); onPick(feat.feature_id) }}
-      >
+      <mesh position={mid} quaternion={quatFromAxis(pose.axis)} onClick={pick}>
         <cylinderGeometry args={[pose.diameter / 2, pose.diameter / 2, pose.length, 24]} />
-        <meshStandardMaterial
-          color={selected ? "#2563eb" : "#38bdf8"}
-          transparent
-          opacity={selected ? 0.55 : 0.18}
-          depthWrite={false}
-        />
+        <MarkMaterial selected={selected} opacity={selected ? 0.55 : 0.18} />
       </mesh>
     )
   }
+
+  if (pose.kind === "plate" || pose.kind === "box") {
+    return (
+      <mesh position={pose.origin} quaternion={quatFromAxis(pose.axis)} onClick={pick}>
+        <boxGeometry args={pose.size} />
+        <MarkMaterial selected={selected} opacity={selected ? 0.45 : 0.16} />
+      </mesh>
+    )
+  }
+
+  const hintR = Math.min(pose.radius, 16)
   return (
-    <mesh
-      position={pose.origin}
-      onClick={(e) => { e.stopPropagation(); onPick(feat.feature_id) }}
-    >
-      <boxGeometry args={pose.size} />
-      <meshStandardMaterial
-        color={selected ? "#2563eb" : "#38bdf8"}
-        transparent
-        opacity={selected ? 0.45 : 0.16}
-        depthWrite={false}
-      />
-    </mesh>
+    <group position={pose.origin} onClick={pick}>
+      <mesh>
+        <boxGeometry args={[8, 8, 8]} />
+        <MarkMaterial selected={selected} opacity={selected ? 0.5 : 0.2} />
+      </mesh>
+      <mesh>
+        <sphereGeometry args={[hintR, 16, 12]} />
+        <meshStandardMaterial
+          color={selected ? "#2563eb" : "#38bdf8"}
+          wireframe
+          transparent
+          opacity={selected ? 0.55 : 0.22}
+          depthWrite={false}
+        />
+      </mesh>
+    </group>
   )
+}
+
+function inspectorFields(f: Feat) {
+  const dim = f.dimensions || {}
+  return {
+    d: f.diameter_mm ?? f.nominal_d ?? dim.diameter_mm,
+    h: f.depth_mm ?? f.thread_length ?? dim.thread_length ?? dim.depth ?? dim.height ?? f.height,
+    r: dim.curvature_radius ?? f.radius_mm ?? f.R ?? dim.R,
+    orient: f.position_type || f.face_position || dim.face_position || f.position || dim.position,
+  }
 }
 
 export function FeatureReview({
@@ -127,6 +191,7 @@ export function FeatureReview({
   const meshUrl = `${API}/parts/${partId}/mesh`
   const selected = features.find((f) => f.feature_id === picked)
   const pickables = useMemo(() => features.filter((f) => poseOf(f)), [features])
+  const fields = selected ? inspectorFields(selected) : null
 
   return (
     <div className="grid gap-4 lg:grid-cols-[1fr_280px]">
@@ -184,14 +249,15 @@ export function FeatureReview({
         </div>
         <div className="rounded border border-[#e2e8f0] bg-white p-3 text-sm">
           <div className="mb-2 text-xs text-slate-500">Inspector</div>
-          {selected ? (
+          {selected && fields ? (
             <dl className="grid grid-cols-[72px_1fr] gap-y-1 text-xs">
               <dt className="text-slate-500">id</dt><dd>{selected.feature_id}</dd>
               <dt className="text-slate-500">类型</dt><dd>{selected.type || "—"}</dd>
-              <dt className="text-slate-500">D</dt><dd>{selected.diameter_mm != null ? `Ø${selected.diameter_mm}` : (selected.nominal_d != null ? `Ø${selected.nominal_d}` : "—")}</dd>
-              <dt className="text-slate-500">H</dt><dd>{selected.depth_mm != null ? selected.depth_mm : (selected.thread_length != null ? selected.thread_length : "—")}</dd>
+              <dt className="text-slate-500">D</dt><dd>{fields.d != null ? `Ø${fields.d}` : "—"}</dd>
+              <dt className="text-slate-500">H</dt><dd>{fields.h != null ? fields.h : "—"}</dd>
+              <dt className="text-slate-500">R</dt><dd>{fields.r != null ? fields.r : "—"}</dd>
               <dt className="text-slate-500">通盲</dt><dd>{holeLabel(selected.hole_type)}</dd>
-              <dt className="text-slate-500">方位</dt><dd>{selected.position_type || selected.face_position || "—"}</dd>
+              <dt className="text-slate-500">方位</dt><dd>{fields.orient || "—"}</dd>
             </dl>
           ) : (
             <div className="text-xs text-slate-400">点列表或模型上的特征</div>
