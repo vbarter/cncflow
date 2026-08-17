@@ -221,19 +221,45 @@ function MarkMaterial({ selected, opacity }: { selected: boolean; opacity: numbe
   )
 }
 
-function FeatureMark({
-  feat, selected, onPick,
-}: { feat: Feat; selected: boolean; onPick: (id: string) => void }) {
+function pickRank(kind: Pose["kind"]) {
+  if (kind === "cyl") return 0
+  if (kind === "box") return 1
+  if (kind === "surface") return 2
+  return 3
+}
+
+function pickBestFeature(intersections: any[]): string | null {
+  let best: { id: string; rank: number; dist: number } | null = null
+  for (const hit of intersections || []) {
+    let o = hit.object as THREE.Object3D | null
+    while (o) {
+      const id = o.userData?.featureId
+      if (id) {
+        const rank = Number(o.userData.pickRank ?? 9)
+        if (!best || rank < best.rank || (rank === best.rank && hit.distance < best.dist)) {
+          best = { id, rank, dist: hit.distance }
+        }
+        break
+      }
+      o = o.parent
+    }
+  }
+  return best?.id || null
+}
+
+function FeatureMark({ feat, selected }: { feat: Feat; selected: boolean }) {
   const pose = poseOf(feat)
   if (!pose) return null
-  const pick = (e: any) => { e.stopPropagation(); onPick(feat.feature_id) }
+  const rank = pickRank(pose.kind)
+  const data = { featureId: feat.feature_id, pickRank: rank }
+  const order = 3 - rank
 
   if (pose.kind === "cyl") {
     const mid = pose.centered
       ? pose.origin
       : pose.origin.clone().add(pose.axis.clone().multiplyScalar(pose.length / 2))
     return (
-      <mesh position={mid} quaternion={quatFromAxis(pose.axis)} onClick={pick}>
+      <mesh position={mid} quaternion={quatFromAxis(pose.axis)} userData={data} renderOrder={order}>
         <cylinderGeometry args={[pose.diameter / 2, pose.diameter / 2, pose.length, 24]} />
         <MarkMaterial selected={selected} opacity={selected ? 0.55 : 0.18} />
       </mesh>
@@ -242,7 +268,7 @@ function FeatureMark({
 
   if (pose.kind === "plate" || pose.kind === "box") {
     return (
-      <mesh position={pose.origin} quaternion={quatFromAxis(pose.axis)} onClick={pick}>
+      <mesh position={pose.origin} quaternion={quatFromAxis(pose.axis)} userData={data} renderOrder={order}>
         <boxGeometry args={pose.size} />
         <MarkMaterial selected={selected} opacity={selected ? 0.45 : 0.16} />
       </mesh>
@@ -251,12 +277,12 @@ function FeatureMark({
 
   const hintR = Math.min(pose.radius, 16)
   return (
-    <group position={pose.origin} onClick={pick}>
-      <mesh>
+    <group position={pose.origin} userData={data} renderOrder={order}>
+      <mesh userData={data} renderOrder={order}>
         <boxGeometry args={[8, 8, 8]} />
         <MarkMaterial selected={selected} opacity={selected ? 0.5 : 0.2} />
       </mesh>
-      <mesh>
+      <mesh userData={data} renderOrder={order} raycast={() => {}}>
         <sphereGeometry args={[hintR, 16, 12]} />
         <meshStandardMaterial
           color={selected ? "#2563eb" : "#38bdf8"}
@@ -403,14 +429,21 @@ export function FeatureReview({
               <directionalLight position={[90, 140, 70]} intensity={1.05} />
               <Suspense fallback={null}>
                 <CadBody url={meshUrl} clipPlane={clipPlane} onBox={onBox} />
-                {pickables.map((f) => (
-                  <FeatureMark
-                    key={f.feature_id}
-                    feat={f}
-                    selected={f.feature_id === picked}
-                    onPick={setPicked}
-                  />
-                ))}
+                <group
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    const id = pickBestFeature(e.intersections)
+                    if (id) setPicked(id)
+                  }}
+                >
+                  {pickables.map((f) => (
+                    <FeatureMark
+                      key={f.feature_id}
+                      feat={f}
+                      selected={f.feature_id === picked}
+                    />
+                  ))}
+                </group>
                 {section && box && <SectionHelper box={box} t={sectionT} />}
                 {shadow && (
                   <ContactShadows
