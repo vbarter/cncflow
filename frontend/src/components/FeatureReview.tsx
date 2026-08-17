@@ -156,15 +156,15 @@ function CadBody({
       o.castShadow = true
       o.receiveShadow = true
       o.material = new THREE.MeshStandardMaterial({
-        color: 0xb7c2cc,
-        metalness: 0.16,
-        roughness: 0.4,
+        color: 0x9aa4ae,
+        metalness: 0.04,
+        roughness: 0.72,
         side: THREE.DoubleSide,
       })
-      const edges = new THREE.EdgesGeometry(o.geometry, 22)
+      const edges = new THREE.EdgesGeometry(o.geometry, 18)
       const lines = new THREE.LineSegments(
         edges,
-        new THREE.LineBasicMaterial({ color: 0x1e293b, transparent: true, opacity: 0.88 }),
+        new THREE.LineBasicMaterial({ color: 0x111827 }),
       )
       lines.raycast = () => {}
       o.add(lines)
@@ -210,17 +210,6 @@ function SectionHelper({ box, t }: { box: THREE.Box3; t: number }) {
   )
 }
 
-function MarkMaterial({ selected, opacity }: { selected: boolean; opacity: number }) {
-  return (
-    <meshStandardMaterial
-      color={selected ? "#2563eb" : "#38bdf8"}
-      transparent
-      opacity={opacity}
-      depthWrite={false}
-    />
-  )
-}
-
 function pickRank(kind: Pose["kind"]) {
   if (kind === "cyl") return 0
   if (kind === "box") return 1
@@ -253,45 +242,30 @@ function FeatureMark({ feat, selected }: { feat: Feat; selected: boolean }) {
   const rank = pickRank(pose.kind)
   const data = { featureId: feat.feature_id, pickRank: rank }
   const order = 3 - rank
+  const q = pose.kind === "surface" ? undefined : quatFromAxis(pose.axis)
+  const mid = pose.kind === "cyl"
+    ? (pose.centered ? pose.origin : pose.origin.clone().add(pose.axis.clone().multiplyScalar(pose.length / 2)))
+    : pose.kind === "surface" ? pose.origin : pose.origin
 
-  if (pose.kind === "cyl") {
-    const mid = pose.centered
-      ? pose.origin
-      : pose.origin.clone().add(pose.axis.clone().multiplyScalar(pose.length / 2))
-    return (
-      <mesh position={mid} quaternion={quatFromAxis(pose.axis)} userData={data} renderOrder={order}>
-        <cylinderGeometry args={[pose.diameter / 2, pose.diameter / 2, pose.length, 24]} />
-        <MarkMaterial selected={selected} opacity={selected ? 0.55 : 0.18} />
-      </mesh>
-    )
-  }
+  let geo: JSX.Element | null = null
+  if (pose.kind === "cyl") geo = <cylinderGeometry args={[pose.diameter / 2, pose.diameter / 2, pose.length, 24]} />
+  else if (pose.kind === "plate" || pose.kind === "box") geo = <boxGeometry args={pose.size} />
+  else geo = <boxGeometry args={[8, 8, 8]} />
 
-  if (pose.kind === "plate" || pose.kind === "box") {
-    return (
-      <mesh position={pose.origin} quaternion={quatFromAxis(pose.axis)} userData={data} renderOrder={order}>
-        <boxGeometry args={pose.size} />
-        <MarkMaterial selected={selected} opacity={selected ? 0.45 : 0.16} />
-      </mesh>
-    )
-  }
-
-  const hintR = Math.min(pose.radius, 16)
   return (
-    <group position={pose.origin} userData={data} renderOrder={order}>
+    <group position={mid} quaternion={q} userData={data}>
       <mesh userData={data} renderOrder={order}>
-        <boxGeometry args={[8, 8, 8]} />
-        <MarkMaterial selected={selected} opacity={selected ? 0.5 : 0.2} />
+        {geo}
+        <meshBasicMaterial transparent opacity={0} depthWrite={false} />
       </mesh>
-      <mesh userData={data} renderOrder={order} raycast={() => {}}>
-        <sphereGeometry args={[hintR, 16, 12]} />
-        <meshStandardMaterial
-          color={selected ? "#2563eb" : "#38bdf8"}
-          wireframe
-          transparent
-          opacity={selected ? 0.55 : 0.22}
-          depthWrite={false}
-        />
-      </mesh>
+      {selected && (
+        <lineSegments renderOrder={8} raycast={() => {}}>
+          {pose.kind === "cyl" && <edgesGeometry args={[new THREE.CylinderGeometry(pose.diameter / 2, pose.diameter / 2, pose.length, 24), 20]} />}
+          {(pose.kind === "plate" || pose.kind === "box") && <edgesGeometry args={[new THREE.BoxGeometry(...pose.size), 15]} />}
+          {pose.kind === "surface" && <edgesGeometry args={[new THREE.SphereGeometry(Math.min(pose.radius, 16), 16, 12), 15]} />}
+          <lineBasicMaterial color="#2563eb" />
+        </lineSegments>
+      )}
     </group>
   )
 }
@@ -424,9 +398,10 @@ export function FeatureReview({
               gl={{ antialias: true, localClippingEnabled: true }}
               onPointerMissed={() => setPicked(null)}
             >
-              <hemisphereLight args={["#f8fafc", "#94a3b8", 0.62]} />
-              <ambientLight intensity={0.28} />
-              <directionalLight position={[90, 140, 70]} intensity={1.05} />
+              <ambientLight intensity={0.22} />
+              <directionalLight position={[90, 140, 80]} intensity={1.15} />
+              <directionalLight position={[-70, 40, 30]} intensity={0.35} />
+              <directionalLight position={[20, 50, -90]} intensity={0.28} />
               <Suspense fallback={null}>
                 <CadBody url={meshUrl} clipPlane={clipPlane} onBox={onBox} />
                 <group
@@ -448,9 +423,9 @@ export function FeatureReview({
                 {shadow && (
                   <ContactShadows
                     position={shadow.position}
-                    opacity={0.28}
+                    opacity={0.38}
                     scale={shadow.scale}
-                    blur={2.4}
+                    blur={2.1}
                     far={40}
                   />
                 )}
