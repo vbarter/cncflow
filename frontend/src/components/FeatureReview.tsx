@@ -247,7 +247,7 @@ function FeatureMark({ feat, selected }: { feat: Feat; selected: boolean }) {
     ? (pose.centered ? pose.origin : pose.origin.clone().add(pose.axis.clone().multiplyScalar(pose.length / 2)))
     : pose.kind === "surface" ? pose.origin : pose.origin
 
-  let geo: JSX.Element | null = null
+  let geo = null
   if (pose.kind === "cyl") geo = <cylinderGeometry args={[pose.diameter / 2, pose.diameter / 2, pose.length, 24]} />
   else if (pose.kind === "plate" || pose.kind === "box") geo = <boxGeometry args={pose.size} />
   else geo = <boxGeometry args={[8, 8, 8]} />
