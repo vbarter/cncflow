@@ -672,8 +672,8 @@ def parse_step(path: str) -> dict:
         warnings.append("圆柱面未能确认内孔，已标候选待工程师勾选")
     mesh_glb = None
     try:
-        from cncflow_core.geometry.mesh import shape_to_glb
-        mesh_glb = shape_to_glb(compound)
+        from cncflow_core.geometry.mesh import step_to_glb
+        mesh_glb = step_to_glb(path)
     except Exception:
         warnings.append("网格导出失败，零件详情将显示空态")
 

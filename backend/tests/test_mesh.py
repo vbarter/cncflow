@@ -151,3 +151,48 @@ def test_mesh_backfill_from_step(client, seeded_db_path, monkeypatch):
     assert part["mesh"]["available"] is True
     hole = [f for f in part["parsed_features"] if f["feature_id"] == "hole-0"][0]
     assert hole["cut_depth_mm"] == 26.99
+
+
+def test_step_to_glb_prefers_cascadio(tmp_path, monkeypatch):
+    from cncflow_core.geometry import mesh as mesh_mod
+    glb = triangles_to_glb([(0, 0, 0), (1, 0, 0), (0, 1, 0)], [0, 1, 2])
+    called = {"cascadio": 0, "cadquery": 0}
+
+    def fake_cascadio(path):
+        called["cascadio"] += 1
+        return glb
+
+    def boom(*_a, **_k):
+        called["cadquery"] += 1
+        raise AssertionError("should not fall back")
+
+    monkeypatch.setattr(mesh_mod, "_cascadio_step_to_glb", fake_cascadio)
+    monkeypatch.setattr(mesh_mod, "shape_to_glb", boom)
+    step = tmp_path / "p.step"
+    step.write_bytes(MINIMAL_STEP)
+    data = mesh_mod.step_to_glb(str(step))
+    assert data[:4] == b"glTF"
+    assert called["cascadio"] == 1
+    assert called["cadquery"] == 0
+
+
+def test_step_to_glb_falls_back_when_cascadio_fails(tmp_path, monkeypatch):
+    import sys
+    import types
+    from cncflow_core.geometry import mesh as mesh_mod
+    glb = triangles_to_glb([(0, 0, 0), (1, 0, 0), (0, 1, 0)], [0, 1, 2])
+
+    class Dummy:
+        def vals(self):
+            return ["shape"]
+
+    monkeypatch.setattr(mesh_mod, "_cascadio_step_to_glb", lambda _p: (_ for _ in ()).throw(RuntimeError("no wheel")))
+    monkeypatch.setattr(mesh_mod, "shape_to_glb", lambda *_a, **_k: glb)
+    monkeypatch.setitem(sys.modules, "cadquery", types.SimpleNamespace(
+        importers=types.SimpleNamespace(importStep=lambda p: Dummy()),
+        Compound=types.SimpleNamespace(makeCompound=lambda v: v[0]),
+    ))
+    step = tmp_path / "p.step"
+    step.write_bytes(MINIMAL_STEP)
+    data = mesh_mod.step_to_glb(str(step))
+    assert data[:4] == b"glTF"

@@ -139,8 +139,32 @@ def shape_to_glb(shape, deflection=0.4) -> bytes:
         return triangles_to_glb(positions, indices)
 
 
+def _cascadio_step_to_glb(path: str) -> bytes:
+    import os
+    import tempfile
+    from pathlib import Path as _P
+    import cascadio
+    fd, out = tempfile.mkstemp(suffix=".glb")
+    os.close(fd)
+    try:
+        cascadio.step_to_glb(input_path=str(path), output_path=out)
+        data = _P(out).read_bytes()
+        if data[:4] != b"glTF":
+            raise ValueError("cascadio 未产出 GLB")
+        return data
+    finally:
+        try:
+            os.unlink(out)
+        except OSError:
+            pass
+
+
 def step_to_glb(path: str, deflection=0.4) -> bytes:
-    """Import STEP with the live CadQuery/OCP kernel and emit GLB."""
+    """Prefer cascadio (OCCT RWGltf). Fall back to live CadQuery tessellation."""
+    try:
+        return _cascadio_step_to_glb(path)
+    except Exception:
+        pass
     import cadquery as cq
     imported = cq.importers.importStep(path)
     values = imported.vals()
