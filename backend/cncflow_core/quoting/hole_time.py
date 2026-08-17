@@ -37,6 +37,9 @@ DRILL = {"drill", "peck_drill", "gun_drill", "u_drill", "spot_drill"}
 TAP = {"tap"}
 REAM = {"ream"}
 BORE = {"bore", "semi_bore", "fine_bore"}
+FACE = {"rough_face", "semi_face", "finish_face"}
+POCKET = {"rough_pocket", "semi_finish_pocket", "finish_pocket", "rest_mill"}
+STEP = {"rough_step", "semi_step", "finish_step"}
 
 
 def _family(material: str) -> str:
@@ -111,6 +114,22 @@ def _bounds(proc: str, D: float) -> tuple[float, float] | None:
         return (0.2, 10.0)
     if proc in BORE:
         return (1.0, 60.0)
+    if proc in FACE:
+        return (1.0, 120.0)
+    if proc in POCKET:
+        return (2.0, 180.0)
+    if proc in STEP:
+        return (1.0, 90.0)
+    return None
+
+
+def _flag(t_cut: float, bound: tuple[float, float] | None) -> str | None:
+    if not bound:
+        return None
+    if t_cut < bound[0]:
+        return "低于下限"
+    if t_cut > bound[1]:
+        return "需人工复核"
     return None
 
 
@@ -161,12 +180,9 @@ def compute(result: dict, factory: dict, material: str) -> dict:
         else:
             t_cut = ((cut * passes / f) * compensate) if f else 0.0
         t_step = t_cut + t_chg
-        bound = _bounds(proc, D)
-        # 防错只打标不改 t：比的是切削时间 t_cut
-        if bound and t_cut < bound[0]:
-            tags.append("低于下限")
-        elif bound and t_cut > bound[1]:
-            tags.append("需人工复核")
+        flag = _flag(t_cut, _bounds(proc, D))
+        if flag:
+            tags.append(flag)
         steps.append({
             "step": i,
             "process": proc,
@@ -179,6 +195,7 @@ def compute(result: dict, factory: dict, material: str) -> dict:
             "t_cut": round(t_cut, 4),
             "t_tool": round(t_chg, 4),
             "t_step": round(t_step, 4),
+            "tags": [flag] if flag else [],
         })
         total += t_step
     return {
