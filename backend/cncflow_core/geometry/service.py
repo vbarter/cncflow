@@ -122,6 +122,33 @@ def _drop_threaded_holes(features):
         kept.append(feat)
     return kept
 
+
+def _drop_slot_as_steps(features):
+    """槽底不当台阶。开口槽回退不得出 recognized_step。"""
+    slots = [f for f in features if f.get("subtype") == "recognized_slot"]
+    if not slots:
+        return features
+    kept = []
+    for feat in features:
+        if feat.get("subtype") == "recognized_step":
+            loc = feat.get("location") or {}
+            sx, sy, sz = loc.get("x") or 0, loc.get("y") or 0, loc.get("z") or 0
+            skip = False
+            for slot in slots:
+                sl = slot.get("location") or {}
+                dx = sx - (sl.get("x") or 0)
+                dy = sy - (sl.get("y") or 0)
+                dz = sz - (sl.get("z") or 0)
+                reach = max(slot.get("length") or 0, slot.get("width") or 0, 20) * 0.7 + 8
+                if dx * dx + dy * dy + dz * dz <= reach * reach:
+                    skip = True
+                    break
+            if skip:
+                continue
+        kept.append(feat)
+    return kept
+
+
 def parse_step_file(path):
     """STEP → features。hole/slot/face/thread/step。"""
     from cncflow_core.ingestion.step_parser import parse_step

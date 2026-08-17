@@ -12,6 +12,7 @@ FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures")
 HOLE_D8_STEP = os.path.join(FIXTURES, "plate_hole_d8.step")
 OPEN_SLOT_STEP = os.path.join(FIXTURES, "rect_open_slot.step")
 M8_STEP = os.path.join(FIXTURES, "m8x125_through_thread.step")
+STEP_H8 = os.path.join(FIXTURES, "rect_step_h8.step")
 
 
 def test_plain_plate_is_not_a_step():
@@ -123,3 +124,17 @@ def test_factory_seeds_unchanged(client):
     assert len(body["machines"]) == 23
     skus = {t["sku"] for t in body["tools"]}
     assert {f"TK-{i:03d}" for i in range(1, 40)} <= skus
+
+
+def test_rect_step_h8_sample_emits_lh():
+    pytest.importorskip("cadquery")
+    if not os.path.exists(STEP_H8):
+        pytest.skip("missing rect_step_h8 fixture")
+    result = parse_step_file(STEP_H8)
+    steps = [f for f in result["features"] if f.get("subtype") == "recognized_step"]
+    assert steps, result.get("features")
+    st = steps[0]
+    assert st["profile_type"] == "台阶"
+    assert st["selected"] is True
+    assert st["height"] == pytest.approx(8, abs=1.5)
+    assert st["length"] == pytest.approx(80, abs=3)
