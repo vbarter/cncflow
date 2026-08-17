@@ -86,7 +86,7 @@ export function FeatureReview({
 
   return (
     <div className="grid gap-4 lg:grid-cols-[1fr_280px]">
-      <div className="min-h-[320px] rounded border border-[#e2e8f0] bg-[#f8fafc]">
+      <div className="h-[320px] w-full touch-none rounded border border-[#e2e8f0] bg-[#f8fafc] md:h-auto md:min-h-[320px]">
         {meshAvailable ? (
           <Canvas camera={{ position: [80, 60, 80], fov: 45 }} onPointerMissed={() => setPicked(null)}>
             <ambientLight intensity={0.7} />

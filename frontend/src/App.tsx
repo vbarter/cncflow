@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import { Menu, X } from "lucide-react"
 import { Badge, Button, Input } from "./components/ui"
 import { Workbench } from "./pages/Workbench"
 import { NewInquiry } from "./pages/NewInquiry"
@@ -11,7 +12,7 @@ import { API, json } from "./api"
 
 function route(){ return (location.hash.replace(/^#\/?/, "") || "") }
 
-function HeaderSearch({ go }: { go: (h: string) => void }) {
+function HeaderSearch({ go, mobile }: { go: (h: string) => void; mobile?: boolean }) {
   const [q, setQ] = useState("")
   const [hits, setHits] = useState<any[]>([])
   const [open, setOpen] = useState(false)
@@ -38,9 +39,9 @@ function HeaderSearch({ go }: { go: (h: string) => void }) {
     setOpen(false); setQ("")
     go(h.part ? "part/" + h.part.id : "inquiry/" + h.inq.id)
   }
-  return <div className="relative hidden md:block">
+  return <div className={mobile ? "relative w-full" : "relative hidden md:block"}>
     <Input
-      className="h-9 w-64 text-xs"
+      className={mobile ? "h-11 w-full text-xs" : "h-9 w-64 text-xs"}
       placeholder="搜索询价单、客户或零件"
       value={q}
       onChange={e => { setQ(e.target.value); setOpen(true) }}
@@ -49,9 +50,9 @@ function HeaderSearch({ go }: { go: (h: string) => void }) {
       onKeyDown={e => { if (e.key === "Enter" && hits[0]) pick(hits[0]) }}
     />
     {open && q.trim() && (
-      <div className="absolute right-0 z-20 mt-1 w-80 rounded border border-[#e2e8f0] bg-white py-1 text-sm shadow-sm">
+      <div className={mobile ? "absolute left-0 right-0 z-20 mt-1 w-full rounded border border-[#e2e8f0] bg-white py-1 text-sm shadow-sm" : "absolute right-0 z-20 mt-1 w-80 rounded border border-[#e2e8f0] bg-white py-1 text-sm shadow-sm"}>
         {hits.length ? hits.map((h, i) => (
-          <button key={i} type="button" className="block w-full px-3 py-2 text-left hover:bg-slate-50" onMouseDown={() => pick(h)}>
+          <button key={i} type="button" className={mobile ? "block min-h-11 w-full px-3 py-2 text-left hover:bg-slate-50" : "block w-full px-3 py-2 text-left hover:bg-slate-50"} onMouseDown={() => pick(h)}>
             <div className="font-medium text-slate-800">{h.part ? h.part.name : (h.inq.title || "询价单")}</div>
             <div className="text-xs text-slate-400">{h.inq.customer || "—"} · {h.inq.title || ""}</div>
           </button>
@@ -64,23 +65,40 @@ function HeaderSearch({ go }: { go: (h: string) => void }) {
 export function App(){
   const [hash,setHash]=useState(route)
   const [parser,setParser]=useState<boolean|null>(null)
+  const [menuOpen,setMenuOpen]=useState(false)
   useEffect(()=>{ const on=()=>setHash(route()); window.addEventListener("hashchange",on); return ()=>window.removeEventListener("hashchange",on) },[])
   useEffect(()=>{ fetch(`${API}/health`).then(r=>r.json()).then(d=>setParser(!!d.parser?.available)).catch(()=>setParser(false)) },[])
-  const go=(h:string)=>{ location.hash = h ? "#/"+h : "#/"; setHash(h) }
+  const go=(h:string)=>{ location.hash = h ? "#/"+h : "#/"; setHash(h); setMenuOpen(false) }
   const [seg,id] = hash.split("/")
-  return <main className="min-h-screen bg-[#f8fafc] text-slate-900">
-    <header className="border-b border-[#e2e8f0] bg-white"><div className="mx-auto flex h-14 max-w-[1440px] items-center justify-between px-5">
-      <button className="flex items-center gap-3" onClick={()=>go("")}><div className="grid h-8 w-8 place-items-center bg-blue-600 font-mono text-[11px] font-semibold leading-none text-white" style={{clipPath:"polygon(0 0,100% 0,100% 72%,72% 100%,0 100%)"}}>C/</div><div className="text-left leading-tight"><div className="text-[10px] tracking-[.16em] text-slate-400">AI CNC</div><div className="text-sm font-semibold text-slate-900">报价助手</div></div></button>
-      <nav className="flex items-center gap-2 text-sm">
-        <button className={`h-14 rounded-none border-b-2 px-3 ${seg===""||seg==="new"||seg==="parsing"||seg==="inquiry"||seg==="part"?"border-blue-600 text-blue-600":"border-transparent text-slate-600"}`} onClick={()=>go("")}>报价</button>
-        <button className={`h-14 rounded-none border-b-2 px-3 ${seg==="factory"?"border-blue-600 text-blue-600":"border-transparent text-slate-600"}`} onClick={()=>go("factory")}>工厂配置</button>
+  const quoteOn = seg===""||seg==="new"||seg==="parsing"||seg==="inquiry"||seg==="part"
+  return <main className="min-h-screen overflow-x-hidden bg-[#f8fafc] text-slate-900">
+    <header className="border-b border-[#e2e8f0] bg-white">
+      <div className="mx-auto flex h-14 max-w-[1440px] items-center justify-between px-4 md:px-5">
+      <button className="flex min-h-11 items-center gap-3" onClick={()=>go("")}><div className="grid h-8 w-8 place-items-center bg-blue-600 font-mono text-[11px] font-semibold leading-none text-white" style={{clipPath:"polygon(0 0,100% 0,100% 72%,72% 100%,0 100%)"}}>C/</div><div className="text-left leading-tight"><div className="text-[10px] tracking-[.16em] text-slate-400">AI CNC</div><div className="text-sm font-semibold text-slate-900">报价助手</div></div></button>
+      <nav className="flex items-center gap-1 text-sm md:gap-2">
+        <button className={`min-h-11 rounded-none border-b-2 px-3 md:h-14 ${quoteOn?"border-blue-600 text-blue-600":"border-transparent text-slate-600"}`} onClick={()=>go("")}>报价</button>
+        <button className={`min-h-11 rounded-none border-b-2 px-3 md:h-14 ${seg==="factory"?"border-blue-600 text-blue-600":"border-transparent text-slate-600"}`} onClick={()=>go("factory")}><span className="md:hidden">工厂</span><span className="hidden md:inline">工厂配置</span></button>
         <HeaderSearch go={go}/>
+        <div className="hidden items-center gap-2 md:flex">
         <Button variant="ghost" size="sm" onClick={()=>go("new")}>新建</Button>
         <Button variant="ghost" className="text-slate-500" onClick={()=>go("parse")}>解析子流</Button>
         <Badge className={parser?"border-emerald-200 bg-emerald-50 text-emerald-700":"border-slate-200"}>{parser?"解析在线":"解析离线"}</Badge>
+        </div>
+        <button type="button" className="grid h-11 w-11 place-items-center text-slate-700 md:hidden" aria-label={menuOpen?"关闭菜单":"打开菜单"} onClick={()=>setMenuOpen(o=>!o)}>{menuOpen?<X size={20}/>:<Menu size={20}/>}</button>
       </nav>
-    </div></header>
-    <div className="mx-auto max-w-[1440px] px-5 py-8">
+      </div>
+      {menuOpen && (
+        <div className="border-t border-[#e2e8f0] bg-white md:hidden">
+          <div className="mx-auto max-w-[1440px] space-y-2 px-4 py-3">
+            <HeaderSearch go={go} mobile />
+            <button type="button" className="flex min-h-11 w-full items-center rounded px-3 text-left text-sm text-slate-800 hover:bg-slate-50" onClick={()=>go("new")}>新建</button>
+            <button type="button" className="flex min-h-11 w-full items-center rounded px-3 text-left text-sm text-slate-500 hover:bg-slate-50" onClick={()=>go("parse")}>解析子流</button>
+            <div className="px-3 py-2"><Badge className={parser?"border-emerald-200 bg-emerald-50 text-emerald-700":"border-slate-200"}>{parser?"解析在线":"解析离线"}</Badge></div>
+          </div>
+        </div>
+      )}
+    </header>
+    <div className="mx-auto max-w-[1440px] px-4 py-5 md:px-5 md:py-8">
       {seg===""&&<Workbench go={go}/>}
       {seg==="new"&&<NewInquiry go={go}/>}
       {seg==="parsing"&&id&&<Parsing id={id} go={go}/>}

@@ -38,22 +38,22 @@ export function Workbench({ go }: { go: (h: string) => void }) {
     return blob.toLowerCase().includes(q.trim().toLowerCase())
   })
   return <div className="space-y-6">
-    <div className="flex items-end justify-between">
+    <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
       <div>
         <div className="font-mono text-[10px] uppercase tracking-[.18em] text-slate-500">QUOTE OPERATIONS</div>
         <h1 className="font-serif mt-2 text-3xl font-semibold tracking-tight text-slate-900">报价工作台</h1>
         <p className="mt-2 max-w-xl text-sm leading-6 text-slate-600">持续推进每一笔询价，并在关键节点完成工艺审核。</p>
       </div>
-      <Button onClick={() => go("new")}><Plus className="mr-2" size={16} />新建报价</Button>
+      <Button className="min-h-11 md:min-h-10" onClick={() => go("new")}><Plus className="mr-2" size={16} />新建报价</Button>
     </div>
-    <div className="grid gap-3 sm:grid-cols-5">
+    <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
       {(["pending", "quoting", "review", "done"] as const).map(k => (
-        <Card key={k} className={`cursor-pointer p-4 ${filter === k ? "border-blue-600" : ""}`} onClick={() => setFilter(filter === k ? "" : k)}>
+        <Card key={k} className={`min-h-11 cursor-pointer p-4 ${filter === k ? "border-blue-600" : ""}`} onClick={() => setFilter(filter === k ? "" : k)}>
           <div className="text-xs text-slate-500">{LABELS[k]}</div>
           <div className="mt-2 text-2xl font-semibold">{counts[k] || 0}</div>
         </Card>
       ))}
-      <Card className="p-4">
+      <Card className="col-span-2 p-4 md:col-span-1">
         <div className="text-xs text-slate-500">本月报价金额</div>
         <div className="mt-2 text-2xl font-semibold">{yen(monthAmount)}</div>
       </Card>
@@ -69,7 +69,32 @@ export function Workbench({ go }: { go: (h: string) => void }) {
       </Select>
       <div className="text-xs text-slate-400">{shown.length} 条询价单</div>
     </div>
-    <Card className="overflow-x-auto">
+    <div className="space-y-3 md:hidden">
+      {shown.map(i => {
+        const t = totals(i)
+        return <Card key={i.id} className="min-h-11 cursor-pointer p-4" onClick={() => go("inquiry/" + i.id)}>
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="font-mono text-xs text-slate-500">单号</div>
+              <div className="truncate font-medium text-slate-900">{i.title || "—"}</div>
+            </div>
+            <Badge>{LABELS[i.ui_status] || i.ui_status}</Badge>
+          </div>
+          <div className="mt-3 flex items-end justify-between gap-3">
+            <div>
+              <div className="text-xs text-slate-500">客户</div>
+              <div className="text-sm font-medium">{i.customer || "—"}</div>
+            </div>
+            <div className="text-right">
+              <div className="text-xs text-slate-500">金额</div>
+              <div className="text-sm font-semibold">{yen(t.amount)}</div>
+            </div>
+          </div>
+        </Card>
+      })}
+      {!shown.length && <Card className="px-4 py-10 text-center text-sm text-slate-500">还没有询价单</Card>}
+    </div>
+    <Card className="hidden overflow-x-auto md:block">
       <table className="w-full text-left text-sm">
         <thead><tr className="border-b border-[#e2e8f0] text-xs text-slate-500">
           <th className="px-4 py-3">询价单号</th><th>客户</th><th>零件</th><th>报价金额</th><th>成本</th><th>综合毛利</th><th>状态</th><th>操作</th>

@@ -43,36 +43,36 @@ export function InquiryDetail({ id, go }: { id: string; go: (h: string) => void 
     setHint("已下载 " + name)
   }
   return <div className="space-y-6">
-    <button type="button" className="text-sm text-blue-600" onClick={() => go("")}>← 返回报价工作台</button>
-    <div className="flex items-center justify-between rounded bg-slate-900 px-6 py-5 text-white">
+    <button type="button" className="min-h-11 text-sm text-blue-600 md:min-h-0" onClick={() => go("")}>← 返回报价工作台</button>
+    <div className="flex flex-col gap-4 rounded bg-slate-900 px-4 py-5 text-white md:flex-row md:items-center md:justify-between md:px-6">
       <div>
         <div className="font-mono text-[10px] uppercase tracking-[.18em] text-slate-400">{inq.title || "RFQ"} / {inq.customer || "未填客户"}</div>
         <div className="mt-1 font-serif text-2xl font-semibold">{parts.length} 个零件综合报价</div>
         <div className="mt-1 text-sm text-slate-300">合计 ¥{yen(total)} · 交期 {inq.due_date || "—"}</div>
       </div>
-      <Button type="button" onClick={exportQuote}>导出报价单</Button>
+      <Button type="button" className="min-h-11 md:min-h-10" onClick={exportQuote}>导出报价单</Button>
     </div>
     <div>
       <div className="mb-3 text-sm font-medium text-slate-800">零件报价列表</div>
       <div className="space-y-3">{parts.map((p: any) => {
         const q = p.quote?.quote
         const risk = p.quote?.risk
-        return <Card key={p.id} className="flex cursor-pointer items-center gap-4 p-4 hover:border-blue-300" onClick={() => go("part/" + p.id)}>
+        return <Card key={p.id} className="flex cursor-pointer flex-col gap-3 p-4 hover:border-blue-300 md:flex-row md:items-center md:gap-4" onClick={() => go("part/" + p.id)}>
           <div className="grid h-16 w-16 shrink-0 place-items-center rounded bg-slate-100 text-[10px] text-slate-400">3D 视图</div>
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <div className="font-medium text-slate-900">{p.name}</div>
               <Badge>{UI[p.status] || p.status}</Badge>
               {risk?.level && risk.level !== "low" && <span className="text-xs text-amber-600">存在工艺风险</span>}
             </div>
             <div className="mt-1 text-xs text-slate-500">{p.qty || 1}件 · {p.material_code || "—"}</div>
-            <div className="mt-2 grid grid-cols-3 gap-3 text-sm text-slate-700">
+            <div className="mt-2 grid grid-cols-1 gap-2 text-sm text-slate-700 md:grid-cols-3 md:gap-3">
               <div>单件报价 <span className="font-semibold">¥{yen(q?.amount)}</span></div>
               <div>单件成本 ¥{yen(q?.cost)}</div>
               <div>毛利 {q?.margin ?? "—"}%</div>
             </div>
           </div>
-          <span className="text-sm text-blue-600">查看详情 →</span>
+          <span className="min-h-11 text-sm text-blue-600 md:min-h-0 md:self-auto">进入零件 →</span>
         </Card>
       })}</div>
     </div>
