@@ -54,3 +54,15 @@ def test_m8_face_drill_tap_chamfer():
     )
     got = sequence.sort_steps(seq, _types(seq))
     assert _names(got) == ["粗铣", "钻孔", "攻牙", "倒角"]
+
+
+def test_open_slot_live_ids_pocket_before_face():
+    seq = _seq(
+        ("face-0", "face", "rough_face", "粗铣"),
+        ("slot-0", "slot", "rough_pocket", "粗铣"),
+        ("face-0", "face", "chamfer", "倒角"),
+        ("slot-0", "slot", "chamfer", "倒角"),
+    )
+    got = sequence.sort_steps(seq, _types(seq))
+    core = [s["feature_id"] for s in got if s["process"] != "chamfer"]
+    assert core == ["slot-0", "face-0"]

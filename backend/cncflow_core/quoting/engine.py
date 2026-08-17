@@ -155,9 +155,9 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
         if ftype != "hole":
             n_tools += steps_n
         ops.append({"op": ftype, "minutes": mins, "na": na})
-        plans.append({"feature_id": feat.get("id") or f"{ftype}-{i}", "type": ftype, "plan": result})
-        steps = result.get("tool_chain") or result.get("process_chain") or []
         fid = feat.get("id") or feat.get("feature_id") or f"{ftype}-{i}"
+        plans.append({"feature_id": fid, "type": ftype, "plan": result})
+        steps = result.get("tool_chain") or result.get("process_chain") or []
         timed_steps = (result.get("time") or {}).get("steps") or []
         for si, step in enumerate(steps):
             sel = step.get("selected_candidate") or {}
