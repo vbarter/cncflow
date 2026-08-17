@@ -132,7 +132,10 @@ def test_surface_quote_hours_default_zero_and_patch(client):
     resp = client.post("/api/v1/quotes", json=payload)
     assert resp.status_code == 200
     body = resp.get_json()
-    assert "需补五轴工时" not in (body.get("risk_tags") or [])
+    tags = (body.get("risk") or {}).get("tags") or body.get("risk_tags") or []
+    assert "需补五轴工时" not in tags
+    assert "设备不匹配" not in tags
+    assert "超出常规边界" not in tags
     names = [s.get("name") for s in body.get("process_sequence") or []]
     assert "倒角" not in names
     payload["features"] = [{
@@ -140,7 +143,46 @@ def test_surface_quote_hours_default_zero_and_patch(client):
     }]
     patched = client.post("/api/v1/quotes", json=payload)
     assert patched.status_code == 200
-    assert patched.get_json()["quote"] != body["quote"] or patched.get_json() != body
+    assert patched.get_json()["quote"]["amount"] != body["quote"]["amount"]
+
+
+def test_part_patch_manual_hours_recalculates(client, seeded_db_path):
+    from io import BytesIO
+    from cncflow_core.common.db import get_conn
+    from cncflow_core.ingestion.jobs import finish_job
+
+    inq = client.post("/api/v1/inquiries", json={"customer": "华科"}).get_json()
+    iid = inq["id"]
+    pid = client.post(f"/api/v1/inquiries/{iid}/parts", json={
+        "name": "凸面", "material": "铝合金", "length": 60, "width": 40, "height": 10,
+    }).get_json()["id"]
+    data = {"step_file": (BytesIO(b"ISO-10303-21;\nHEADER;\nENDSEC;\nDATA;\nENDSEC;\nEND-ISO-10303-21;"), "convex.step"), "part_id": pid}
+    job_id = client.post("/api/v1/parse-jobs", data=data, content_type="multipart/form-data").get_json()["job_id"]
+    conn = get_conn(seeded_db_path)
+    finish_job(conn, job_id, {
+        "geometry": {"volume_cm3": 20, "bounding_box_mm": {"x": 60, "y": 40, "z": 10}},
+        "features": [{
+            "type": "surface", "feature_id": "surface-0", "subtype": "recognized_surface",
+            "selected": True, "surface_type": "凸面", "curvature_radius": 20, "position": "顶面",
+        }],
+        "drawing": None, "warnings": [],
+    })
+    conn.close()
+    first = client.get(f"/api/v1/parts/{pid}").get_json()
+    assert first["status"] == "quoted"
+    amount0 = first["quote"]["quote"]["amount"]
+    tags = (first["quote"].get("risk") or {}).get("tags") or []
+    assert "设备不匹配" not in tags
+    assert "超出常规边界" not in tags
+    patched = client.patch(f"/api/v1/parts/{pid}", json={
+        "features": [{
+            "feature_id": "surface-0", "type": "surface", "subtype": "recognized_surface",
+            "surface_type": "凸面", "curvature_radius": 20, "manual_hours": 12,
+        }],
+    })
+    assert patched.status_code == 200, patched.get_json()
+    amount1 = patched.get_json()["quote"]["quote"]["amount"]
+    assert amount1 != amount0
 
 
 def test_review_includes_selected_surface():

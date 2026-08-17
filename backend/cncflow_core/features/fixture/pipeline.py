@@ -49,7 +49,7 @@ def _directions(feature) -> tuple[set, bool, bool]:
     dset, a_flag, overhang = set(), False, False
     for item in feature.get("features") or []:
         pos = item.get("position_type") or item.get("face_position") or ""
-        if item.get("position_type") == "曲面" or item.get("surface_type") in {"自由曲面", "凹面", "凸面"}:
+        if item.get("position_type") == "曲面" or item.get("surface_type") == "自由曲面":
             overhang = True
         if "倾斜" in str(pos) or item.get("surface_type") in {"自由曲面", "回转面"} and item.get("position_type") in {"倾斜", "曲面"}:
             a_flag = True
