@@ -7,7 +7,7 @@ from ..features.pocket import pipeline as pocket_pipeline
 from ..features.step import pipeline as step_pipeline
 from ..features.surface import pipeline as surface_pipeline
 from ..features.thread import pipeline as thread_pipeline
-from . import confidence, dedup, equipment, hole_time, sequence, slider, volume
+from . import confidence, dedup, equipment, hole_time, mill_time, sequence, slider, volume
 
 PIPELINES = {
     "hole": hole_pipeline.run,
@@ -100,6 +100,9 @@ def _feature_minutes(result: dict, ftype: str) -> tuple[float, object, bool]:
         return DIFF_MIN.get(level, 6.0), level, na
     diff = result.get("difficulty") or {}
     level = diff.get("level", "D1")
+    timed = result.get("time") or {}
+    if timed.get("total_min") is not None:
+        return float(timed["total_min"]), level, bool(diff.get("na"))
     return DIFF_MIN.get(level, 6.0), level, bool(diff.get("na"))
 
 
@@ -150,11 +153,13 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
         if ftype == "hole" and not result.get("error"):
             result["time"] = hole_time.compute(result, factory, material)
             result.setdefault("risk_tags", []).extend(result["time"].get("tags") or [])
+        elif ftype in {"face", "pocket", "slot", "thread", "step"} and not result.get("error"):
+            result["time"] = mill_time.compute(ftype, feat, result, factory, material)
         mins, level, na = _feature_minutes(result, ftype)
         mins = mins / max(slide["vc"], 0.4) * slide["slowdown"]
         cut_min += mins
         steps_n = max(len(result.get("process_chain") or result.get("tool_chain") or [1]), 1)
-        if ftype != "hole":
+        if ftype not in {"hole", "face", "pocket", "slot", "thread", "step"}:
             n_tools += steps_n
         ops.append({"op": ftype, "minutes": mins, "na": na})
         fid = feat.get("id") or feat.get("feature_id") or f"{ftype}-{i}"
