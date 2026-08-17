@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react"
 import { Badge, Button, Card } from "../components/ui"
 import { json } from "../api"
+import { hoursLabel, quoteHours } from "../quoteHours"
 
 const UI: Record<string, string> = {
   quoted: "待审核", confirmed: "已完成", parsing: "报价中", quoting: "报价中",
@@ -66,10 +67,11 @@ export function InquiryDetail({ id, go }: { id: string; go: (h: string) => void 
               {risk?.level && risk.level !== "low" && <span className="text-xs text-amber-600">存在工艺风险</span>}
             </div>
             <div className="mt-1 text-xs text-slate-500">{p.qty || 1}件 · {p.material_code || "—"}</div>
-            <div className="mt-2 grid grid-cols-1 gap-2 text-sm text-slate-700 md:grid-cols-3 md:gap-3">
+            <div className="mt-2 grid grid-cols-1 gap-2 text-sm text-slate-700 md:grid-cols-4 md:gap-3">
               <div>单件报价 <span className="font-semibold">¥{yen(q?.amount)}</span></div>
               <div>单件成本 ¥{yen(q?.cost)}</div>
               <div>毛利 {q?.margin ?? "—"}%</div>
+              <div>加工时间 {hoursLabel(quoteHours(p.quote))}</div>
             </div>
           </div>
           <span className="min-h-11 text-sm text-blue-600 md:min-h-0 md:self-auto">进入零件 →</span>

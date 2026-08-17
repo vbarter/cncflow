@@ -87,3 +87,22 @@ def test_surface_risk_tag(client):
         "features": [{"type": "surface", "manual_hours": 0}],
     }).get_json()
     assert "需补五轴工时" in body["risk"]["tags"]
+
+
+def test_hours_is_cut_toolchg_setup_rapid_not_machine_setup(client):
+    body = quote(client, {
+        "material": "铝合金",
+        "stock_type": "板材",
+        "length": 80, "width": 60, "height": 12,
+        "features": [{"type": "face", "length": 80, "width": 60, "depth": 1}],
+    }).get_json()
+    h = body["hours"]
+    assert body["quote"]["hours"] == h["total"]
+    assert isinstance(h["total"], float)
+    assert abs(h["total"] - round(h["cut"] + h["toolchg"] + h["setup"] + h["rapid"], 1)) < 0.15
+    items = {i["code"]: i["amount"] for i in body["cost_items"]}
+    assert items["MACHINE_SETUP"] > 0
+    # 调机费不进 hours：hours 应远小于把 MACHINE_SETUP 折成小时
+    hourly = body["equipment"]["hourly_rate"]
+    if hourly:
+        assert h["total"] < items["MACHINE_SETUP"] / hourly

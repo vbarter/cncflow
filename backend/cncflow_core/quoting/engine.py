@@ -249,6 +249,15 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
         amount = cost * (1 + profit_pct / 100)
         floor_applied = False
     profit = amount - cost
+    hours_min = cut_min + toolchg_min + setup_min + rapid_min
+    hours_total = round(hours_min / 60.0, 1)
+    hours = {
+        "cut": round(cut_min / 60.0, 4),
+        "toolchg": round(toolchg_min / 60.0, 4),
+        "setup": round(setup_min / 60.0, 4),
+        "rapid": round(rapid_min / 60.0, 4),
+        "total": hours_total,
+    }
     conf = confidence.score(ops)
     if any("低于下限" in str(t) for t in tags):
         conf["confidence"] = max(0, int(conf["confidence"]) - 5)
@@ -298,8 +307,10 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
             "amount": round(amount, 2),
             "cost": round(cost, 2),
             "margin": round((amount - cost) / amount * 100 if amount else 0, 2),
+            "hours": hours_total,
             "floor_applied": floor_applied,
         },
+        "hours": hours,
         "confidence": conf["confidence"],
         "risk": {
             "level": conf["level"] if conf["confidence"] >= 30 else "critical",
