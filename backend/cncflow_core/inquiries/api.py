@@ -198,10 +198,12 @@ _FEATURE_DIMENSION_FIELDS = {
 }
 
 
-def _normalize_feature_overrides(raw, features):
+def _normalize_feature_overrides(raw, features, *, strict=True):
     if raw in (None, []):
         return []
     if not isinstance(raw, list):
+        if not strict:
+            return []
         raise ValueError("feature_overrides 须为数组")
     feature_by_id = {
         str(feature.get("feature_id") or feature.get("id")): feature
@@ -212,38 +214,60 @@ def _normalize_feature_overrides(raw, features):
     seen = set()
     for item in raw:
         if not isinstance(item, dict):
+            if not strict:
+                continue
             raise ValueError("feature_overrides 每项须为对象")
         fid = str(item.get("feature_id") or "").strip()
         if not fid or fid not in feature_by_id:
+            if not strict:
+                continue
             raise ValueError(f"特征不存在：{fid or '—'}")
         if fid in seen:
+            if not strict:
+                continue
             raise ValueError(f"特征覆盖重复：{fid}")
         seen.add(fid)
         feature_type = str(feature_by_id[fid].get("type") or "").lower()
         allowed = _FEATURE_DIMENSION_FIELDS.get(feature_type, set())
         dimensions = item.get("dimensions")
         if not isinstance(dimensions, dict) or not dimensions:
+            if not strict:
+                continue
             raise ValueError(f"{fid}.dimensions 须为非空对象")
         unknown = set(dimensions) - allowed
         if unknown:
-            raise ValueError(f"{fid} 不支持修改尺寸：{', '.join(sorted(unknown))}")
+            if not strict:
+                dimensions = {
+                    field: value
+                    for field, value in dimensions.items()
+                    if field in allowed
+                }
+                if not dimensions:
+                    continue
+            else:
+                raise ValueError(f"{fid} 不支持修改尺寸：{', '.join(sorted(unknown))}")
         values = {}
         for field, value in dimensions.items():
             try:
                 number = float(value)
             except (TypeError, ValueError):
+                if not strict:
+                    continue
                 raise ValueError(f"{fid}.{field} 须为数字") from None
             if not math.isfinite(number) or number <= 0:
+                if not strict:
+                    continue
                 raise ValueError(f"{fid}.{field} 须大于 0")
             values[field] = number
-        normalized.append({"feature_id": fid, "dimensions": values})
+        if values:
+            normalized.append({"feature_id": fid, "dimensions": values})
     return normalized
 
 
 def _merge_feature_overrides(features, saved, incoming=_UNSET):
     merged = {
         item["feature_id"]: dict(item["dimensions"])
-        for item in _normalize_feature_overrides(saved, features)
+        for item in _normalize_feature_overrides(saved, features, strict=False)
     }
     if incoming is not _UNSET:
         for item in _normalize_feature_overrides(incoming, features):

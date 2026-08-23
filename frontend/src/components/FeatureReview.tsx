@@ -79,7 +79,7 @@ function poseOf(f: Feat): Pose | null {
 
   if (t === "surface") {
     if (!origin) return null
-    const radius = num(dim.curvature_radius, f.radius_mm, f.R, dim.R) || 8
+    const radius = num(f.curvature_radius, dim.curvature_radius, f.radius_mm, f.radius, f.R, dim.R) || 8
     return { kind: "surface", origin, radius }
   }
 
@@ -286,7 +286,7 @@ function inspectorFields(f: Feat) {
     l: f.length ?? dim.length,
     w: f.width ?? dim.width,
     h: height,
-    r: dim.curvature_radius ?? f.radius_mm ?? f.R ?? dim.R,
+    r: f.curvature_radius ?? dim.curvature_radius ?? f.radius_mm ?? f.radius ?? f.R ?? dim.R,
     orient: f.position_type || f.face_position || dim.face_position || f.position || dim.position,
   }
 }
