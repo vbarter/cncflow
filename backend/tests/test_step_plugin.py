@@ -367,11 +367,11 @@ def test_quote_refresh_rect_step_sanitizes_previous_quote_features(client, seede
     stale_features = [
         {
             "type": "step", "feature_id": "step-0", "profile_type": "台阶",
-            "length": 80, "height": 8,
+            "selected": True, "length": 80, "height": 8,
         },
         {
             "type": "face", "feature_id": "face-0",
-            "length": 80, "width": 25, "face_position": "水平",
+            "selected": True, "length": 80, "width": 25, "face_position": "水平",
         },
     ]
     first = client.post(
