@@ -7,7 +7,7 @@ from ..features.pocket import pipeline as pocket_pipeline
 from ..features.step import pipeline as step_pipeline
 from ..features.surface import pipeline as surface_pipeline
 from ..features.thread import pipeline as thread_pipeline
-from . import confidence, dedup, equipment, hole_time, mill_time, sequence, slider, volume
+from . import confidence, dedup, equipment, hole_time, mill_time, risk_dimensions, sequence, slider, volume
 
 PIPELINES = {
     "hole": hole_pipeline.run,
@@ -34,6 +34,21 @@ def _copy_step_params(dst: dict, src: dict | None) -> None:
             dst[key] = src[key]
         else:
             dst.setdefault(key, "ok" if key == "status" else None)
+
+
+def _dimension(payload: dict, *keys: str, default: float) -> float:
+    """关键尺寸缺失仍出价；D9 使用原 payload 记录门禁。"""
+    for key in keys:
+        value = payload.get(key)
+        if value in (None, ""):
+            continue
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            continue
+        if number > 0:
+            return number
+    return default
 
 
 def _validation(seq: list) -> dict:
@@ -140,14 +155,14 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
     material = payload.get("material") or payload.get("material_code") or "铝合金"
     factory = get_config(conn)
     settings = factory["settings"]
-    features = list(payload.get("features") or [])
+    raw_features = payload.get("features")
+    features = list(raw_features) if isinstance(raw_features, list) else []
     slide = slider.resolve(payload.get("slider") or "标准", material, features)
     stock = payload.get("blank_type") or payload.get("stock_type") or settings.get("blank_type") or "板料"
-    L = float(payload.get("length") or payload.get("L") or 0)
-    D = float(payload.get("diameter") or payload.get("D") or payload.get("width") or payload.get("W") or 0)
-    H = float(payload.get("height") or payload.get("H") or 0)
-    if L <= 0 or D <= 0:
-        raise ValueError("length 与 diameter/width 必填且须为正数")
+    is_bar = stock in {"棒料", "棒", "bar"}
+    L = _dimension(payload, "length", "L", default=1.0)
+    D = _dimension(payload, "diameter", "D", "width", "W", default=1.0)
+    H = _dimension(payload, "height", "H", default=0.0 if is_bar else 1.0)
     dens = _density(material, factory, payload)
     vol = volume.compute(stock, L, D, H, density=dens, v_part_cad=payload.get("v_part_cad"))
     price, scrap_price, recycle_rate = _price(material, factory, payload)
@@ -291,15 +306,10 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
         "rapid": round(rapid_min / 60.0, 4),
         "total": hours_total,
     }
-    conf = confidence.score(ops)
-    if any("低于下限" in str(t) for t in tags):
-        conf["confidence"] = max(0, int(conf["confidence"]) - 5)
-    tags.extend(conf["tags"])
+    legacy_conf = confidence.score(ops)
+    tags.extend(tag for tag in legacy_conf["tags"] if tag != "禁止给客户")
     if any(op["na"] for op in ops):
-        conf["level"] = "high" if conf["confidence"] >= 30 else conf["level"]
         tags.append("超出常规边界")
-    if any("深孔" in str(t) for t in tags) and conf.get("level") in {None, "low", "medium_low", "medium"}:
-        conf["level"] = "high"
 
     STEP_NAME = {
         "spot_drill": "点钻", "drill": "钻孔", "gun_drill": "枪钻", "u_drill": "U钻",
@@ -319,6 +329,20 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
             s.setdefault("minutes", round(per_min, 2))
             s.setdefault("amount", round(per_amt, 2))
             _copy_step_params(s, s.get("time"))
+
+    deductions = risk_dimensions.collect(payload, seq)
+    confidence_value = risk_dimensions.confidence_from(deductions)
+    risk_level, customer_forbidden = confidence.classify(confidence_value)
+    has_d9 = any(item["dimension"] == "D9" for item in deductions)
+    if has_d9:
+        tags.append("D9关键字段缺失")
+        customer_forbidden = True
+        if risk_level not in {"critical"}:
+            risk_level = "high"
+    if any(op["na"] for op in ops) and risk_level not in {"critical"}:
+        risk_level = "high"
+    if any("深孔" in str(tag) for tag in tags) and risk_level in {"low", "medium_low", "medium"}:
+        risk_level = "high"
 
     items = [
         {"code": "MAT", "amount": round(mat_cost, 2)},
@@ -345,11 +369,14 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
             "floor_applied": floor_applied,
         },
         "hours": hours,
-        "confidence": conf["confidence"],
+        "confidence": confidence_value,
+        "deductions": deductions,
         "risk": {
-            "level": conf["level"] if conf["confidence"] >= 30 else "critical",
+            "level": risk_level,
             "tags": list(dict.fromkeys(tags)),
-            "customer_forbidden": conf["confidence"] < 30,
+            "customer_forbidden": customer_forbidden,
+            "deductions": deductions,
+            "total_deduction": sum(item["deduction"] for item in deductions),
         },
         "cost_items": items,
         "ui_cost": {

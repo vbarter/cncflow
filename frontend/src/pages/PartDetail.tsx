@@ -111,6 +111,8 @@ export function PartDetail({ id, go }: { id: string; go: (h: string) => void }) 
   const quote = q.quote || {}
   const ui = q.ui_cost || {}
   const risk = q.risk || {}
+  const deductions = q.deductions || risk.deductions || []
+  const riskCount = deductions.length || risk.tags?.length || 0
   const locked = part.status === "confirmed"
   const recommend = risk.customer_forbidden ? "建议暂缓" : (risk.level === "high" ? "建议暂缓" : "建议接单")
   const maxCost = Math.max(1, ...Object.keys(COST_LABEL).map((k) => costValue(q, ui, k)))
@@ -175,7 +177,7 @@ export function PartDetail({ id, go }: { id: string; go: (h: string) => void }) 
           <div>单件成本 ¥{yen(quote.cost)}</div>
           <div>毛利率 {quote.margin ?? "—"}%</div>
           <div>加工时间 {hoursLabel(quoteHours(q))}</div>
-          <div>工艺风险 <span className={risk.tags?.length ? "text-red-300" : ""}>{risk.tags?.length || 0}项</span></div>
+          <div>工艺风险 <span className={riskCount ? "text-red-300" : ""}>{riskCount}项</span> · 置信度 {q.confidence ?? "—"}</div>
         </div>
       </div>
       {withConfirm && <Button className="min-h-11 md:min-h-10" disabled={locked || part.status !== "quoted" || busy} onClick={() => act("/parts/" + id + "/confirm")}>确认本零件报价</Button>}
@@ -215,6 +217,11 @@ export function PartDetail({ id, go }: { id: string; go: (h: string) => void }) 
             </div>
           ))}
         </div>
+        {deductions.length > 0 && <div className="mt-4 space-y-1 text-xs text-slate-500">
+          {deductions.map((item: any, i: number) => (
+            <div key={`${item.rule_id}-${i}`}>{item.rule_id} · {item.reason} · -{item.deduction}分</div>
+          ))}
+        </div>}
       </Card>
 
       {costCard}

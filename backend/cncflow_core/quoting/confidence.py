@@ -17,6 +17,14 @@ LEVELS = (
 )
 
 
+def classify(value: int) -> tuple[str, bool]:
+    value = max(0, min(100, int(value)))
+    for threshold, name, forbid in LEVELS:
+        if value >= threshold:
+            return name, forbid or value < 30
+    return "critical", True
+
+
 def score(operations: list) -> dict:
     confidence = 100
     warnings, errors = [], []
@@ -43,11 +51,7 @@ def score(operations: list) -> dict:
             confidence -= 15
             tags.append("超出常规边界")
     confidence = max(0, min(100, confidence))
-    level, customer_forbidden = "critical", True
-    for threshold, name, forbid in LEVELS:
-        if confidence >= threshold:
-            level, customer_forbidden = name, forbid or confidence < 30
-            break
+    level, customer_forbidden = classify(confidence)
     if confidence < 30:
         customer_forbidden = True
         tags.append("禁止给客户")

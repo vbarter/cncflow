@@ -1,4 +1,4 @@
-"""Slice 2：工步中间量 + validation 防错 + 材料/夹具分行。不含九维风险。"""
+"""工步透明契约 + 九维风险 MVP（D1/D9）。"""
 
 KEYS = ("formula", "n", "f", "cut", "passes", "t_min", "t_max", "status")
 
@@ -86,6 +86,24 @@ def _assert_validation(body):
         assert "rule_id" not in item
 
 
+def _assert_d1_risk(body, expected_count):
+    deductions = body["deductions"]
+    assert body["risk"]["deductions"] == deductions
+    assert body["risk"]["total_deduction"] == sum(item["deduction"] for item in deductions)
+    assert body["confidence"] == 100 - sum(item["deduction"] for item in deductions)
+    for item in deductions:
+        assert {"rule_id", "dimension", "status", "deduction", "reason"} <= item.keys()
+        assert item["deduction"] > 0
+        assert item["reason"]
+    d1 = [item for item in deductions if item["dimension"] == "D1"]
+    assert len(d1) == expected_count
+    assert {item["rule_id"] for item in d1} == {"D1-1"}
+    assert {item["status"] for item in d1} == {"低于下限"}
+    assert all(item["deduction"] == 5 for item in d1)
+    assert all(item.get("process") != "chamfer" for item in d1)
+    assert not [item for item in deductions if item["dimension"] == "D9"]
+
+
 def _assert_smoke(body, names, hours=0.1):
     assert body["status"] == "quoted"
     assert body["quote"]["amount"] > 0
@@ -102,6 +120,8 @@ def _assert_smoke(body, names, hours=0.1):
 def test_o8_plate_emits_step_params(client):
     body = client.post("/api/v1/quotes", json=_o8()).get_json()
     _assert_smoke(body, ["粗铣", "钻孔", "倒角"])
+    _assert_d1_risk(body, 2)
+    assert body["confidence"] == 90
     face = next(s for s in body["process_sequence"] if s["process"] == "rough_face")
     drill = next(s for s in body["process_sequence"] if s["process"] == "drill")
     chamfer = next(s for s in body["process_sequence"] if s["process"] == "chamfer")
@@ -121,6 +141,8 @@ def test_o8_plate_emits_step_params(client):
 def test_open_slot_emits_step_params(client):
     body = client.post("/api/v1/quotes", json=_slot()).get_json()
     _assert_smoke(body, ["粗铣", "粗铣", "倒角"])
+    _assert_d1_risk(body, 2)
+    assert body["confidence"] == 90
     slot = next(s for s in body["process_sequence"] if s["process"] == "rough_pocket")
     assert slot["formula"] == "t=cut*passes/f"
     assert slot["passes"] == 8
@@ -132,9 +154,28 @@ def test_open_slot_emits_step_params(client):
 def test_m8_thread_emits_step_params(client):
     body = client.post("/api/v1/quotes", json=_m8()).get_json()
     _assert_smoke(body, ["粗铣", "钻孔", "攻牙", "倒角"])
+    _assert_d1_risk(body, 3)
+    assert body["confidence"] == 85
     tap = next(s for s in body["process_sequence"] if s["process"] == "tap")
     assert tap["formula"] == "t=cut/(n*P)"
     assert tap["n"] <= 1000
     assert tap["t_min"] == 0.1 and tap["t_max"] == 5.0
     assert tap["status"] == "低于下限"
     assert abs(tap["time"]["t_cut"] - 0.0096) < 0.001
+
+
+def test_missing_key_fields_still_quote_with_d9_deductions(client):
+    response = client.post("/api/v1/quotes", json={})
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["status"] == "quoted"
+    assert body["quote"]["amount"] > 0
+    assert body["process_sequence"] == []
+
+    deductions = body["deductions"]
+    d9 = [item for item in deductions if item["dimension"] == "D9"]
+    assert {item["rule_id"] for item in d9} == {"D9-1", "D9-2", "D9-3", "D9-4"}
+    assert all(item["status"] == "missing" for item in d9)
+    assert all(item["deduction"] > 0 and item["reason"] for item in d9)
+    assert body["confidence"] == 100 - sum(item["deduction"] for item in deductions)
+    assert body["risk"]["customer_forbidden"] is True
