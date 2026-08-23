@@ -14,12 +14,12 @@ const COST_LABEL: Record<string, string> = {
 const DIMENSION_LABEL: Record<string, string> = {
   D1: "工时边界",
   D2: "材料去除率",
-  D3: "成本占比",
+  D3: "成本比例",
   D4: "设备匹配",
   D5: "切削参数",
-  D6: "工艺顺序",
-  D7: "成本合计",
-  D8: "设备与工时",
+  D6: "工序顺序",
+  D7: "材料成本",
+  D8: "数据一致性",
   D9: "关键字段",
 }
 
