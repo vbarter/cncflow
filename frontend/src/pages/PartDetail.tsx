@@ -322,14 +322,6 @@ export function PartDetail({ id, go }: { id: string; go: (h: string) => void }) 
       <Card className="p-5">
         <div className="mb-1 text-xs uppercase tracking-wide text-slate-400">04</div>
         <div className="mb-3 font-medium">Feature 模型审查</div>
-        <div className="mb-4 grid gap-4 md:grid-cols-4">
-          <label className="block text-sm">
-            <div className="mb-1 text-xs text-slate-500">滑轴</div>
-            <Select disabled={locked || busy} value={q.slider?.slider || part.slider || "标准"} onChange={e => patch({ slider: e.target.value })}>
-              <option>保守</option><option>偏保守</option><option>标准</option><option>偏激进</option><option>激进</option>
-            </Select>
-          </label>
-        </div>
         <FeatureReview
           partId={id}
           features={reviewFeats}
@@ -344,6 +336,14 @@ export function PartDetail({ id, go }: { id: string; go: (h: string) => void }) 
       <Card className="p-5">
         <div className="mb-1 text-xs uppercase tracking-wide text-slate-400">05</div>
         <div className="mb-3 font-medium">加工工艺方案</div>
+        <div className="mb-4 grid gap-4 md:grid-cols-4">
+          <label className="block text-sm">
+            <div className="mb-1 text-xs text-slate-500">滑轴（加工策略）</div>
+            <Select disabled={locked || busy} value={q.slider?.slider || part.slider || "标准"} onChange={e => patch({ slider: e.target.value })}>
+              <option>保守</option><option>偏保守</option><option>标准</option><option>偏激进</option><option>激进</option>
+            </Select>
+          </label>
+        </div>
         {q.equipment && <div className="mb-2 text-xs text-slate-500">设备 {q.equipment.model || "—"} · {q.equipment.type || "—"} · {q.equipment.hourly_rate != null ? `${q.equipment.hourly_rate} 元/h` : "—"}</div>}
         <ProcessSequenceEditor
           sequence={q.process_sequence || []}
