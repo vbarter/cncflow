@@ -105,3 +105,26 @@ def test_edit_minutes_recalculates_amount_deductions_and_mid_params(client, seed
     assert all(key in drill_after for key in MID_PARAMS)
     assert edited["quote"]["validation"]["items"][0]["process"] == "rough_face"
     assert {"material", "fixture"} <= edited["quote"]["ui_cost"].keys()
+
+
+def test_edit_formula_param_clears_minutes_override_and_recalculates(client, seeded_db_path):
+    part = _create_o8_part(client, seeded_db_path)
+    drill = next(step for step in _sequence(part) if step["process"] == "drill")
+    first = client.patch(
+        f"/api/v1/parts/{part['id']}/process-sequence",
+        json={"steps": [{"step_id": drill["step_id"], "minutes": 2}]},
+    ).get_json()
+    amount_with_minutes = first["quote"]["quote"]["amount"]
+
+    response = client.patch(
+        f"/api/v1/parts/{part['id']}/process-sequence",
+        json={"steps": [{"step_id": drill["step_id"], "f": drill["f"] / 2}]},
+    )
+    assert response.status_code == 200, response.get_json()
+    edited = response.get_json()
+    drill_after = next(step for step in _sequence(edited) if step["step_id"] == drill["step_id"])
+    override = next(item for item in edited["quote"]["process_overrides"] if item["step_id"] == drill["step_id"])
+    assert "minutes" not in override
+    assert drill_after["f"] == pytest.approx(drill["f"] / 2)
+    assert drill_after["minutes"] != 2
+    assert edited["quote"]["quote"]["amount"] != amount_with_minutes

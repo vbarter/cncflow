@@ -127,9 +127,10 @@ def apply(sequence: list[dict], raw_overrides) -> tuple[list[dict], list[dict], 
         return steps, [], 0
 
     by_id = {step["step_id"]: step for step in steps}
-    unknown = [item["step_id"] for item in overrides if item["step_id"] not in by_id]
-    if unknown:
-        raise ValueError(f"工步不存在或工艺已变化：{', '.join(unknown)}")
+    # 其他报价参数可能让工艺链变化；持久化的旧覆盖自动失效，不能卡死重新报价。
+    overrides = [item for item in overrides if item["step_id"] in by_id]
+    if not overrides:
+        return steps, [], 0
 
     base_index = {step["step_id"]: index for index, step in enumerate(steps)}
     override_by_id = {item["step_id"]: item for item in overrides}

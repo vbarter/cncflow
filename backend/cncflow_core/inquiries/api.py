@@ -638,6 +638,11 @@ def _merge_process_overrides(current_sequence, saved, incoming):
                 item.pop(field, None)
             else:
                 item[field] = patch[field]
+        # minutes 是直接工时覆盖；改公式参数时切回公式重算，避免旧 minutes 吞掉本次修改。
+        if "minutes" not in patch and any(
+            field in patch for field in ("n", "f", "cut", "passes")
+        ):
+            item.pop("minutes", None)
         if len(item) == 1:
             merged.pop(step_id, None)
 

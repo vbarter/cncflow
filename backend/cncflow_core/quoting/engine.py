@@ -316,6 +316,12 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
     }
     legacy_conf = confidence.score(ops)
     tags.extend(tag for tag in legacy_conf["tags"] if tag != "禁止给客户")
+    tags = [tag for tag in tags if tag not in {"低于下限", "需人工复核"}]
+    tags.extend(
+        step["status"]
+        for step in seq
+        if step.get("status") in {"低于下限", "需人工复核"}
+    )
     if any(op["na"] for op in ops):
         tags.append("超出常规边界")
 
