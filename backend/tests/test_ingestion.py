@@ -94,6 +94,54 @@ def test_parse_job_binds_part_id(client, seeded_db_path):
     assert row["status"] == "parsing"
 
 
+def test_retry_failed_job_requeues_same_upload(client, seeded_db_path):
+    inq = client.post("/api/v1/inquiries", json={"customer": "华科"}).get_json()
+    pid = client.post(
+        f"/api/v1/inquiries/{inq['id']}/parts",
+        json={"name": "底板"},
+    ).get_json()["id"]
+    data = {"step_file": (BytesIO(MINIMAL_STEP), "part.step"), "part_id": pid}
+    job_id = client.post(
+        "/api/v1/parse-jobs",
+        data=data,
+        content_type="multipart/form-data",
+    ).get_json()["job_id"]
+
+    conn = get_conn(seeded_db_path)
+    conn.execute(
+        "UPDATE parse_jobs SET status='failed',stage='failed',progress=100,"
+        "attempts=2,error='STEP bad' WHERE job_id=?",
+        (job_id,),
+    )
+    conn.execute("UPDATE parts SET status='parse_failed' WHERE id=?", (pid,))
+    conn.commit()
+    conn.close()
+
+    response = client.post(f"/api/v1/parse-jobs/{job_id}/retry")
+    assert response.status_code == 202
+    body = response.get_json()
+    assert body["job_id"] == job_id
+    assert body["status"] == "queued"
+    assert body["stage"] == "queued"
+    assert body["progress"] == 0
+    assert body["attempts"] == 0
+    assert body["error"] is None
+    assert body["files"][0]["original_name"] == "part.step"
+    assert body["events"][-1]["message"] == "用户重试解析"
+
+    conn = get_conn(seeded_db_path)
+    part_status = conn.execute("SELECT status FROM parts WHERE id=?", (pid,)).fetchone()["status"]
+    conn.close()
+    assert part_status == "parsing"
+
+
+def test_retry_rejects_active_job(client):
+    job_id = upload(client, step_file=(MINIMAL_STEP, "part.step")).get_json()["job_id"]
+    response = client.post(f"/api/v1/parse-jobs/{job_id}/retry")
+    assert response.status_code == 409
+    assert "无需重试" in response.get_json()["error"]
+
+
 def test_finish_job_writes_bbox_to_part(client, seeded_db_path):
     inq = client.post("/api/v1/inquiries", json={"customer": "华科"}).get_json()
     pid = client.post(f"/api/v1/inquiries/{inq['id']}/parts", json={"name": "底板"}).get_json()["id"]

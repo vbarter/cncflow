@@ -150,6 +150,34 @@ def fail_job(conn, job_id, error):
     _checkpoint_db()
 
 
+def retry_job(conn, job_id):
+    row = conn.execute(
+        "SELECT status,options_json FROM parse_jobs WHERE job_id=?",
+        (job_id,),
+    ).fetchone()
+    if row is None:
+        raise KeyError(job_id)
+    if row["status"] != "failed":
+        raise ValueError(f"任务状态 {row['status']} 无需重试")
+
+    conn.execute(
+        "UPDATE parse_jobs SET status='queued',stage='queued',progress=0,error=NULL,attempts=0,"
+        "worker_id=NULL,started_at=NULL,heartbeat_at=NULL,result_json=NULL,confirmed_json=NULL,"
+        "plans_json=NULL,updated_at=datetime('now') WHERE job_id=? AND status='failed'",
+        (job_id,),
+    )
+    options = json.loads(row["options_json"] or "{}")
+    part_id = options.get("part_id")
+    if part_id:
+        conn.execute(
+            "UPDATE parts SET status='parsing', updated_at=datetime('now') WHERE id=?",
+            (part_id,),
+        )
+    event(conn, job_id, "queued", "用户重试解析")
+    conn.commit()
+    return get_job(conn, job_id)
+
+
 def recover_stale(conn):
     conn.execute(
         "UPDATE parse_jobs SET status='queued',stage='queued',worker_id=NULL,error='Worker超时，自动重试' "
