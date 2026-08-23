@@ -359,6 +359,35 @@ def test_quote_refresh_rect_step_keeps_shoulder_unselected(client, seeded_db_pat
     assert _skus(part) == ["TK-026", "TK-036"], part.get("quote", {}).get("process_sequence")
 
 
+def test_quote_refresh_rect_step_sanitizes_previous_quote_features(client, seeded_db_path):
+    """连续刷新携带上次报价 features 时，隐式选择仍须重跑台阶默认规则。"""
+    iid, pid = _seed_quoted_part(
+        client, seeded_db_path, _rect_step_feats(face_selected=True), (80, 50, 16), "台阶",
+    )
+    stale_features = [
+        {
+            "type": "step", "feature_id": "step-0", "profile_type": "台阶",
+            "length": 80, "height": 8,
+        },
+        {
+            "type": "face", "feature_id": "face-0",
+            "length": 80, "width": 25, "face_position": "水平",
+        },
+    ]
+    first = client.post(f"/api/v1/inquiries/{iid}/quote", json={"features": stale_features})
+    assert first.status_code == 200, first.get_json()
+    first_part = next(p for p in first.get_json()["parts"] if p["id"] == pid)
+
+    second = client.post(
+        f"/api/v1/inquiries/{iid}/quote",
+        json={"features": first_part["quote"]["features"]},
+    )
+    assert second.status_code == 200, second.get_json()
+    part = next(p for p in second.get_json()["parts"] if p["id"] == pid)
+    assert _selected_ids(part) == ["step-0"], part.get("quote")
+    assert _skus(part) == ["TK-026", "TK-036"], part.get("quote", {}).get("process_sequence")
+
+
 def test_quote_refresh_d8_keeps_hole_and_top(client, seeded_db_path):
     """Ø8 回归：再报价仍 hole-0 + face-1。"""
     iid, pid = _seed_quoted_part(client, seeded_db_path, _d8_feats(), (80, 60, 12), "Ø8")
