@@ -359,7 +359,19 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
                 s["amount"] = round(per_amt, 2)
             _copy_step_params(s, s.get("time"))
 
-    deductions = risk_dimensions.collect(payload, seq)
+    deductions = risk_dimensions.collect(
+        payload,
+        seq,
+        volume=vol,
+        cut_minutes=cut_min,
+        quote_amount=amount,
+        ui_cost={
+            "material": mat_cost,
+            "machining": machining_sub,
+            "fixture": fix_fee,
+        },
+        risk_tags=tags,
+    )
     confidence_value = risk_dimensions.confidence_from(deductions)
     risk_level, customer_forbidden = confidence.classify(confidence_value)
     has_d9 = any(item["dimension"] == "D9" for item in deductions)
