@@ -71,11 +71,16 @@ def test_reorder_chamfer_before_drill_recalculates_persists_and_resets(client, s
     assert [step["process"] for step in _sequence(edited)] == ["rough_face", "chamfer", "drill"]
     assert edited["quote"]["sequence_adjustment_minutes"] == 0.5
     assert edited["quote"]["quote"]["amount"] != baseline_amount
-    assert edited["quote"]["confidence"] == 90
+    assert edited["quote"]["confidence"] == 85
     assert len([item for item in edited["quote"]["deductions"] if item["rule_id"] == "D1-1"]) == 2
+    d6 = [item for item in edited["quote"]["deductions"] if item["rule_id"] == "D6-1"]
+    assert len(d6) == 1
+    assert d6[0]["deduction"] == 5
+    assert not [item for item in edited["quote"]["deductions"] if item["dimension"] == "D8"]
 
     refreshed = client.get(f"/api/v1/parts/{pid}").get_json()
     assert [step["process"] for step in _sequence(refreshed)] == ["rough_face", "chamfer", "drill"]
+    assert [item["rule_id"] for item in refreshed["quote"]["deductions"] if item["dimension"] == "D6"] == ["D6-1"]
 
     reset = client.patch(f"/api/v1/parts/{pid}/process-sequence", json={"reset": True})
     assert reset.status_code == 200, reset.get_json()
@@ -84,6 +89,7 @@ def test_reorder_chamfer_before_drill_recalculates_persists_and_resets(client, s
     assert reverted["quote"]["quote"]["amount"] == pytest.approx(694.4, abs=0.01)
     assert reverted["quote"]["confidence"] == 90
     assert reverted["quote"]["process_overrides"] == []
+    assert not [item for item in reverted["quote"]["deductions"] if item["dimension"] == "D6"]
 
 
 def test_edit_minutes_recalculates_amount_deductions_and_mid_params(client, seeded_db_path):

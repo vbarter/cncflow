@@ -1,4 +1,4 @@
-"""工步透明契约 + 九维风险 MVP（D1/D9）。"""
+"""工步透明契约 + 九维风险冻结 MVP。"""
 
 KEYS = ("formula", "n", "f", "cut", "passes", "t_min", "t_max", "status")
 
@@ -101,7 +101,11 @@ def _assert_d1_risk(body, expected_count):
     assert {item["status"] for item in d1} == {"低于下限"}
     assert all(item["deduction"] == 5 for item in d1)
     assert all(item.get("process") != "chamfer" for item in d1)
-    assert not [item for item in deductions if item["dimension"] in {"D2", "D3", "D4", "D5"}]
+    assert not [
+        item
+        for item in deductions
+        if item["dimension"] in {"D2", "D3", "D4", "D5", "D6", "D7", "D8"}
+    ]
     assert not [item for item in deductions if item["dimension"] == "D9"]
 
 

@@ -87,5 +87,8 @@ def test_no_match_still_quotes(client):
     d4 = [item for item in body["deductions"] if item["rule_id"] == "D4-1"]
     assert len(d4) == 1
     assert d4[0]["deduction"] == 10
+    d8 = [item for item in body["deductions"] if item["rule_id"] == "D8-1"]
+    assert len(d8) == 1
+    assert d8[0]["missing_equipment_fields"] == ["model"]
     assert body["equipment"]["type"]
     assert body["equipment"]["hourly_rate"] is not None

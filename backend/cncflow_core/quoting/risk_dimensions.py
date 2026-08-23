@@ -1,10 +1,13 @@
-"""九维风险扣分：MVP 落地 D1–D5/D9，其余维度保留无副作用占位。"""
+"""九维风险扣分：冻结 MVP D1–D9。"""
 
 D1_DEDUCTION = 5
 D2_DEDUCTION = 5
 D3_DEDUCTION = 5
 D4_DEDUCTION = 10
 D5_DEDUCTION = 5
+D6_DEDUCTION = 5
+D7_DEDUCTION = 5
+D8_DEDUCTION = 5
 D9_DEDUCTION = 25
 BELOW_MIN = "低于下限"
 
@@ -160,6 +163,165 @@ def collect_d5(process_sequence: list) -> list[dict]:
 # TODO(D5-2): 当前 slider 只有倍率，没有可审计的 n/f 绝对上限带；补齐稳定上限前不扣分。
 
 
+ROUGH_PROCESSES = {
+    "drill", "peck_drill", "gun_drill", "u_drill", "spot_drill",
+    "rough_face", "rough_pocket", "rough_step", "rough_bore", "mill",
+}
+FINISH_PROCESSES = {
+    "semi_finish_pocket", "semi_bore", "semi_face", "semi_step",
+    "finish_face", "finish_pocket", "finish_step", "ream", "bore",
+    "fine_bore", "grind", "tap", "thread_mill", "flat_bottom_mill",
+    "rest_mill",
+}
+AUX_PROCESSES = {"chamfer", "deburr"}
+GROUP_FIELDS = ("setup_group", "fixture_group", "setup_id", "fixture_id")
+
+
+def _process_group(step: dict) -> tuple:
+    """优先使用显式装夹/夹具分组；旧路线无分组时视为同一装夹。"""
+    values = tuple(
+        (field, str(step[field]))
+        for field in GROUP_FIELDS
+        if step.get(field) not in (None, "")
+    )
+    return values or (("setup_group", "default"),)
+
+
+def _is_rough(step: dict) -> bool:
+    process = str(step.get("process") or step.get("op") or "")
+    return step.get("stage") == "粗" or process in ROUGH_PROCESSES or process.startswith("rough_")
+
+
+def _is_finish(step: dict) -> bool:
+    process = str(step.get("process") or step.get("op") or "")
+    if process in AUX_PROCESSES:
+        return False
+    return (
+        step.get("stage") in {"半精", "精"}
+        or process in FINISH_PROCESSES
+        or process.startswith(("semi_", "finish_", "fine_"))
+    )
+
+
+def collect_d6(process_sequence: list) -> list[dict]:
+    """同一装夹/夹具组内精加工不得早于粗加工，倒角必须最后。"""
+    groups: dict[tuple, list[dict]] = {}
+    for step in process_sequence:
+        if isinstance(step, dict):
+            groups.setdefault(_process_group(step), []).append(step)
+
+    violations = []
+    for group, steps in groups.items():
+        ordered = sorted(
+            enumerate(steps),
+            key=lambda item: (_number(item[1].get("order")) or item[0] + 1, item[0]),
+        )
+        ordered_steps = [step for _, step in ordered]
+        rough_indexes = [i for i, step in enumerate(ordered_steps) if _is_rough(step)]
+        finish_indexes = [i for i, step in enumerate(ordered_steps) if _is_finish(step)]
+        finish_before_rough = (
+            bool(rough_indexes)
+            and bool(finish_indexes)
+            and min(finish_indexes) < max(rough_indexes)
+        )
+        chamfer_not_last = any(
+            str(step.get("process") or step.get("op") or "") == "chamfer"
+            for step in ordered_steps[:-1]
+        )
+        if finish_before_rough or chamfer_not_last:
+            violations.append({
+                "group": dict(group),
+                "finish_before_rough": finish_before_rough,
+                "chamfer_not_last": chamfer_not_last,
+                "orders": [step.get("order") for step in ordered_steps],
+            })
+
+    if not violations:
+        return []
+    reasons = []
+    if any(item["finish_before_rough"] for item in violations):
+        reasons.append("精加工早于粗加工")
+    if any(item["chamfer_not_last"] for item in violations):
+        reasons.append("倒角不是组内最后工步")
+    return [_item(
+        "D6-1",
+        "D6",
+        "工序顺序异常",
+        D6_DEDUCTION,
+        "；".join(reasons),
+        violations=violations,
+    )]
+
+
+def collect_d7(quote_amount, ui_cost: dict | None) -> list[dict]:
+    """净材料成本须大于零且不得高于报价金额。"""
+    amount = _number(quote_amount)
+    material_cost = _number((ui_cost or {}).get("material"))
+    if material_cost is None or amount is None:
+        return []
+    if material_cost > 0 and material_cost <= amount:
+        return []
+    reason = (
+        f"净材料成本 {material_cost:.2f} 必须大于 0"
+        if material_cost <= 0
+        else f"材料成本 {material_cost:.2f} 高于报价金额 {amount:.2f}"
+    )
+    return [_item(
+        "D7-1",
+        "D7",
+        "材料成本异常",
+        D7_DEDUCTION,
+        reason,
+        material_cost=material_cost,
+        quote_amount=amount,
+    )]
+
+
+def collect_d8(
+    process_sequence: list,
+    *,
+    equipment: dict | None,
+    hours_cut,
+) -> list[dict]:
+    """设备字段须完整，切削工时须与工艺路线分钟数一致。"""
+    required_equipment = ("model", "type", "hourly_rate")
+    missing_fields = [
+        field
+        for field in required_equipment
+        if not isinstance(equipment, dict) or equipment.get(field) in (None, "")
+    ]
+    cut_hours = _number(hours_cut)
+    sequence_minutes = sum(
+        _number(step.get("minutes")) or 0
+        for step in process_sequence
+        if isinstance(step, dict)
+    )
+    mismatch_minutes = (
+        None
+        if cut_hours is None
+        else abs(cut_hours * 60 - sequence_minutes)
+    )
+    if not missing_fields and (mismatch_minutes is None or mismatch_minutes <= 0.5):
+        return []
+
+    reasons = []
+    if missing_fields:
+        reasons.append(f"缺少设备字段：{','.join(missing_fields)}")
+    if mismatch_minutes is not None and mismatch_minutes > 0.5:
+        reasons.append(f"切削工时与工艺路线相差 {mismatch_minutes:.4f} 分钟")
+    return [_item(
+        "D8-1",
+        "D8",
+        "一致性异常",
+        D8_DEDUCTION,
+        "；".join(reasons),
+        missing_equipment_fields=missing_fields,
+        hours_cut=cut_hours,
+        sequence_minutes=round(sequence_minutes, 6),
+        mismatch_minutes=round(mismatch_minutes, 6) if mismatch_minutes is not None else None,
+    )]
+
+
 def _positive(payload: dict, *keys: str) -> bool:
     for key in keys:
         value = payload.get(key)
@@ -236,6 +398,8 @@ def collect(
     quote_amount=None,
     ui_cost: dict | None = None,
     risk_tags: list | None = None,
+    equipment: dict | None = None,
+    hours_cut=None,
 ) -> list[dict]:
     deductions = collect_d1(process_sequence)
 
@@ -245,8 +409,13 @@ def collect(
     deductions.extend(collect_d3(quote_amount, ui_cost))
     deductions.extend(collect_d4(risk_tags))
     deductions.extend(collect_d5(process_sequence))
-
-    # TODO(D6-D8): 当前没有可无损映射的稳定信号；占位不扣分、不阻断报价。
+    deductions.extend(collect_d6(process_sequence))
+    deductions.extend(collect_d7(quote_amount, ui_cost))
+    deductions.extend(collect_d8(
+        process_sequence,
+        equipment=equipment,
+        hours_cut=hours_cut,
+    ))
     deductions.extend(collect_d9(payload, process_sequence))
     return deductions
 
