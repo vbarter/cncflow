@@ -1,4 +1,4 @@
-"""九维风险 D2–D5 的冻结规则边界。"""
+"""九维风险 D2–D8 的冻结规则边界。"""
 
 import pytest
 
@@ -86,6 +86,80 @@ def test_d5_missing_parameters_do_not_deduct():
     ]) == []
 
 
+@pytest.mark.parametrize(
+    "steps",
+    [
+        [
+            {"order": 1, "process": "finish_face"},
+            {"order": 2, "process": "rough_face"},
+        ],
+        [
+            {"order": 1, "process": "rough_face"},
+            {"order": 2, "process": "chamfer"},
+            {"order": 3, "process": "drill"},
+        ],
+    ],
+)
+def test_d6_invalid_order_in_same_setup_deducts_once(steps):
+    deductions = risk_dimensions.collect_d6(steps)
+
+    assert len(deductions) == 1
+    assert deductions[0]["rule_id"] == "D6-1"
+    assert deductions[0]["deduction"] == 5
+
+
+def test_d6_checks_each_explicit_setup_group_independently():
+    assert risk_dimensions.collect_d6([
+        {"order": 1, "process": "chamfer", "setup_group": "A"},
+        {"order": 2, "process": "rough_face", "setup_group": "B"},
+    ]) == []
+
+
+@pytest.mark.parametrize("material_cost", [0, -1, 100.01])
+def test_d7_absurd_material_cost_deducts(material_cost):
+    deductions = risk_dimensions.collect_d7(
+        100,
+        {"material": material_cost},
+    )
+
+    assert len(deductions) == 1
+    assert deductions[0]["rule_id"] == "D7-1"
+    assert deductions[0]["deduction"] == 5
+
+
+def test_d8_missing_equipment_deducts():
+    deductions = risk_dimensions.collect_d8(
+        [{"minutes": 1}],
+        equipment={"model": None, "type": "3轴立式加工中心", "hourly_rate": 120},
+        hours_cut=1 / 60,
+    )
+
+    assert len(deductions) == 1
+    assert deductions[0]["rule_id"] == "D8-1"
+    assert deductions[0]["deduction"] == 5
+    assert deductions[0]["missing_equipment_fields"] == ["model"]
+
+
+def test_d8_hours_minutes_mismatch_deducts_beyond_half_minute():
+    deductions = risk_dimensions.collect_d8(
+        [{"minutes": 1}, {"minutes": 2}],
+        equipment={"model": "VMC850E", "type": "3轴立式加工中心", "hourly_rate": 120},
+        hours_cut=3.51 / 60,
+    )
+
+    assert len(deductions) == 1
+    assert deductions[0]["rule_id"] == "D8-1"
+    assert deductions[0]["mismatch_minutes"] == pytest.approx(0.51)
+
+
+def test_d8_half_minute_difference_is_allowed():
+    assert risk_dimensions.collect_d8(
+        [{"minutes": 3}],
+        equipment={"model": "VMC850E", "type": "3轴立式加工中心", "hourly_rate": 120},
+        hours_cut=3.5 / 60,
+    ) == []
+
+
 def test_quote_engine_wires_d2_from_removed_volume_and_cut_minutes(client):
     body = client.post("/api/v1/quotes", json={
         "material": "铝合金",
@@ -117,3 +191,19 @@ def test_quote_engine_wires_d3_from_quote_cost_shares(client):
     assert body["status"] == "quoted"
     assert body["quote"]["amount"] > 0
     assert [item["rule_id"] for item in body["deductions"] if item["dimension"] == "D3"] == ["D3-1"]
+
+
+def test_quote_engine_wires_d7_and_still_quotes_absurd_material(client):
+    body = client.post("/api/v1/quotes", json={
+        "material": "铝合金",
+        "stock_type": "板材",
+        "length": 80,
+        "width": 60,
+        "height": 12,
+        "price_per_kg": 0,
+        "features": [{"type": "face", "length": 80, "width": 60}],
+    }).get_json()
+
+    assert body["status"] == "quoted"
+    assert body["quote"]["amount"] > 0
+    assert [item["rule_id"] for item in body["deductions"] if item["dimension"] == "D7"] == ["D7-1"]
