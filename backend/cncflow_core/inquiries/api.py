@@ -1,5 +1,6 @@
 """询价 / 零件 HTTP。"""
 import json
+import math
 import os
 import re
 from io import BytesIO
@@ -144,18 +145,22 @@ def _thread_for_pipeline(feat, fid):
 def _step_for_pipeline(feat, fid):
     dim = feat.get("dimensions") or {}
     length = feat.get("length") if feat.get("length") is not None else dim.get("length")
+    width = feat.get("width") if feat.get("width") is not None else dim.get("width")
     height = feat.get("height") if feat.get("height") is not None else dim.get("height")
     if height is None:
         height = feat.get("depth") or dim.get("depth") or feat.get("depth_mm")
     if not length or not height:
         return None
-    return {
+    mapped = {
         "type": "step",
         "feature_id": fid,
         "profile_type": feat.get("profile_type") or dim.get("profile_type") or "台阶",
         "length": float(length),
         "height": float(height),
     }
+    if width is not None:
+        mapped["width"] = float(width)
+    return mapped
 
 
 
@@ -181,6 +186,120 @@ def _surface_for_pipeline(feat, fid):
         "position": feat.get("position") or dim.get("position"),
         "manual_hours": float(feat.get("manual_hours") or 0),
     }
+
+
+_FEATURE_DIMENSION_FIELDS = {
+    "hole": {"diameter_mm", "depth_mm"},
+    "thread": {"diameter_mm", "thread_length"},
+    "slot": {"length", "width", "depth"},
+    "pocket": {"length", "width", "depth"},
+    "face": {"length", "width"},
+    "step": {"length", "width", "height"},
+}
+
+
+def _normalize_feature_overrides(raw, features):
+    if raw in (None, []):
+        return []
+    if not isinstance(raw, list):
+        raise ValueError("feature_overrides 须为数组")
+    feature_by_id = {
+        str(feature.get("feature_id") or feature.get("id")): feature
+        for feature in features or []
+        if isinstance(feature, dict) and (feature.get("feature_id") or feature.get("id"))
+    }
+    normalized = []
+    seen = set()
+    for item in raw:
+        if not isinstance(item, dict):
+            raise ValueError("feature_overrides 每项须为对象")
+        fid = str(item.get("feature_id") or "").strip()
+        if not fid or fid not in feature_by_id:
+            raise ValueError(f"特征不存在：{fid or '—'}")
+        if fid in seen:
+            raise ValueError(f"特征覆盖重复：{fid}")
+        seen.add(fid)
+        feature_type = str(feature_by_id[fid].get("type") or "").lower()
+        allowed = _FEATURE_DIMENSION_FIELDS.get(feature_type, set())
+        dimensions = item.get("dimensions")
+        if not isinstance(dimensions, dict) or not dimensions:
+            raise ValueError(f"{fid}.dimensions 须为非空对象")
+        unknown = set(dimensions) - allowed
+        if unknown:
+            raise ValueError(f"{fid} 不支持修改尺寸：{', '.join(sorted(unknown))}")
+        values = {}
+        for field, value in dimensions.items():
+            try:
+                number = float(value)
+            except (TypeError, ValueError):
+                raise ValueError(f"{fid}.{field} 须为数字") from None
+            if not math.isfinite(number) or number <= 0:
+                raise ValueError(f"{fid}.{field} 须大于 0")
+            values[field] = number
+        normalized.append({"feature_id": fid, "dimensions": values})
+    return normalized
+
+
+def _merge_feature_overrides(features, saved, incoming=_UNSET):
+    merged = {
+        item["feature_id"]: dict(item["dimensions"])
+        for item in _normalize_feature_overrides(saved, features)
+    }
+    if incoming is not _UNSET:
+        for item in _normalize_feature_overrides(incoming, features):
+            merged.setdefault(item["feature_id"], {}).update(item["dimensions"])
+    feature_order = {
+        str(feature.get("feature_id") or feature.get("id")): index
+        for index, feature in enumerate(features or [])
+        if isinstance(feature, dict)
+    }
+    return [
+        {"feature_id": fid, "dimensions": dimensions}
+        for fid, dimensions in sorted(
+            merged.items(),
+            key=lambda pair: feature_order.get(pair[0], len(feature_order)),
+        )
+    ]
+
+
+def _apply_feature_overrides(features, overrides):
+    override_by_id = {
+        item["feature_id"]: item["dimensions"]
+        for item in overrides or []
+    }
+    result = []
+    for source in features or []:
+        feature = dict(source)
+        fid = str(feature.get("feature_id") or feature.get("id") or "")
+        values = override_by_id.get(fid)
+        if not values:
+            result.append(feature)
+            continue
+        dimensions = dict(feature.get("dimensions") or {})
+        dimensions.update(values)
+        feature["dimensions"] = dimensions
+        feature.update(values)
+        feature_type = str(feature.get("type") or "").lower()
+        pose = dict(feature.get("pose") or {})
+        if pose and feature_type in {"hole", "thread"}:
+            if "diameter_mm" in values:
+                pose["diameter_mm"] = values["diameter_mm"]
+            length_key = "depth_mm" if feature_type == "hole" else "thread_length"
+            if length_key in values:
+                pose["length_mm"] = values[length_key]
+            feature["pose"] = pose
+        if feature_type == "hole" and (
+            "diameter_mm" in values or "depth_mm" in values
+        ):
+            diameter = float(feature.get("diameter_mm") or 0)
+            depth = float(feature.get("depth_mm") or 0)
+            hole_type = _HOLE_TYPE.get(
+                str(feature.get("hole_type") or dimensions.get("hole_type") or "through"),
+                "through",
+            )
+            feature["cut_depth_mm"] = depth + (0.3 * diameter if hole_type == "through" else 0.0)
+        result.append(feature)
+    return result
 
 
 def _review_and_quote_features(parsed_feats, selected_ids, L, W):
@@ -395,9 +514,20 @@ def _quote_part(
     override = features_override
     if override is None:
         override = extra.get("features") or extra.get("review_features")
-    review, features = _review_and_quote_features(parsed_feats, selected_ids, L, W)
-    if not parsed_feats and isinstance(override, list):
-        review, features = _review_and_quote_features(override, selected_ids, L, W)
+    feature_source = parsed_feats
+    if not feature_source and isinstance(override, list):
+        feature_source = override
+    saved_quote = part.get("quote") if isinstance(part.get("quote"), dict) else {}
+    incoming_feature_overrides = (
+        extra["feature_overrides"] if "feature_overrides" in extra else _UNSET
+    )
+    feature_overrides = _merge_feature_overrides(
+        feature_source,
+        saved_quote.get("feature_overrides") or [],
+        incoming_feature_overrides,
+    )
+    feature_source = _apply_feature_overrides(feature_source, feature_overrides)
+    review, features = _review_and_quote_features(feature_source, selected_ids, L, W)
     features = _overlay_manual_hours(features, override, extra.get("manual_hours"))
     try:
         rules_version = current_app.config.get("RULES_VERSION") or ""
@@ -409,7 +539,6 @@ def _quote_part(
     except ValueError:
         material = raw_mat
     if process_overrides is _UNSET:
-        saved_quote = part.get("quote") if isinstance(part.get("quote"), dict) else {}
         process_overrides = saved_quote.get("process_overrides") or []
     result = quote({
         "material": material,
@@ -428,6 +557,7 @@ def _quote_part(
         "process_overrides": process_overrides,
     }, conn, rules_version=rules_version)
     result["review_features"] = review
+    result["feature_overrides"] = feature_overrides
     return store.set_quote(conn, part["id"], result)
 
 
@@ -595,8 +725,10 @@ def patch_part(pid):
     conn = _conn()
     try:
         part = store.update_part(conn, pid, payload)
-        selected_ids = payload.get("selected_feature_ids")
-        if selected_ids is not None and not isinstance(selected_ids, list):
+        selected_ids = payload.get("selected_feature_ids", _UNSET)
+        if selected_ids is _UNSET:
+            selected_ids = _saved_quote_selection(part)
+        elif not isinstance(selected_ids, list):
             selected_ids = None
         if part["status"] not in {"confirmed", "abandoned"}:
             quoted = _quote_part(

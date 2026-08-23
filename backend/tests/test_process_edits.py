@@ -5,6 +5,7 @@ import pytest
 
 from cncflow_core.common.db import get_conn
 from cncflow_core.ingestion.jobs import finish_job
+from cncflow_core.inquiries.api import _apply_feature_overrides, _merge_feature_overrides
 
 
 MINIMAL_STEP = (
@@ -134,3 +135,72 @@ def test_edit_formula_param_clears_minutes_override_and_recalculates(client, see
     assert drill_after["f"] == pytest.approx(drill["f"] / 2)
     assert drill_after["minutes"] != 2
     assert edited["quote"]["quote"]["amount"] != amount_with_minutes
+
+
+def test_edit_feature_dimensions_requotes_and_persists(client, seeded_db_path):
+    part = _create_o8_part(client, seeded_db_path)
+    before = part["quote"]["quote"]["amount"]
+
+    response = client.patch(
+        f"/api/v1/parts/{part['id']}",
+        json={
+            "feature_overrides": [{
+                "feature_id": "hole-0",
+                "dimensions": {"diameter_mm": 10, "depth_mm": 40},
+            }],
+        },
+    )
+    assert response.status_code == 200, response.get_json()
+    edited = response.get_json()
+    hole = next(
+        feature
+        for feature in edited["quote"]["review_features"]
+        if feature["feature_id"] == "hole-0"
+    )
+    assert hole["diameter_mm"] == 10
+    assert hole["depth_mm"] == 40
+    assert hole["cut_depth_mm"] == pytest.approx(43)
+    assert edited["quote"]["quote"]["amount"] != before
+    assert edited["quote"]["feature_overrides"] == [{
+        "feature_id": "hole-0",
+        "dimensions": {"diameter_mm": 10.0, "depth_mm": 40.0},
+    }]
+
+    refreshed = client.get(f"/api/v1/parts/{part['id']}").get_json()
+    persisted = next(
+        feature
+        for feature in refreshed["quote"]["review_features"]
+        if feature["feature_id"] == "hole-0"
+    )
+    assert persisted["diameter_mm"] == 10
+    assert persisted["depth_mm"] == 40
+
+
+def test_feature_override_contract_supports_all_editable_dimension_types():
+    features = [
+        {"feature_id": "hole-0", "type": "hole", "diameter_mm": 8, "depth_mm": 12},
+        {"feature_id": "thread-0", "type": "thread", "diameter_mm": 6, "thread_length": 8},
+        {"feature_id": "slot-0", "type": "slot", "length": 20, "width": 4, "depth": 3},
+        {"feature_id": "pocket-0", "type": "pocket", "length": 30, "width": 10, "depth": 5},
+        {"feature_id": "face-0", "type": "face", "length": 80, "width": 60},
+        {"feature_id": "step-0", "type": "step", "length": 40, "width": 20, "height": 6},
+    ]
+    incoming = [
+        {"feature_id": "hole-0", "dimensions": {"diameter_mm": 9, "depth_mm": 15}},
+        {"feature_id": "thread-0", "dimensions": {"diameter_mm": 8, "thread_length": 12}},
+        {"feature_id": "slot-0", "dimensions": {"length": 22, "width": 5, "depth": 4}},
+        {"feature_id": "pocket-0", "dimensions": {"length": 32, "width": 12, "depth": 6}},
+        {"feature_id": "face-0", "dimensions": {"length": 90, "width": 70}},
+        {"feature_id": "step-0", "dimensions": {"length": 45, "width": 25, "height": 8}},
+    ]
+    overrides = _merge_feature_overrides(features, [], incoming)
+    applied = {
+        feature["feature_id"]: feature
+        for feature in _apply_feature_overrides(features, overrides)
+    }
+
+    for override in incoming:
+        feature = applied[override["feature_id"]]
+        for field, value in override["dimensions"].items():
+            assert feature[field] == value
+            assert feature["dimensions"][field] == value
