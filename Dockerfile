@@ -3,6 +3,7 @@ FROM python:3.11-slim-bookworm
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libgl1 libglib2.0-0 libglu1-mesa libxrender1 libsm6 libxext6 \
         tesseract-ocr tesseract-ocr-chi-sim tesseract-ocr-eng \
+        fonts-wqy-zenhei \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

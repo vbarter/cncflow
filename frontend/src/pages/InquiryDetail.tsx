@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { Badge, Button, Card } from "../components/ui"
-import { json } from "../api"
+import { API, json } from "../api"
 import { hoursLabel, quoteHours } from "../quoteHours"
 import { inquirySuggestedDays, quoteSuggestedDays, suggestedDaysLabel } from "../suggestedDays"
 
@@ -47,6 +47,17 @@ export function InquiryDetail({ id, go }: { id: string; go: (h: string) => void 
     URL.revokeObjectURL(url)
     setHint("已下载 " + name)
   }
+  function exportPdf() {
+    const name = (inq.title || "RFQ") + "-报价单.pdf"
+    const a = document.createElement("a")
+    a.href = `${API}/inquiries/${encodeURIComponent(id)}/quote.pdf`
+    a.download = name
+    a.rel = "noopener"
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    setHint("正在下载 " + name)
+  }
   return <div className="space-y-6">
     <button type="button" className="min-h-11 text-sm text-blue-600 md:min-h-0" onClick={() => go("")}>← 返回报价工作台</button>
     <div className="flex flex-col gap-4 rounded bg-slate-900 px-4 py-5 text-white md:flex-row md:items-center md:justify-between md:px-6">
@@ -55,7 +66,10 @@ export function InquiryDetail({ id, go }: { id: string; go: (h: string) => void 
         <div className="mt-1 font-serif text-2xl font-semibold">{parts.length} 个零件综合报价</div>
         <div className="mt-1 text-sm text-slate-300">合计 ¥{yen(total)} · 交期 {inq.due_date || "—"} · 建议交期 {suggestedDaysLabel(suggestedDays)}</div>
       </div>
-      <Button type="button" className="min-h-11 md:min-h-10" onClick={exportQuote}>导出报价单</Button>
+      <div className="flex flex-wrap gap-2">
+        <Button type="button" className="min-h-11 md:min-h-10" onClick={exportPdf}>导出 PDF</Button>
+        <Button type="button" className="min-h-11 md:min-h-10" variant="outline" onClick={exportQuote}>导出 JSON</Button>
+      </div>
     </div>
     <div>
       <div className="mb-3 text-sm font-medium text-slate-800">零件报价列表</div>

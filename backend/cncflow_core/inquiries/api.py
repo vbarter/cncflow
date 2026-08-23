@@ -1,7 +1,10 @@
 """询价 / 零件 HTTP。"""
 import json
 import os
-from flask import Blueprint, current_app, jsonify, request, Response
+import re
+from io import BytesIO
+
+from flask import Blueprint, current_app, jsonify, request, Response, send_file
 
 from ..common.db import get_conn
 from ..geometry.service import apply_quote_default_selection
@@ -11,6 +14,7 @@ from ..common.materials import resolve_material
 from ..quoting.engine import quote
 from ..quoting import process_edits
 from . import store
+from .quote_pdf import build_quote_pdf
 
 bp = Blueprint("inquiries", __name__)
 _UNSET = object()
@@ -494,6 +498,24 @@ def get_inquiry(iid):
     conn = _conn()
     try:
         return jsonify(store.get_inquiry(conn, iid))
+    except KeyError:
+        return jsonify({"error": "询价单不存在"}), 404
+    finally:
+        conn.close()
+
+
+@bp.get("/api/v1/inquiries/<iid>/quote.pdf")
+def get_inquiry_quote_pdf(iid):
+    conn = _conn()
+    try:
+        inquiry = store.get_inquiry(conn, iid)
+        filename_base = re.sub(r"[/\\\r\n]+", "_", inquiry.get("title") or iid)
+        return send_file(
+            BytesIO(build_quote_pdf(inquiry)),
+            mimetype="application/pdf",
+            as_attachment=True,
+            download_name=f"{filename_base}-报价单.pdf",
+        )
     except KeyError:
         return jsonify({"error": "询价单不存在"}), 404
     finally:
