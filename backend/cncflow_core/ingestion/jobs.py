@@ -1,5 +1,6 @@
 """解析任务的SQLite仓储与轻量队列操作。"""
 import json
+import math
 import sqlite3
 import uuid
 
@@ -149,19 +150,48 @@ def _apply_pdf_backfill(conn, job_id, part_id, result):
         backfill = {}
     tuzi = drawing.get("tuzi") if isinstance(drawing.get("tuzi"), dict) else {}
     sets, values = [], []
-    for field in (
-        "material_code",
-        "tolerance_it",
-        "roughness_ra",
-        "surface_finish",
-        "qty",
-    ):
-        if backfill.get(field) not in (None, ""):
+    applied = []
+
+    for field in ("material_code", "surface_finish"):
+        value = backfill.get(field)
+        if isinstance(value, str) and value.strip():
             sets.append(f"{field}=?")
-            values.append(backfill[field])
-    if isinstance(backfill.get("thread_specs"), list):
+            values.append(value.strip()[:200])
+            applied.append(field)
+
+    try:
+        tolerance_it = int(backfill.get("tolerance_it"))
+    except (TypeError, ValueError, OverflowError):
+        tolerance_it = None
+    if tolerance_it is not None and 1 <= tolerance_it <= 18:
+        sets.append("tolerance_it=?")
+        values.append(tolerance_it)
+        applied.append("tolerance_it")
+
+    try:
+        roughness_ra = float(backfill.get("roughness_ra"))
+    except (TypeError, ValueError, OverflowError):
+        roughness_ra = None
+    if roughness_ra is not None and math.isfinite(roughness_ra) and 0 < roughness_ra <= 1000:
+        sets.append("roughness_ra=?")
+        values.append(roughness_ra)
+        applied.append("roughness_ra")
+
+    specs = backfill.get("thread_specs")
+    if isinstance(specs, list) and all(isinstance(item, str) for item in specs):
+        specs = [item.strip()[:100] for item in specs if item.strip()][:100]
         sets.append("thread_specs_json=?")
-        values.append(json.dumps(backfill["thread_specs"], ensure_ascii=False))
+        values.append(json.dumps(specs, ensure_ascii=False))
+        applied.append("thread_specs")
+
+    try:
+        qty = int(backfill.get("qty"))
+    except (TypeError, ValueError, OverflowError):
+        qty = None
+    if qty is not None and 1 <= qty <= 1_000_000:
+        sets.extend(["qty=?", "batch_size=?"])
+        values.extend([qty, qty])
+        applied.append("qty")
 
     status = "applied" if sets else "failed"
     warning = None if sets else (
@@ -172,12 +202,26 @@ def _apply_pdf_backfill(conn, job_id, part_id, result):
     sets.extend(["pdf_backfill_status=?", "pdf_backfill_warning=?"])
     values.extend([status, warning])
     values.append(part_id)
-    conn.execute(
-        f"UPDATE parts SET {', '.join(sets)}, updated_at=datetime('now') WHERE id=?",
-        values,
-    )
-    if sets and status == "applied":
-        names = [label for field, label in BACKFILL_EVENT_FIELDS.items() if field in backfill]
+    conn.execute("SAVEPOINT pdf_backfill")
+    try:
+        conn.execute(
+            f"UPDATE parts SET {', '.join(sets)}, updated_at=datetime('now') WHERE id=?",
+            values,
+        )
+        conn.execute("RELEASE SAVEPOINT pdf_backfill")
+    except Exception as exc:
+        conn.execute("ROLLBACK TO SAVEPOINT pdf_backfill")
+        conn.execute("RELEASE SAVEPOINT pdf_backfill")
+        warning = f"PDF 回填落库失败: {exc}"
+        conn.execute(
+            "UPDATE parts SET pdf_backfill_status='failed',pdf_backfill_warning=?,"
+            "updated_at=datetime('now') WHERE id=?",
+            (warning[:1000], part_id),
+        )
+        event(conn, job_id, "pdf_backfill", warning[:500])
+        return
+    if status == "applied":
+        names = [BACKFILL_EVENT_FIELDS[field] for field in applied]
         event(conn, job_id, "pdf_backfill", f"PDF 已回填：{', '.join(names)}")
     else:
         event(conn, job_id, "pdf_backfill", f"PDF 未回填：{warning}")

@@ -318,4 +318,10 @@ def _ensure_column(conn: sqlite3.Connection, table: str, column: str, declaratio
     """为旧数据库执行轻量增量迁移，避免破坏已有数据。"""
     columns = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
     if column not in columns:
-        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {declaration}")
+        try:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {declaration}")
+        except sqlite3.OperationalError:
+            # 多进程启动时另一进程可能刚完成同一迁移；仅在列确实存在时吞掉竞态。
+            current = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+            if column not in current:
+                raise

@@ -7,14 +7,6 @@ from io import BytesIO
 
 
 TUZI_BASE_URL = "https://api.tu-zi.com"
-BACKFILL_FIELDS = (
-    "material_code",
-    "tolerance_it",
-    "roughness_ra",
-    "surface_finish",
-    "thread_specs",
-    "qty",
-)
 
 
 def _match(patterns, text, transform=lambda value: value):
@@ -163,7 +155,7 @@ def map_tuzi_fields(payload: dict) -> dict:
             out["thread_specs"] = specs
 
     qty = _number(_first(source, "qty", "quantity", "数量", "QTY"), integer=True)
-    if qty is not None and qty > 0:
+    if qty is not None and 1 <= qty <= 1_000_000:
         out["qty"] = qty
     return out
 
@@ -174,18 +166,10 @@ def _tuzi_extract(text: str, images: list) -> dict:
         raise RuntimeError("未配置 TUZI_API_KEY")
     from openai import OpenAI
 
-    base_url = (
-        os.environ.get("TUZI_BASE_URL")
-        or os.environ.get("VISION_API_BASE")
-        or os.environ.get("VISION_BASE_URL")
-        or TUZI_BASE_URL
-    ).rstrip("/")
-    if not base_url.endswith("/v1"):
-        base_url += "/v1"
     timeout = float(os.environ.get("TUZI_TIMEOUT_SECONDS", "20"))
     client = OpenAI(
         api_key=api_key,
-        base_url=base_url,
+        base_url=f"{TUZI_BASE_URL}/v1",
         timeout=timeout,
         max_retries=0,
     )

@@ -530,6 +530,8 @@ def add_part(iid):
         return jsonify(store.add_part(conn, iid, payload)), 201
     except KeyError:
         return jsonify({"error": "询价单不存在"}), 404
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
     finally:
         conn.close()
 

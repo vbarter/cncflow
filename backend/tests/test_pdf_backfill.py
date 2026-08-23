@@ -121,7 +121,7 @@ def test_finish_job_persists_pdf_fields_without_feature_projection(
     assert part["surface_finish"] == "钝化"
     assert part["thread_specs"] == ["M6", "M8×1.25"]
     assert part["qty"] == 12
-    assert part["batch_size"] == 1
+    assert part["batch_size"] == 12
     assert part["pdf_backfill_status"] == "applied"
     assert [feature["type"] for feature in part["parsed_features"]] == ["hole"]
 
@@ -205,3 +205,53 @@ def test_pure_step_never_enters_pdf_parser(
     assert part["pdf_backfill_status"] is None
     assert part["status"] == "quoted"
     assert part["quote"]["quote"]["amount"] > 0
+
+
+def test_invalid_pdf_values_are_ignored_without_blocking_step_quote(
+    client,
+    seeded_db_path,
+):
+    part_id, job_id = _part_and_job(client)
+    conn = get_conn(seeded_db_path)
+    finish_job(conn, job_id, {
+        "geometry": {
+            "volume_cm3": 12.5,
+            "bounding_box_mm": {"x": 80, "y": 40, "z": 12},
+        },
+        "features": [],
+        "drawing": {
+            "backfill": {
+                "qty": 10**100,
+                "tolerance_it": 99,
+                "roughness_ra": float("inf"),
+                "thread_specs": ["M8", 123],
+            },
+            "tuzi": {"provider": "tu-zi", "called": True, "ok": True},
+            "warnings": [],
+        },
+        "warnings": [],
+    })
+    conn.close()
+
+    part = client.get(f"/api/v1/parts/{part_id}").get_json()
+    assert part["pdf_backfill_status"] == "failed"
+    assert part["qty"] == 1
+    assert part["thread_specs"] == []
+    assert part["status"] == "quoted"
+    assert part["quote"]["quote"]["amount"] > 0
+
+
+def test_internal_thread_json_cannot_be_patched(client):
+    inquiry = client.post("/api/v1/inquiries", json={"customer": "线程字段"}).get_json()
+    part = client.post(
+        f"/api/v1/inquiries/{inquiry['id']}/parts",
+        json={"name": "底板", "length": 80, "width": 40, "height": 12},
+    ).get_json()
+
+    response = client.patch(
+        f"/api/v1/parts/{part['id']}",
+        json={"thread_specs_json": "invalid"},
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()["thread_specs"] == []

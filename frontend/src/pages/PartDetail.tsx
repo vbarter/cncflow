@@ -54,13 +54,17 @@ export function PartDetail({ id, go }: { id: string; go: (h: string) => void }) 
   const [err, setErr] = useState("")
   const [busy, setBusy] = useState(false)
   const [view, setView] = useState<"engineer" | "boss">("engineer")
+  const [fieldEpoch, setFieldEpoch] = useState(0)
   async function load() { setPart(await json<any>("/parts/" + id)) }
   useEffect(() => { load().catch(e => setErr(e.message)) }, [id])
   async function patch(body: object) {
     try {
       setBusy(true); setErr("")
       setPart(await json<any>("/parts/" + id, { method: "PATCH", body: JSON.stringify(body) }))
-    } catch (e: any) { setErr(e.message) } finally { setBusy(false) }
+    } catch (e: any) {
+      setErr(e.message)
+      setFieldEpoch(value => value + 1)
+    } finally { setBusy(false) }
   }
   async function patchProcess(body: object) {
     try {
@@ -176,6 +180,7 @@ export function PartDetail({ id, go }: { id: string; go: (h: string) => void }) 
           <label className="block text-sm">
             <div className="mb-1 text-xs text-slate-500">材料</div>
             <Input
+              key={`${fieldEpoch}-${part.material_code || ""}`}
               disabled={locked || busy}
               defaultValue={part.material_code || ""}
               onBlur={e => {
@@ -187,6 +192,7 @@ export function PartDetail({ id, go }: { id: string; go: (h: string) => void }) 
           <label className="block text-sm">
             <div className="mb-1 text-xs text-slate-500">IT</div>
             <Input
+              key={`${fieldEpoch}-${part.tolerance_it ?? ""}`}
               disabled={locked || busy}
               type="number"
               min={1}
@@ -201,6 +207,7 @@ export function PartDetail({ id, go }: { id: string; go: (h: string) => void }) 
           <label className="block text-sm">
             <div className="mb-1 text-xs text-slate-500">Ra</div>
             <Input
+              key={`${fieldEpoch}-${part.roughness_ra ?? ""}`}
               disabled={locked || busy}
               type="number"
               min="0"
@@ -215,6 +222,7 @@ export function PartDetail({ id, go }: { id: string; go: (h: string) => void }) 
           <label className="block text-sm">
             <div className="mb-1 text-xs text-slate-500">表面处理</div>
             <Input
+              key={`${fieldEpoch}-${part.surface_finish || ""}`}
               disabled={locked || busy}
               defaultValue={part.surface_finish || ""}
               onBlur={e => {
@@ -226,6 +234,7 @@ export function PartDetail({ id, go }: { id: string; go: (h: string) => void }) 
           <label className="block text-sm">
             <div className="mb-1 text-xs text-slate-500">螺纹规格列表</div>
             <Input
+              key={`${fieldEpoch}-${(part.thread_specs || []).join(",")}`}
               disabled={locked || busy}
               defaultValue={(part.thread_specs || []).join("、")}
               placeholder="M6、M8×1.25"
@@ -238,6 +247,7 @@ export function PartDetail({ id, go }: { id: string; go: (h: string) => void }) 
           <label className="block text-sm">
             <div className="mb-1 text-xs text-slate-500">数量</div>
             <Input
+              key={`${fieldEpoch}-${part.qty || 1}`}
               disabled={locked || busy}
               type="number"
               min={1}
