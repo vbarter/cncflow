@@ -9,7 +9,14 @@ from ..geometry import FEATURE_SCHEMA
 from ..geometry.plugins import plugin_names
 from ..geometry.service import parse_step_file
 from ..geometry.mesh import step_to_glb
-from .jobs import claim_job, fail_job, finish_job, recover_stale, update_job
+from .jobs import (
+    StaleJobClaim,
+    claim_job,
+    fail_job,
+    finish_job,
+    recover_stale,
+    update_job,
+)
 from .pdf_parser import parse_pdf
 from .storage import materialize, storage_root
 from . import r2
@@ -86,6 +93,10 @@ def isolated_parse(detected_type, path, options):
 
 def process_claimed(conn, job):
     result = {"geometry": None, "features": [], "drawing": None, "warnings": []}
+    claim = {
+        "worker_id": job.get("worker_id"),
+        "attempt": job.get("attempt"),
+    }
     for file in job["files"]:
         suffix = ".step" if file["detected_type"] == "step" else ".pdf"
         if file["detected_type"] == "step":
@@ -93,6 +104,7 @@ def process_claimed(conn, job):
             update_job(
                 conn, job["job_id"], stage="geometry_parse", progress=20,
                 message=f"geometry-service {FEATURE_SCHEMA} plugins={names}",
+                **claim,
             )
             step_path = materialize(file["storage_path"], suffix=suffix)
             parsed = isolated_parse("step", step_path, job["options"])
@@ -115,12 +127,15 @@ def process_claimed(conn, job):
             else:
                 result["warnings"].append("网格未写入，零件详情将显示空态")
         elif file["detected_type"] == "pdf":
-            update_job(conn, job["job_id"], stage="pdf_drawing", progress=65, message="正在识别PDF图纸")
+            update_job(
+                conn, job["job_id"], stage="pdf_drawing", progress=65,
+                message="正在识别PDF图纸", **claim,
+            )
             result["drawing"] = isolated_parse("pdf", materialize(file["storage_path"], suffix=suffix), job["options"])
             result["warnings"].extend(result["drawing"].get("warnings", []))
     if result["geometry"] is None:
         result["warnings"].append("未上传STEP，无法获得真实体积、表面积和B-Rep制造特征")
-    finish_job(conn, job["job_id"], result)
+    finish_job(conn, job["job_id"], result, **claim)
 
 
 def run_forever(poll_seconds=1.0):
@@ -142,8 +157,16 @@ def run_forever(poll_seconds=1.0):
             continue
         try:
             process_claimed(conn, job)
+        except StaleJobClaim:
+            pass
         except Exception as exc:
-            fail_job(conn, job["job_id"], exc)
+            try:
+                fail_job(
+                    conn, job["job_id"], exc,
+                    worker_id=job["worker_id"], attempt=job["attempt"],
+                )
+            except StaleJobClaim:
+                pass
         finally:
             conn.close()
 

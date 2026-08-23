@@ -9,6 +9,10 @@ from cncflow_core.common import persist
 PUBLIC_FIELDS = "job_id,status,stage,progress,result_json,confirmed_json,plans_json,error,attempts,created_at,updated_at"
 
 
+class StaleJobClaim(RuntimeError):
+    """Worker claim 已被超时恢复或用户重试取代。"""
+
+
 def create_job(conn: sqlite3.Connection, files: list, options: dict) -> str:
     job_id = str(uuid.uuid4())
     conn.execute(
@@ -53,7 +57,7 @@ def get_job(conn: sqlite3.Connection, job_id: str) -> dict:
 def claim_job(conn: sqlite3.Connection, worker_id: str):
     conn.execute("BEGIN IMMEDIATE")
     row = conn.execute(
-        "SELECT job_id FROM parse_jobs WHERE status='queued' AND attempts<2 ORDER BY created_at LIMIT 1"
+        "SELECT job_id,attempts FROM parse_jobs WHERE status='queued' AND attempts<2 ORDER BY created_at LIMIT 1"
     ).fetchone()
     if row is None:
         conn.rollback()
@@ -68,14 +72,34 @@ def claim_job(conn: sqlite3.Connection, worker_id: str):
     conn.commit()
     files = [dict(r) for r in conn.execute("SELECT * FROM uploaded_files WHERE job_id=?", (job_id,))]
     options = json.loads(conn.execute("SELECT options_json FROM parse_jobs WHERE job_id=?", (job_id,)).fetchone()[0] or "{}")
-    return {"job_id": job_id, "files": files, "options": options}
+    return {
+        "job_id": job_id,
+        "files": files,
+        "options": options,
+        "worker_id": worker_id,
+        "attempt": row["attempts"] + 1,
+    }
 
 
-def update_job(conn, job_id, *, stage, progress, message=None):
-    conn.execute(
-        "UPDATE parse_jobs SET stage=?,progress=?,heartbeat_at=datetime('now'),updated_at=datetime('now') WHERE job_id=?",
-        (stage, progress, job_id),
-    )
+def update_job(
+    conn, job_id, *, stage, progress, message=None, worker_id=None, attempt=None,
+):
+    if worker_id is None or attempt is None:
+        cursor = conn.execute(
+            "UPDATE parse_jobs SET stage=?,progress=?,heartbeat_at=datetime('now'),"
+            "updated_at=datetime('now') WHERE job_id=?",
+            (stage, progress, job_id),
+        )
+    else:
+        cursor = conn.execute(
+            "UPDATE parse_jobs SET stage=?,progress=?,heartbeat_at=datetime('now'),"
+            "updated_at=datetime('now') WHERE job_id=? AND status='running' "
+            "AND worker_id=? AND attempts=?",
+            (stage, progress, job_id, worker_id, attempt),
+        )
+    if cursor.rowcount != 1:
+        conn.rollback()
+        raise StaleJobClaim(job_id)
     if message:
         event(conn, job_id, stage, message)
     conn.commit()
@@ -86,6 +110,17 @@ def _part_id(conn, job_id):
     if row is None:
         return None
     return (json.loads(row["options_json"] or "{}") or {}).get("part_id")
+
+
+def _current_part_id(conn, job_id):
+    part_id = _part_id(conn, job_id)
+    if not part_id:
+        return None
+    row = conn.execute(
+        "SELECT id FROM parts WHERE id=? AND parse_job_id=?",
+        (part_id, job_id),
+    ).fetchone()
+    return row["id"] if row else None
 
 
 def _apply_bbox(conn, part_id, result):
@@ -110,14 +145,22 @@ def _checkpoint_db():
     persist.try_backup_db()
 
 
-def finish_job(conn, job_id, result):
-    conn.execute(
+def finish_job(conn, job_id, result, *, worker_id=None, attempt=None):
+    params = [json.dumps(result, ensure_ascii=False), job_id]
+    claim_where = ""
+    if worker_id is not None and attempt is not None:
+        claim_where = " AND status='running' AND worker_id=? AND attempts=?"
+        params.extend([worker_id, attempt])
+    cursor = conn.execute(
         "UPDATE parse_jobs SET status='needs_review',stage='review',progress=100,result_json=?,"
-        "updated_at=datetime('now') WHERE job_id=?",
-        (json.dumps(result, ensure_ascii=False), job_id),
+        f"updated_at=datetime('now') WHERE job_id=?{claim_where}",
+        params,
     )
+    if cursor.rowcount != 1:
+        conn.rollback()
+        raise StaleJobClaim(job_id)
     event(conn, job_id, "review", "解析完成，请确认识别结果")
-    pid = _part_id(conn, job_id)
+    pid = _current_part_id(conn, job_id)
     if pid:
         _apply_bbox(conn, pid, result)
     conn.commit()
@@ -132,16 +175,31 @@ def finish_job(conn, job_id, result):
     _checkpoint_db()
 
 
-def fail_job(conn, job_id, error):
-    attempts = conn.execute("SELECT attempts FROM parse_jobs WHERE job_id=?", (job_id,)).fetchone()[0]
+def fail_job(conn, job_id, error, *, worker_id=None, attempt=None):
+    row = conn.execute(
+        "SELECT attempts FROM parse_jobs WHERE job_id=?",
+        (job_id,),
+    ).fetchone()
+    if row is None:
+        raise KeyError(job_id)
+    attempts = row["attempts"]
     status = "queued" if attempts < 2 else "failed"
-    conn.execute(
-        "UPDATE parse_jobs SET status=?,stage='failed',error=?,progress=100,updated_at=datetime('now') WHERE job_id=?",
-        (status, str(error)[:2000], job_id),
+    params = [status, str(error)[:2000], job_id]
+    claim_where = ""
+    if worker_id is not None and attempt is not None:
+        claim_where = " AND status='running' AND worker_id=? AND attempts=?"
+        params.extend([worker_id, attempt])
+    cursor = conn.execute(
+        "UPDATE parse_jobs SET status=?,stage='failed',error=?,progress=100,worker_id=NULL,"
+        f"heartbeat_at=NULL,updated_at=datetime('now') WHERE job_id=?{claim_where}",
+        params,
     )
+    if cursor.rowcount != 1:
+        conn.rollback()
+        raise StaleJobClaim(job_id)
     event(conn, job_id, "failed", str(error)[:500])
-    pid = _part_id(conn, job_id)
-    if pid:
+    pid = _current_part_id(conn, job_id)
+    if pid and status == "failed":
         conn.execute(
             "UPDATE parts SET status='parse_failed', updated_at=datetime('now') WHERE id=?",
             (pid,),
@@ -151,13 +209,16 @@ def fail_job(conn, job_id, error):
 
 
 def retry_job(conn, job_id):
+    conn.execute("BEGIN IMMEDIATE")
     row = conn.execute(
         "SELECT status,options_json FROM parse_jobs WHERE job_id=?",
         (job_id,),
     ).fetchone()
     if row is None:
+        conn.rollback()
         raise KeyError(job_id)
     if row["status"] != "failed":
+        conn.rollback()
         raise ValueError(f"任务状态 {row['status']} 无需重试")
 
     conn.execute(
@@ -169,9 +230,17 @@ def retry_job(conn, job_id):
     options = json.loads(row["options_json"] or "{}")
     part_id = options.get("part_id")
     if part_id:
-        conn.execute(
-            "UPDATE parts SET status='parsing', updated_at=datetime('now') WHERE id=?",
+        part = conn.execute(
+            "SELECT parse_job_id FROM parts WHERE id=?",
             (part_id,),
+        ).fetchone()
+        if part is None or part["parse_job_id"] != job_id:
+            conn.rollback()
+            raise ValueError("解析任务已被新上传替换")
+        conn.execute(
+            "UPDATE parts SET status='parsing', updated_at=datetime('now') "
+            "WHERE id=? AND parse_job_id=?",
+            (part_id, job_id),
         )
     event(conn, job_id, "queued", "用户重试解析")
     conn.commit()

@@ -62,6 +62,7 @@ export function Parsing({ id, go }:{ id:string; go:(h:string)=>void }) {
       inFlight = true
       try {
         const inq = await json<any>("/inquiries/"+id)
+        if (stopped) return
         const parts = inq.parts || []
         const jobIds = parts.map((p: any) => p.parse_job_id).filter(Boolean)
         if (!jobIds.length) {
@@ -107,17 +108,22 @@ export function Parsing({ id, go }:{ id:string; go:(h:string)=>void }) {
   async function retry() {
     if (!failedJobIds.length || retrying) return
     setRetrying(true)
-    try {
-      await Promise.all(failedJobIds.map(jobId => json(`/parse-jobs/${jobId}/retry`, {
+    const outcomes = await Promise.allSettled(
+      failedJobIds.map(jobId => json(`/parse-jobs/${jobId}/retry`, {
         method: "POST",
         body: "{}",
-      })))
+      })),
+    )
+    const failures = outcomes.filter(
+      (outcome): outcome is PromiseRejectedResult => outcome.status === "rejected",
+    )
+    if (failures.length < outcomes.length) {
       setCycle(value => value + 1)
-    } catch (error: any) {
-      setPollError(error.message)
-    } finally {
-      setRetrying(false)
+    } else {
+      const reason = failures[0]?.reason
+      setPollError(reason instanceof Error ? reason.message : String(reason))
     }
+    setRetrying(false)
   }
 
   return (

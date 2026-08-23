@@ -5,7 +5,12 @@ from pathlib import Path
 import pytest
 
 from cncflow_core.common.db import get_conn
-from cncflow_core.ingestion.jobs import claim_job, finish_job, get_job
+from cncflow_core.ingestion.jobs import (
+    StaleJobClaim,
+    claim_job,
+    finish_job,
+    get_job,
+)
 
 
 MINIMAL_STEP = b"ISO-10303-21;\nHEADER;\nFILE_SCHEMA(('AUTOMOTIVE_DESIGN'));\nENDSEC;\nDATA;\nENDSEC;\nEND-ISO-10303-21;"
@@ -140,6 +145,75 @@ def test_retry_rejects_active_job(client):
     response = client.post(f"/api/v1/parse-jobs/{job_id}/retry")
     assert response.status_code == 409
     assert "无需重试" in response.get_json()["error"]
+
+
+def test_retry_rejects_job_replaced_by_new_upload(client, seeded_db_path):
+    inq = client.post("/api/v1/inquiries", json={"customer": "华科"}).get_json()
+    pid = client.post(
+        f"/api/v1/inquiries/{inq['id']}/parts",
+        json={"name": "底板"},
+    ).get_json()["id"]
+    first = client.post(
+        "/api/v1/parse-jobs",
+        data={"step_file": (BytesIO(MINIMAL_STEP), "first.step"), "part_id": pid},
+        content_type="multipart/form-data",
+    ).get_json()["job_id"]
+    conn = get_conn(seeded_db_path)
+    conn.execute(
+        "UPDATE parse_jobs SET status='failed',stage='failed',attempts=2 WHERE job_id=?",
+        (first,),
+    )
+    conn.commit()
+    conn.close()
+
+    second = client.post(
+        "/api/v1/parse-jobs",
+        data={"step_file": (BytesIO(MINIMAL_STEP), "second.step"), "part_id": pid},
+        content_type="multipart/form-data",
+    ).get_json()["job_id"]
+    response = client.post(f"/api/v1/parse-jobs/{first}/retry")
+
+    assert response.status_code == 409
+    assert "已被新上传替换" in response.get_json()["error"]
+    conn = get_conn(seeded_db_path)
+    part = conn.execute(
+        "SELECT parse_job_id,status FROM parts WHERE id=?",
+        (pid,),
+    ).fetchone()
+    conn.close()
+    assert part["parse_job_id"] == second
+    assert part["status"] == "parsing"
+
+
+def test_stale_worker_cannot_finish_retried_claim(client, seeded_db_path):
+    job_id = upload(client, step_file=(MINIMAL_STEP, "part.step")).get_json()["job_id"]
+    conn = get_conn(seeded_db_path)
+    old_claim = claim_job(conn, "old-worker")
+    conn.execute(
+        "UPDATE parse_jobs SET status='failed',stage='failed',attempts=2 WHERE job_id=?",
+        (job_id,),
+    )
+    conn.commit()
+    conn.close()
+
+    assert client.post(f"/api/v1/parse-jobs/{job_id}/retry").status_code == 202
+    conn = get_conn(seeded_db_path)
+    new_claim = claim_job(conn, "new-worker")
+    with pytest.raises(StaleJobClaim):
+        finish_job(
+            conn,
+            job_id,
+            {"geometry": {"bounding_box_mm": {"x": 999, "y": 999, "z": 999}}},
+            worker_id=old_claim["worker_id"],
+            attempt=old_claim["attempt"],
+        )
+    current = get_job(conn, job_id)
+    conn.close()
+
+    assert new_claim["job_id"] == job_id
+    assert current["status"] == "running"
+    assert current["stage"] == "starting"
+    assert current["result"] is None
 
 
 def test_finish_job_writes_bbox_to_part(client, seeded_db_path):
