@@ -140,7 +140,7 @@ def compute(ftype: str, feat: dict, result: dict, factory: dict, material: str, 
         flag = hole_time._flag(t_cut, hole_time._bounds(proc, d))
         if flag:
             tags.append(flag)
-        steps.append({
+        steps.append(hole_time._annotate({
             "step": i,
             "process": proc,
             "d": round(d, 3),
@@ -153,6 +153,6 @@ def compute(ftype: str, feat: dict, result: dict, factory: dict, material: str, 
             "t_tool": round(t_chg, 4),
             "t_step": round(t_step, 4),
             "tags": [flag] if flag else [],
-        })
+        }, proc, d, compensate))
         total += t_step
     return {"steps": steps, "total_min": round(total, 4), "tags": list(dict.fromkeys(tags))}

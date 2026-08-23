@@ -5,8 +5,8 @@ import { json } from "../api"
 import { hoursLabel, quoteHours } from "../quoteHours"
 
 const COST_LABEL: Record<string, string> = {
-  material: "原材料", machining: "加工工时", setup: "装夹", programming: "编程",
-  inspect: "检测", toolwear: "刀具损耗", scrap: "不良损耗",
+  material: "原材料", machining: "加工工时", setup: "装夹", fixture: "夹具",
+  programming: "编程", inspect: "检测", toolwear: "刀具损耗", scrap: "不良损耗",
 }
 
 const PROCESS_NAME: Record<string, string> = {
@@ -25,6 +25,45 @@ function yen(n: any) {
   return Number.isFinite(v) ? v.toFixed(0) : "—"
 }
 
+function costValue(q: any, ui: any, key: string) {
+  if (ui?.[key] != null && ui[key] !== "") return Number(ui[key]) || 0
+  if (key === "fixture") {
+    const hit = (q.cost_items || []).find((i: any) => i.code === "FIX")
+    return hit ? Number(hit.amount) || 0 : 0
+  }
+  return 0
+}
+
+function stepParams(s: any) {
+  const tm = s.time || {}
+  return {
+    formula: s.formula ?? tm.formula,
+    n: s.n ?? tm.n ?? tm.n_act,
+    f: s.f ?? tm.f,
+    cut: s.cut ?? tm.cut,
+    passes: s.passes ?? tm.passes,
+    t_min: s.t_min ?? tm.t_min,
+    t_max: s.t_max ?? tm.t_max,
+    status: s.status ?? tm.status,
+  }
+}
+
+function stepFormulaLine(s: any) {
+  const p = stepParams(s)
+  if (p.n == null && p.f == null && !p.formula) return ""
+  const bits = [
+    p.formula,
+    `n=${p.n ?? "—"}`,
+    `f=${p.f ?? "—"}`,
+    `cut=${p.cut ?? "—"}`,
+    `passes=${p.passes ?? "—"}`,
+    `t_min=${p.t_min ?? "—"}`,
+    `t_max=${p.t_max ?? "—"}`,
+    p.status || "ok",
+  ]
+  return bits.filter(Boolean).join(" ")
+}
+
 function featId(f: any, i: number) {
   return String(f.feature_id || f.id || `f${i}`)
 }
@@ -36,7 +75,7 @@ function confidenceParts(part: any, q: any, reviewFeats: any[]) {
   const factory = q.fixture?.is_machinable === false ? 32 : (q.fixture?.type ? 82 : 58)
   const keys = Object.keys(COST_LABEL)
   const ui = q.ui_cost || {}
-  const filled = keys.filter((k) => Number(ui[k]) > 0).length
+  const filled = keys.filter((k) => ui[k] != null || (k === "fixture" && (q.cost_items || []).some((i: any) => i.code === "FIX"))).length
   const cost = Math.round((filled / keys.length) * 100)
   const total = Number.isFinite(process) ? process : Math.round((drawing + factory + cost) / 3)
   return [
@@ -74,7 +113,7 @@ export function PartDetail({ id, go }: { id: string; go: (h: string) => void }) 
   const risk = q.risk || {}
   const locked = part.status === "confirmed"
   const recommend = risk.customer_forbidden ? "建议暂缓" : (risk.level === "high" ? "建议暂缓" : "建议接单")
-  const maxCost = Math.max(1, ...Object.values(ui).map((v: any) => Number(v) || 0))
+  const maxCost = Math.max(1, ...Object.keys(COST_LABEL).map((k) => costValue(q, ui, k)))
   const reviewFeats = (q.review_features || q.features || part.parsed_features || []).map((f: any, i: number) => ({
     ...f, feature_id: featId(f, i),
   }))
@@ -107,7 +146,7 @@ export function PartDetail({ id, go }: { id: string; go: (h: string) => void }) 
       <div className="mb-1 text-xs uppercase tracking-wide text-slate-400">03</div>
       <div className="mb-3 font-medium">为什么是这个报价？（成本构成）</div>
       <div className="space-y-2">{Object.entries(COST_LABEL).map(([k, label]) => {
-        const v = Number(ui[k]) || 0
+        const v = costValue(q, ui, k)
         return <div key={k} className="grid grid-cols-[72px_1fr_64px] items-center gap-2 text-sm md:grid-cols-[96px_1fr_72px]">
           <div className="text-slate-500">{label}</div>
           <div className="h-2 rounded bg-slate-100"><div className="h-2 rounded bg-blue-600" style={{ width: `${Math.min(100, v / maxCost * 100)}%` }} /></div>
@@ -230,9 +269,7 @@ export function PartDetail({ id, go }: { id: string; go: (h: string) => void }) 
           const sku = s.sku || s.tool || s.cycle || "—"
           const minutes = s.minutes != null ? `${Number(s.minutes).toFixed(1)} min` : "—"
           const amount = s.amount != null ? `¥${yen(s.amount)}` : "—"
-          const tm = s.time
-          const bound = (tm?.tags || []).join(" ")
-          const formula = tm ? `n=${tm.n_act} f=${tm.f} cut=${tm.cut} passes=${tm.passes} t=${tm.t_cut != null ? `${(Number(tm.t_cut) * 60).toFixed(1)}s` : "—"}${bound ? ` ${bound}` : ""}` : ""
+          const formula = stepFormulaLine(s)
           return <div key={i} className="border-b border-[#e2e8f0] py-2">
             <div className="md:hidden">
               <div className="flex items-center justify-between gap-2">
@@ -252,6 +289,10 @@ export function PartDetail({ id, go }: { id: string; go: (h: string) => void }) 
             </div>
           </div>
         }) : <div className="text-slate-400">暂无工序。改滑轴会触发重算。</div>}</div>
+        {q.validation && <div className="mt-3 text-xs text-slate-600">
+          防错 {q.validation.ok ? "通过" : `${(q.validation.items || []).length}项`}
+          {(q.validation.items || []).length ? `：${(q.validation.items || []).map((v: any) => `STEP ${String(v.order || "").padStart(2, "0")} ${v.status}`).join("、")}` : ""}
+        </div>}
       </Card>
 
       {actions}

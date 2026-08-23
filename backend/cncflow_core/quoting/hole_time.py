@@ -133,6 +133,28 @@ def _flag(t_cut: float, bound: tuple[float, float] | None) -> str | None:
     return None
 
 
+def _formula(proc: str, compensate: float = 1.0) -> str:
+    if proc == "tap":
+        return "t=cut/(n*P)"
+    if compensate != 1.0:
+        return "t=cut*passes/f*k"
+    return "t=cut*passes/f"
+
+
+def _annotate(step: dict, proc: str, d: float, compensate: float = 1.0) -> dict:
+    """工步透出 formula/n/t_min/t_max/status；n 是 n_act 别名，不另算一套。"""
+    bound = _bounds(proc, d)
+    flag = (step.get("tags") or [None])[0]
+    if flag is None and "t_cut" in step:
+        flag = _flag(float(step["t_cut"]), bound)
+    step["n"] = step.get("n_act")
+    step["formula"] = _formula(proc, compensate)
+    step["t_min"] = bound[0] if bound else None
+    step["t_max"] = bound[1] if bound else None
+    step["status"] = flag or "ok"
+    return step
+
+
 def _max_rpm(factory: dict) -> float:
     rpms = [
         float(m.get("max_rpm") or 0)
@@ -188,7 +210,7 @@ def compute(result: dict, factory: dict, material: str, slide: dict | None = Non
         flag = _flag(t_cut, _bounds(proc, D))
         if flag:
             tags.append(flag)
-        steps.append({
+        steps.append(_annotate({
             "step": i,
             "process": proc,
             "d": round(d, 3),
@@ -201,7 +223,7 @@ def compute(result: dict, factory: dict, material: str, slide: dict | None = Non
             "t_tool": round(t_chg, 4),
             "t_step": round(t_step, 4),
             "tags": [flag] if flag else [],
-        })
+        }, proc, D, compensate))
         total += t_step
     return {
         "steps": steps,

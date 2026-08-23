@@ -21,6 +21,36 @@ PIPELINES = {
 
 DIFF_MIN = {"D1": 2.0, "D2": 6.0, "D3": 15.0, "D4": 25.0, "NA": 20.0, 1: 2.0, 2: 6.0, 3: 15.0, 4: 25.0}
 DIFF_FACTOR = {"D3": 1.3, "D4": 1.8, 3: 1.3, 4: 1.8}
+STEP_PARAMS = ("formula", "n", "f", "cut", "passes", "t_min", "t_max", "status")
+
+
+def _copy_step_params(dst: dict, src: dict | None) -> None:
+    """把工步中间量提到 process_sequence 顶层；已有 n_act 只做 n 别名。"""
+    src = dict(src or {})
+    if src.get("n") is None and src.get("n_act") is not None:
+        src["n"] = src["n_act"]
+    for key in STEP_PARAMS:
+        if key in src:
+            dst[key] = src[key]
+        else:
+            dst.setdefault(key, "ok" if key == "status" else None)
+
+
+def _validation(seq: list) -> dict:
+    """防错块：只收 t 对表结果，独立于 risk，不含九维 rule_id。"""
+    items = []
+    for step in seq:
+        status = step.get("status") or "ok"
+        if status == "ok":
+            continue
+        items.append({
+            "order": step.get("order"),
+            "process": step.get("process"),
+            "status": status,
+            "t_min": step.get("t_min"),
+            "t_max": step.get("t_max"),
+        })
+    return {"ok": not items, "items": items}
 
 
 def _nearest_sku(conn, step: dict):
@@ -189,6 +219,9 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
                 ts = timed_steps[si]
                 seq[-1]["minutes"] = round(float(ts["t_step"]), 4)
                 seq[-1]["time"] = ts
+                _copy_step_params(seq[-1], ts)
+            else:
+                _copy_step_params(seq[-1], None)
         tags.extend(result.get("risk_tags") or [])
         if order.get(level, 1) > order.get(worst, 1):
             worst = level
@@ -236,8 +269,8 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
     fix_fee = 0 if repeat else float(fixture.get("fixture_cost_per_piece") or 0)
     toolwear = cut_hours * 15
     machining_sub = cut_fee + toolchg_fee + rapid_fee
-    setup_ui = setup_fee_time + setup_amort + fix_fee
-    base = mat_cost + machining_sub + setup_ui + prog + inspect + toolwear
+    setup_ui = setup_fee_time + setup_amort
+    base = mat_cost + machining_sub + setup_ui + fix_fee + prog + inspect + toolwear
     scrap_fee = base * float(slide["scrap_rate"])
     cost = base + scrap_fee
     amount = max(cost * (1 + profit_pct / 100), floor)
@@ -285,6 +318,7 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
             s.setdefault("tool", s.get("sku") or s.get("tool") or s.get("cycle") or proc or "—")
             s.setdefault("minutes", round(per_min, 2))
             s.setdefault("amount", round(per_amt, 2))
+            _copy_step_params(s, s.get("time"))
 
     items = [
         {"code": "MAT", "amount": round(mat_cost, 2)},
@@ -322,11 +356,13 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
             "material": round(mat_cost, 2),
             "machining": round(machining_sub, 2),
             "setup": round(setup_ui, 2),
+            "fixture": round(fix_fee, 2),
             "programming": round(prog, 2),
             "inspect": round(inspect, 2),
             "toolwear": round(toolwear, 2),
             "scrap": round(scrap_fee, 2),
         },
+        "validation": _validation(seq),
         "volume": vol,
         "features": plans,
         "process_sequence": seq,
