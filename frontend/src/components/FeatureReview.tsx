@@ -4,6 +4,7 @@ import { ContactShadows, OrbitControls } from "@react-three/drei"
 import * as THREE from "three"
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js"
 import { API } from "../api"
+import { ProcessStepParameters } from "./ProcessSequenceEditor"
 
 type Feat = any
 type ViewName = "fit" | "front" | "top" | "side" | "iso"
@@ -78,7 +79,7 @@ function poseOf(f: Feat): Pose | null {
 
   if (t === "surface") {
     if (!origin) return null
-    const radius = num(dim.curvature_radius, f.radius_mm, f.R, dim.R) || 8
+    const radius = num(f.curvature_radius, dim.curvature_radius, f.radius_mm, f.radius, f.R, dim.R) || 8
     return { kind: "surface", origin, radius }
   }
 
@@ -272,12 +273,67 @@ function FeatureMark({ feat, selected }: { feat: Feat; selected: boolean }) {
 
 function inspectorFields(f: Feat) {
   const dim = f.dimensions || {}
+  const type = featType(f)
+  const height = type === "thread"
+    ? f.thread_length ?? dim.thread_length ?? f.depth_mm ?? dim.depth_mm
+    : type === "hole"
+      ? f.depth_mm ?? dim.depth_mm
+      : type === "step"
+        ? f.height ?? dim.height ?? f.depth ?? dim.depth ?? f.depth_mm ?? dim.depth_mm
+        : f.depth ?? dim.depth ?? f.height ?? dim.height ?? f.depth_mm ?? dim.depth_mm
   return {
     d: f.diameter_mm ?? f.nominal_d ?? dim.diameter_mm,
-    h: f.depth_mm ?? f.thread_length ?? dim.thread_length ?? dim.depth ?? dim.height ?? f.height,
-    r: dim.curvature_radius ?? f.radius_mm ?? f.R ?? dim.R,
+    l: f.length ?? dim.length,
+    w: f.width ?? dim.width,
+    h: height,
+    r: f.curvature_radius ?? dim.curvature_radius ?? f.radius_mm ?? f.radius ?? f.R ?? dim.R,
     orient: f.position_type || f.face_position || dim.face_position || f.position || dim.position,
   }
+}
+
+type DimensionField = {
+  key: string
+  label: string
+  value: unknown
+  prefix?: string
+}
+
+function editableDimensions(f: Feat): DimensionField[] {
+  const fields = inspectorFields(f)
+  const type = featType(f)
+  if (type === "hole") return [
+    { key: "diameter_mm", label: "D", value: fields.d, prefix: "Ø" },
+    { key: "depth_mm", label: "H", value: fields.h },
+  ]
+  if (type === "thread") return [
+    { key: "diameter_mm", label: "D", value: fields.d, prefix: "Ø" },
+    { key: "thread_length", label: "H", value: fields.h },
+  ]
+  if (type === "slot" || type === "pocket") return [
+    { key: "length", label: "L", value: fields.l },
+    { key: "width", label: "W", value: fields.w },
+    { key: "depth", label: "H", value: fields.h },
+  ]
+  if (type === "face") return [
+    { key: "length", label: "L", value: fields.l },
+    { key: "width", label: "W", value: fields.w },
+  ]
+  if (type === "step") return [
+    { key: "length", label: "L", value: fields.l },
+    { key: "width", label: "W", value: fields.w },
+    { key: "height", label: "H", value: fields.h },
+  ]
+  return []
+}
+
+function displayValue(value: unknown) {
+  if (value == null || value === "") return "—"
+  if (typeof value === "object") return JSON.stringify(value)
+  return String(value)
+}
+
+function processName(step: any) {
+  return step.name || step.process || step.op || step.step_id || "工序"
 }
 
 function ViewerToolbar({
@@ -332,16 +388,28 @@ function ViewerToolbar({
 }
 
 export function FeatureReview({
-  partId, features, meshAvailable, locked, busy, onToggle,
+  partId,
+  features,
+  processSequence,
+  meshAvailable,
+  locked,
+  busy,
+  onToggle,
+  onPatchFeature,
+  onPatchProcess,
 }: {
   partId: string
   features: Feat[]
+  processSequence: any[]
   meshAvailable: boolean
   locked: boolean
   busy: boolean
   onToggle: (id: string, checked: boolean) => void
+  onPatchFeature: (body: object) => Promise<void>
+  onPatchProcess: (body: object) => Promise<void>
 }) {
   const [picked, setPicked] = useState<string | null>(null)
+  const [dimensionDrafts, setDimensionDrafts] = useState<Record<string, string>>({})
   const [box, setBox] = useState<THREE.Box3 | null>(null)
   const [view, setView] = useState<ViewName>("iso")
   const [viewReq, setViewReq] = useState({ view: "iso" as ViewName, n: 0 })
@@ -352,12 +420,28 @@ export function FeatureReview({
   const selected = features.find((f) => f.feature_id === picked)
   const pickables = useMemo(() => features.filter((f) => poseOf(f)), [features])
   const fields = selected ? inspectorFields(selected) : null
+  const dimensions = selected ? editableDimensions(selected) : []
+  const selectedSteps = useMemo(
+    () => processSequence.filter((step) => step.feature_id === picked),
+    [processSequence, picked],
+  )
   const onBox = useCallback((b: THREE.Box3) => setBox(b.clone()), [])
 
   useEffect(() => {
     fitted.current = false
     setBox(null)
+    setPicked(null)
   }, [partId])
+
+  useEffect(() => {
+    setDimensionDrafts({})
+  }, [features])
+
+  useEffect(() => {
+    if (picked && !features.some((feature) => feature.feature_id === picked)) {
+      setPicked(null)
+    }
+  }, [features, picked])
 
   useEffect(() => {
     if (!box || fitted.current) return
@@ -377,6 +461,36 @@ export function FeatureReview({
     setViewReq((s) => ({ view: v, n: s.n + 1 }))
   }
 
+  async function commitDimension(field: DimensionField) {
+    if (!selected) return
+    const draftKey = `${selected.feature_id}:${field.key}`
+    const raw = dimensionDrafts[draftKey]
+    if (raw == null) return
+    const value = Number(raw)
+    if (!Number.isFinite(value) || value <= 0) {
+      setDimensionDrafts((current) => {
+        const next = { ...current }
+        delete next[draftKey]
+        return next
+      })
+      return
+    }
+    if (value === Number(field.value)) {
+      setDimensionDrafts((current) => {
+        const next = { ...current }
+        delete next[draftKey]
+        return next
+      })
+      return
+    }
+    await onPatchFeature({
+      feature_overrides: [{
+        feature_id: selected.feature_id,
+        dimensions: { [field.key]: value },
+      }],
+    })
+  }
+
   const shadow = useMemo(() => {
     if (!box) return null
     const size = box.getSize(new THREE.Vector3())
@@ -388,8 +502,45 @@ export function FeatureReview({
   }, [box])
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[1fr_280px]">
-      <div className="relative h-[320px] w-full touch-none rounded border border-[#e2e8f0] bg-[#f8fafc] md:h-auto md:min-h-[320px]">
+    <div className="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)_280px] xl:grid-cols-[240px_minmax(0,1fr)_300px]">
+      <section className="rounded border border-[#e2e8f0] bg-[#f8fafc] p-3">
+        <div className="mb-3 text-xs font-medium text-slate-700">特征树</div>
+        <div className="max-h-[260px] space-y-1 overflow-auto text-sm lg:max-h-[420px]">
+          {features.length ? features.map((f) => {
+            const on = f.selected !== false
+            const active = f.feature_id === picked
+            return (
+              <button
+                type="button"
+                key={f.feature_id}
+                className={`flex w-full items-center justify-between gap-2 rounded border px-2 py-2 text-left ${active ? "border-blue-600 bg-blue-50 text-blue-800" : "border-[#e2e8f0] bg-white"}`}
+                onClick={() => setPicked(f.feature_id)}
+              >
+                <span className="flex min-w-0 items-center gap-2">
+                  <input
+                    type="checkbox"
+                    className="accent-blue-600"
+                    disabled={locked || busy}
+                    checked={on}
+                    onClick={(event) => event.stopPropagation()}
+                    onChange={(event) => onToggle(f.feature_id, event.target.checked)}
+                  />
+                  <span className="min-w-0">
+                    <span className="block truncate font-mono text-xs">{f.feature_id}</span>
+                    <span className="block truncate text-[11px] text-slate-500">{f.type || "特征"}</span>
+                  </span>
+                </span>
+                {!on && <span className="shrink-0 text-[10px] text-slate-400">未选</span>}
+              </button>
+            )
+          }) : <div className="text-xs text-slate-400">暂无特征</div>}
+        </div>
+      </section>
+
+      <section className="relative h-[360px] w-full touch-none rounded border border-[#e2e8f0] bg-[#f8fafc] lg:h-auto lg:min-h-[420px]">
+        <div className="pointer-events-none absolute bottom-2 left-2 z-10 rounded bg-white/85 px-2 py-1 text-[10px] text-slate-500">
+          3D 预览
+        </div>
         {meshAvailable ? (
           <>
             <Canvas
@@ -443,56 +594,104 @@ export function FeatureReview({
             />
           </>
         ) : (
-          <div className="flex h-[320px] items-center justify-center px-6 text-sm text-slate-500">
+          <div className="flex h-full min-h-[360px] items-center justify-center px-6 text-sm text-slate-500">
             暂无模型。重新解析 STEP 后可审查，不展示假模型。
           </div>
         )}
-      </div>
-      <div className="space-y-3">
-        <div className="text-xs text-slate-500">特征列表 · 点选对打</div>
-        <div className="max-h-[220px] space-y-1 overflow-auto text-sm">
-          {features.length ? features.map((f) => {
-            const on = f.selected !== false
-            const active = f.feature_id === picked
-            return (
-              <button
-                type="button"
-                key={f.feature_id}
-                className={`flex w-full items-center justify-between gap-2 rounded border px-2 py-1.5 text-left ${active ? "border-blue-600 bg-blue-50" : "border-[#e2e8f0]"}`}
-                onClick={() => setPicked(f.feature_id)}
-              >
-                <span className="flex min-w-0 items-center gap-2">
-                  <input
-                    type="checkbox"
-                    disabled={locked || busy}
-                    checked={on}
-                    onClick={(e) => e.stopPropagation()}
-                    onChange={(e) => onToggle(f.feature_id, e.target.checked)}
-                  />
-                  <span className="truncate">{f.feature_id} · {f.type || "特征"}</span>
-                </span>
-                <span className="shrink-0 text-xs text-slate-500">{on ? "" : "未选"}</span>
-              </button>
-            )
-          }) : <div className="text-slate-400">暂无特征</div>}
-        </div>
-        <div className="rounded border border-[#e2e8f0] bg-white p-3 text-sm">
-          <div className="mb-2 text-xs text-slate-500">Inspector</div>
+      </section>
+
+      <section className="rounded border border-[#e2e8f0] bg-[#f8fafc] p-3">
+        <div className="mb-3 text-xs font-medium text-slate-700">特征详细参数</div>
+        <div className="max-h-[520px] overflow-auto pr-1">
           {selected && fields ? (
-            <dl className="grid grid-cols-[72px_1fr] gap-y-1 text-xs">
-              <dt className="text-slate-500">id</dt><dd>{selected.feature_id}</dd>
-              <dt className="text-slate-500">类型</dt><dd>{selected.type || "—"}</dd>
-              <dt className="text-slate-500">D</dt><dd>{fields.d != null ? `Ø${fields.d}` : "—"}</dd>
-              <dt className="text-slate-500">H</dt><dd>{fields.h != null ? fields.h : "—"}</dd>
-              <dt className="text-slate-500">R</dt><dd>{fields.r != null ? fields.r : "—"}</dd>
-              <dt className="text-slate-500">通盲</dt><dd>{holeLabel(selected.hole_type)}</dd>
-              <dt className="text-slate-500">方位</dt><dd>{fields.orient || "—"}</dd>
-            </dl>
+            <div className="space-y-4">
+              <div>
+                <div className="mb-2 text-[11px] text-slate-500">物理参数</div>
+                <dl className="grid grid-cols-[64px_1fr] items-center gap-y-2 text-xs">
+                  <dt className="text-slate-500">id</dt>
+                  <dd className="truncate font-mono" title={selected.feature_id}>{selected.feature_id}</dd>
+                  <dt className="text-slate-500">类型</dt>
+                  <dd>{selected.type || "—"}</dd>
+                </dl>
+                {!!dimensions.length && (
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    {dimensions.map((field) => {
+                      const draftKey = `${selected.feature_id}:${field.key}`
+                      return <label key={field.key} className="text-xs text-slate-500">
+                        <span>{field.label}</span>
+                        <span className="mt-1 flex items-center rounded border border-[#e2e8f0] bg-white focus-within:border-blue-600">
+                          {field.prefix && <span className="pl-2 text-slate-500">{field.prefix}</span>}
+                          <input
+                            type="number"
+                            min="0.0001"
+                            step="any"
+                            className="min-w-0 flex-1 bg-transparent px-2 py-1.5 text-sm text-slate-900 outline-none disabled:bg-[#f8fafc]"
+                            disabled={locked || busy}
+                            value={dimensionDrafts[draftKey] ?? displayValue(field.value).replace("—", "")}
+                            onChange={(event) => setDimensionDrafts((current) => ({
+                              ...current,
+                              [draftKey]: event.target.value,
+                            }))}
+                            onBlur={() => commitDimension(field)}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter") event.currentTarget.blur()
+                            }}
+                          />
+                          <span className="pr-2 text-[10px] text-slate-400">mm</span>
+                        </span>
+                      </label>
+                    })}
+                  </div>
+                )}
+                {(featType(selected) === "hole" || featType(selected) === "thread") && (
+                  <dl className="mt-3 grid grid-cols-[64px_1fr] gap-y-2 text-xs">
+                    <dt className="text-slate-500">通盲</dt>
+                    <dd>{holeLabel(selected.hole_type)}</dd>
+                    <dt className="text-slate-500">方位</dt>
+                    <dd>{displayValue(fields.orient)}</dd>
+                  </dl>
+                )}
+                {featType(selected) === "surface" && (
+                  <dl className="mt-3 grid grid-cols-[64px_1fr] gap-y-2 text-xs">
+                    <dt className="text-slate-500">R</dt>
+                    <dd>{fields.r != null ? `${fields.r} mm` : "—"}</dd>
+                  </dl>
+                )}
+              </div>
+
+              <div className="border-t border-[#e2e8f0] pt-3">
+                <div className="mb-2 text-[11px] text-slate-500">加工参数</div>
+                {selectedSteps.length ? (
+                  <div className="space-y-3">
+                    {selectedSteps.map((step) => (
+                      <div key={step.step_id} className="rounded border border-[#e2e8f0] bg-white p-2">
+                        <div className="mb-2 flex items-center justify-between gap-2 text-xs">
+                          <span className="truncate font-medium">{processName(step)}</span>
+                          <span className="shrink-0 text-slate-400">STEP {step.order || "—"}</span>
+                        </div>
+                        <ProcessStepParameters
+                          step={step}
+                          locked={locked}
+                          busy={busy}
+                          onPatch={onPatchProcess}
+                          showFormula={false}
+                          compact
+                        />
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-xs text-slate-400">该特征暂无匹配工序</div>
+                )}
+              </div>
+            </div>
           ) : (
-            <div className="text-xs text-slate-400">点列表或模型上的特征</div>
+            <div className="flex min-h-32 items-center justify-center text-center text-xs text-slate-400">
+              请从特征树或 3D 模型中选择特征
+            </div>
           )}
         </div>
-      </div>
+      </section>
     </div>
   )
 }

@@ -325,10 +325,13 @@ export function PartDetail({ id, go }: { id: string; go: (h: string) => void }) 
         <FeatureReview
           partId={id}
           features={reviewFeats}
+          processSequence={q.process_sequence || []}
           meshAvailable={meshAvailable}
           locked={locked}
           busy={busy}
           onToggle={toggleFeat}
+          onPatchFeature={patch}
+          onPatchProcess={patchProcess}
         />
         {!!(risk.tags || []).length && <div className="mt-3 text-xs text-amber-700">风险：{(risk.tags || []).join("、")}</div>}
       </Card>

@@ -33,6 +33,65 @@ function formulaLine(step: any) {
   return bits.filter(Boolean).join(" ")
 }
 
+export function ProcessStepParameters({
+  step,
+  locked,
+  busy,
+  onPatch,
+  showFormula = true,
+  compact = false,
+}: {
+  step: any
+  locked: boolean
+  busy: boolean
+  onPatch: (body: object) => Promise<void>
+  showFormula?: boolean
+  compact?: boolean
+}) {
+  const [drafts, setDrafts] = useState<Partial<Record<Field, string>>>({})
+
+  useEffect(() => {
+    setDrafts({})
+  }, [step])
+
+  async function commit(field: Field) {
+    const raw = drafts[field]
+    if (raw == null) return
+    const trimmed = raw.trim()
+    await onPatch({
+      steps: [{
+        step_id: step.step_id,
+        [field]: trimmed === "" ? null : Number(trimmed),
+      }],
+    })
+  }
+
+  return <>
+    <div className={`grid grid-cols-2 gap-2 ${compact ? "" : "md:grid-cols-5"}`}>
+      {FIELDS.map((field) => <label key={field} className="text-xs text-slate-500">
+        <span>{field}</span>
+        <input
+          className="mt-1 w-full rounded border border-[#e2e8f0] px-2 py-1.5 text-sm text-slate-900 disabled:bg-[#f8fafc]"
+          type="number"
+          min={field === "passes" ? 1 : 0.0001}
+          step={field === "passes" ? 1 : "any"}
+          disabled={locked || busy}
+          value={drafts[field] ?? valueOf(step, field)}
+          onChange={(event) => setDrafts((current) => ({
+            ...current,
+            [field]: event.target.value,
+          }))}
+          onBlur={() => commit(field)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") event.currentTarget.blur()
+          }}
+        />
+      </label>)}
+    </div>
+    {showFormula && <div className="mt-2 font-mono text-[11px] text-slate-500">{formulaLine(step)}</div>}
+  </>
+}
+
 export function ProcessSequenceEditor({
   sequence,
   hasOverrides,
@@ -46,31 +105,6 @@ export function ProcessSequenceEditor({
   busy: boolean
   onPatch: (body: object) => Promise<void>
 }) {
-  const [drafts, setDrafts] = useState<Record<string, Partial<Record<Field, string>>>>({})
-
-  useEffect(() => {
-    setDrafts({})
-  }, [sequence])
-
-  function edit(stepId: string, field: Field, value: string) {
-    setDrafts((current) => ({
-      ...current,
-      [stepId]: { ...current[stepId], [field]: value },
-    }))
-  }
-
-  async function commit(step: any, field: Field) {
-    const raw = drafts[step.step_id]?.[field]
-    if (raw == null) return
-    const trimmed = raw.trim()
-    await onPatch({
-      steps: [{
-        step_id: step.step_id,
-        [field]: trimmed === "" ? null : Number(trimmed),
-      }],
-    })
-  }
-
   async function move(index: number, delta: number) {
     const target = index + delta
     if (target < 0 || target >= sequence.length) return
@@ -120,25 +154,14 @@ export function ProcessSequenceEditor({
             >↓</button>
             <span className="w-16 text-right">¥{Number(step.amount || 0).toFixed(0)}</span>
           </div>
-          <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-5">
-            {FIELDS.map((field) => <label key={field} className="text-xs text-slate-500">
-              <span>{field}</span>
-              <input
-                className="mt-1 w-full rounded border border-[#e2e8f0] px-2 py-1.5 text-sm text-slate-900 disabled:bg-slate-50"
-                type="number"
-                min={field === "passes" ? 1 : 0.0001}
-                step={field === "passes" ? 1 : "any"}
-                disabled={locked || busy}
-                value={drafts[stepId]?.[field] ?? valueOf(step, field)}
-                onChange={(event) => edit(stepId, field, event.target.value)}
-                onBlur={() => commit(step, field)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") event.currentTarget.blur()
-                }}
-              />
-            </label>)}
+          <div className="mt-3">
+            <ProcessStepParameters
+              step={step}
+              locked={locked}
+              busy={busy}
+              onPatch={onPatch}
+            />
           </div>
-          <div className="mt-2 font-mono text-[11px] text-slate-500">{formulaLine(step)}</div>
         </div>
       })}
     </div>
