@@ -359,6 +359,11 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
                 s["amount"] = round(per_amt, 2)
             _copy_step_params(s, s.get("time"))
 
+    equipment_info = {
+        "model": picked.get("model"),
+        "type": picked.get("type"),
+        "hourly_rate": picked.get("hourly_rate"),
+    }
     deductions = risk_dimensions.collect(
         payload,
         seq,
@@ -371,6 +376,8 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
             "fixture": fix_fee,
         },
         risk_tags=tags,
+        equipment=equipment_info,
+        hours_cut=cut_hours,
     )
     confidence_value = risk_dimensions.confidence_from(deductions)
     risk_level, customer_forbidden = confidence.classify(confidence_value)
@@ -437,11 +444,7 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
         "process_sequence": seq,
         "process_overrides": process_overrides,
         "sequence_adjustment_minutes": round(sequence_adjustment_min, 4),
-        "equipment": {
-            "model": picked.get("model"),
-            "type": picked.get("type"),
-            "hourly_rate": picked.get("hourly_rate"),
-        },
+        "equipment": equipment_info,
         "fixture": {
             "type": fixture.get("fixture_type"),
             "method": fixture.get("fixture_method"),
