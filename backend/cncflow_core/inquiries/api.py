@@ -387,19 +387,8 @@ def _quote_part(conn, part, selected_ids=None, features_override=None, extra=Non
     if override is None:
         override = extra.get("features") or extra.get("review_features")
     review, features = _review_and_quote_features(parsed_feats, selected_ids, L, W)
-    if override and all(
-        isinstance(item, dict) and item.get("type") in {"hole", "slot", "pocket", "face", "thread", "step", "surface"}
-        and not item.get("subtype")
-        for item in override
-    ):
-        remapped = []
-        for item in override:
-            if item.get("type") == "surface":
-                mapped = _surface_for_pipeline(item, item.get("feature_id") or item.get("id") or "surface-0")
-                remapped.append(mapped or item)
-            else:
-                remapped.append(item)
-        features = remapped
+    if not parsed_feats and isinstance(override, list):
+        review, features = _review_and_quote_features(override, selected_ids, L, W)
     features = _overlay_manual_hours(features, override, extra.get("manual_hours"))
     try:
         rules_version = current_app.config.get("RULES_VERSION") or ""
@@ -427,6 +416,15 @@ def _quote_part(conn, part, selected_ids=None, features_override=None, extra=Non
     }, conn, rules_version=rules_version)
     result["review_features"] = review
     return store.set_quote(conn, part["id"], result)
+
+
+def _explicit_quote_selection(payload):
+    """POST quote 仅把非空 ID 列表视为用户显式选择；features 本身只是刷新快照。"""
+    raw = payload.get("selected_feature_ids")
+    if not isinstance(raw, list):
+        return None
+    selected = [str(fid) for fid in raw if fid not in (None, "")]
+    return selected or None
 
 
 def _maybe_quote(conn, part):
@@ -497,12 +495,16 @@ def quote_inquiry(iid):
     try:
         inquiry = store.get_inquiry(conn, iid)
         req = request.get_json(silent=True) or {}
+        selected_ids = _explicit_quote_selection(req)
         out = []
         for part in inquiry["parts"]:
             if part["status"] == "confirmed":
                 out.append(part)
                 continue
-            quoted = _quote_part(conn, part, selected_ids=None, features_override=req.get("features") or req.get("review_features"), extra=req)
+            quoted = _quote_part(
+                conn, part, selected_ids=selected_ids,
+                features_override=req.get("features") or req.get("review_features"), extra=req,
+            )
             out.append(quoted if quoted is not None else part)
         return jsonify(store.get_inquiry(conn, iid))
     except KeyError:
@@ -575,7 +577,11 @@ def quote_part(pid):
         part = store.get_part(conn, pid)
         if part["status"] in {"confirmed", "abandoned"}:
             return jsonify({"error": f"状态 {part['status']} 不能再报价"}), 409
-        quoted = _quote_part(conn, part)
+        req = request.get_json(silent=True) or {}
+        quoted = _quote_part(
+            conn, part, selected_ids=_explicit_quote_selection(req),
+            features_override=req.get("features") or req.get("review_features"), extra=req,
+        )
         if quoted is None:
             return jsonify({"error": "缺少长宽尺寸，无法报价"}), 400
         return jsonify(_attach_parsed_features(conn, quoted))

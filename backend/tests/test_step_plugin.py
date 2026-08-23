@@ -374,7 +374,10 @@ def test_quote_refresh_rect_step_sanitizes_previous_quote_features(client, seede
             "length": 80, "width": 25, "face_position": "水平",
         },
     ]
-    first = client.post(f"/api/v1/inquiries/{iid}/quote", json={"features": stale_features})
+    first = client.post(
+        f"/api/v1/inquiries/{iid}/quote",
+        json={"features": stale_features, "selected_feature_ids": []},
+    )
     assert first.status_code == 200, first.get_json()
     first_part = next(p for p in first.get_json()["parts"] if p["id"] == pid)
 
@@ -384,6 +387,8 @@ def test_quote_refresh_rect_step_sanitizes_previous_quote_features(client, seede
     )
     assert second.status_code == 200, second.get_json()
     part = next(p for p in second.get_json()["parts"] if p["id"] == pid)
+    assert _selected_ids(first_part) == ["step-0"], first_part.get("quote")
+    assert _skus(first_part) == ["TK-026", "TK-036"], first_part.get("quote", {}).get("process_sequence")
     assert _selected_ids(part) == ["step-0"], part.get("quote")
     assert _skus(part) == ["TK-026", "TK-036"], part.get("quote", {}).get("process_sequence")
 
@@ -412,3 +417,16 @@ def test_quote_refresh_rect_step_manual_check_shoulder(client, seeded_db_path):
     assert set(_selected_ids(part)) == {"step-0", "face-0"}
     types = {f["type"] for f in (part.get("quote") or {}).get("features") or []}
     assert types == {"step", "face"}
+    inquiry_quote = client.post(
+        f"/api/v1/inquiries/{iid}/quote",
+        json={"selected_feature_ids": ["step-0", "face-0"]},
+    )
+    assert inquiry_quote.status_code == 200, inquiry_quote.get_json()
+    inquiry_part = next(p for p in inquiry_quote.get_json()["parts"] if p["id"] == pid)
+    assert set(_selected_ids(inquiry_part)) == {"step-0", "face-0"}
+    quoted = client.post(
+        f"/api/v1/parts/{pid}/quote",
+        json={"selected_feature_ids": ["step-0", "face-0"]},
+    )
+    assert quoted.status_code == 200, quoted.get_json()
+    assert set(_selected_ids(quoted.get_json())) == {"step-0", "face-0"}
