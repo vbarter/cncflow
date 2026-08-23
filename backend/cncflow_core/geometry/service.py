@@ -171,18 +171,31 @@ def _feat_num(feat, *keys):
     return 0.0
 
 
+def _covers_stock_lw(length, width, stock_l, stock_w, ratio=0.8):
+    """整板顶面才默认面铣；台阶肩顶（半幅 80×25）盖不住毛坯 XY。"""
+    if not stock_l or not stock_w or length <= 0 or width <= 0:
+        return True
+    face_l, face_w = max(length, width), min(length, width)
+    sl, sw = max(float(stock_l), float(stock_w)), min(float(stock_l), float(stock_w))
+    return face_l + 1e-6 >= ratio * sl and face_w + 1e-6 >= ratio * sw
+
+
+def _is_horizontal_face(feat):
+    if feat.get("type") != "face" and feat.get("subtype") != "recognized_face":
+        return False
+    pos = feat.get("face_position") or (feat.get("dimensions") or {}).get("face_position") or "水平"
+    return pos == "水平"
+
+
 def _unselect_step_shoulder_tops(features):
     """台阶肩顶不当默认面铣。Ø8 整板顶面无台阶，勾选不动。特征仍保留供手勾。"""
     steps = [f for f in features if f.get("type") == "step" or f.get("subtype") == "recognized_step"]
     if not steps:
         return features
     for feat in features:
-        if feat.get("type") != "face" and feat.get("subtype") != "recognized_face":
+        if not _is_horizontal_face(feat):
             continue
         if feat.get("selected") is False:
-            continue
-        pos = feat.get("face_position") or (feat.get("dimensions") or {}).get("face_position") or "水平"
-        if pos != "水平":
             continue
         length = _feat_num(feat, "length")
         width = _feat_num(feat, "width")
@@ -202,6 +215,28 @@ def _unselect_step_shoulder_tops(features):
                 feat["selected"] = False
                 break
     return features
+
+
+def _unselect_partial_stock_tops(features, stock_l, stock_w):
+    """盖不住毛坯 XY 的水平顶面不默认勾。无毛坯尺寸则不动。"""
+    if not stock_l or not stock_w:
+        return features
+    for feat in features:
+        if not _is_horizontal_face(feat):
+            continue
+        if feat.get("selected") is False:
+            continue
+        length = _feat_num(feat, "length")
+        width = _feat_num(feat, "width")
+        if not _covers_stock_lw(length, width, stock_l, stock_w):
+            feat["selected"] = False
+    return features
+
+
+def apply_quote_default_selection(features, stock_l=0, stock_w=0):
+    """报价默认勾选：与 parse 同一套肩顶 / 整板 XY 规则。手勾不走这里。"""
+    features = _unselect_step_shoulder_tops(features)
+    return _unselect_partial_stock_tops(features, stock_l, stock_w)
 
 
 def _drop_hole_as_surfaces(features):

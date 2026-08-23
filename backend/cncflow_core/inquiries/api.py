@@ -4,6 +4,7 @@ import os
 from flask import Blueprint, current_app, jsonify, request, Response
 
 from ..common.db import get_conn
+from ..geometry.service import apply_quote_default_selection
 from ..ingestion.jobs import get_job
 from ..ingestion import r2
 from ..common.materials import resolve_material
@@ -180,9 +181,10 @@ def _review_and_quote_features(parsed_feats, selected_ids, L, W):
     review = []
     quoted = []
     selected = set(str(x) for x in selected_ids) if selected_ids is not None else None
-    for i, feat in enumerate(parsed_feats or []):
-        if not isinstance(feat, dict):
-            continue
+    feats = [dict(feat) for feat in (parsed_feats or []) if isinstance(feat, dict)]
+    if selected is None:
+        feats = apply_quote_default_selection(feats, L, W)
+    for i, feat in enumerate(feats):
         fid = str(feat.get("feature_id") or feat.get("id") or f"f{i}")
         on = True if selected is None else fid in selected
         if selected is None and feat.get("selected") is False:
