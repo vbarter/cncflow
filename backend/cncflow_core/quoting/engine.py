@@ -7,7 +7,7 @@ from ..features.pocket import pipeline as pocket_pipeline
 from ..features.step import pipeline as step_pipeline
 from ..features.surface import pipeline as surface_pipeline
 from ..features.thread import pipeline as thread_pipeline
-from . import confidence, dedup, equipment, hole_time, mill_time, risk_dimensions, sequence, slider, volume
+from . import confidence, dedup, equipment, hole_time, mill_time, process_edits, risk_dimensions, sequence, slider, volume
 
 PIPELINES = {
     "hole": hole_pipeline.run,
@@ -244,6 +244,14 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
     feat_types = {p["feature_id"]: p["type"] for p in plans}
     seq = sequence.sort_steps(seq, feat_types)
     seq = dedup.merge_chamfers(seq)
+    seq, process_overrides, sequence_inversions = process_edits.apply(
+        seq, payload.get("process_overrides"),
+    )
+    if seq:
+        cut_min = sum(float(step.get("minutes") or 0) for step in seq)
+    # 人工路线偏离系统推荐顺序时计入最小切换/复核工时；原路线保持零调整。
+    sequence_adjustment_min = sequence_inversions * 0.5
+    cut_min += sequence_adjustment_min
 
     fixture_feat = {
         "type": "fixture", "length": L,
@@ -322,12 +330,16 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
     if seq:
         per_min = cut_min / len(seq)
         per_amt = cut_fee / len(seq)
+        priced_minutes = sum(float(s.get("minutes") or 0) for s in seq)
         for s in seq:
             proc = s.get("process") or s.get("op")
             s.setdefault("name", STEP_NAME.get(proc, proc or "工序"))
             s.setdefault("tool", s.get("sku") or s.get("tool") or s.get("cycle") or proc or "—")
             s.setdefault("minutes", round(per_min, 2))
-            s.setdefault("amount", round(per_amt, 2))
+            if priced_minutes > 0:
+                s["amount"] = round(cut_fee * float(s.get("minutes") or 0) / priced_minutes, 2)
+            else:
+                s["amount"] = round(per_amt, 2)
             _copy_step_params(s, s.get("time"))
 
     deductions = risk_dimensions.collect(payload, seq)
@@ -393,6 +405,8 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
         "volume": vol,
         "features": plans,
         "process_sequence": seq,
+        "process_overrides": process_overrides,
+        "sequence_adjustment_minutes": round(sequence_adjustment_min, 4),
         "equipment": {
             "model": picked.get("model"),
             "type": picked.get("type"),
