@@ -11,6 +11,18 @@ const COST_LABEL: Record<string, string> = {
   programming: "编程", inspect: "检测", toolwear: "刀具损耗", scrap: "不良损耗",
 }
 
+const DIMENSION_LABEL: Record<string, string> = {
+  D1: "工时边界",
+  D2: "材料去除率",
+  D3: "成本占比",
+  D4: "设备匹配",
+  D5: "切削参数",
+  D6: "工艺顺序",
+  D7: "成本合计",
+  D8: "设备与工时",
+  D9: "关键字段",
+}
+
 function yen(n: any) {
   if (n == null || n === "") return "—"
   const v = Number(n)
@@ -277,11 +289,32 @@ export function PartDetail({ id, go }: { id: string; go: (h: string) => void }) 
             </div>
           ))}
         </div>
-        {deductions.length > 0 && <div className="mt-4 space-y-1 text-xs text-slate-500">
-          {deductions.map((item: any, i: number) => (
-            <div key={`${item.rule_id}-${i}`}>{item.rule_id} · {item.reason} · -{item.deduction}分</div>
-          ))}
-        </div>}
+        <div className="mt-4 overflow-x-auto rounded border border-[#e2e8f0]">
+          <table className="w-full min-w-[480px] text-left text-xs">
+            <thead className="bg-[#f8fafc] text-slate-500">
+              <tr>
+                <th className="px-3 py-2 font-medium">原因</th>
+                <th className="w-20 px-3 py-2 text-right font-medium">扣分</th>
+                <th className="w-36 px-3 py-2 font-medium">归类</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200 text-slate-600">
+              {deductions.length > 0 ? deductions.map((item: any, i: number) => (
+                <tr key={`${item.rule_id}-${i}`}>
+                  <td className="px-3 py-2">{item.reason}</td>
+                  <td className="px-3 py-2 text-right font-medium text-slate-700">−{item.deduction}</td>
+                  <td className="whitespace-nowrap px-3 py-2">
+                    {item.dimension} {DIMENSION_LABEL[item.dimension] || "—"}
+                  </td>
+                </tr>
+              )) : (
+                <tr>
+                  <td className="px-3 py-3 text-slate-400" colSpan={3}>无扣分项</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </Card>
 
       {costCard}
