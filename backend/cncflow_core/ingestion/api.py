@@ -7,7 +7,7 @@ from flask import Blueprint, current_app, jsonify, request
 
 from ..common.db import get_conn
 from ..features.hole import pipeline as hole_pipeline
-from .jobs import create_job, get_job
+from .jobs import create_job, get_job, retry_job
 from .storage import MAX_JOB_BYTES, store_upload
 from . import r2
 
@@ -79,6 +79,19 @@ def job_status(job_id):
         return jsonify(get_job(conn, job_id))
     except KeyError:
         return jsonify({"error": "解析任务不存在"}), 404
+    finally:
+        conn.close()
+
+
+@bp.post("/api/v1/parse-jobs/<job_id>/retry")
+def retry_failed_job(job_id):
+    conn = _conn()
+    try:
+        return jsonify(retry_job(conn, job_id)), 202
+    except KeyError:
+        return jsonify({"error": "解析任务不存在"}), 404
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 409
     finally:
         conn.close()
 
