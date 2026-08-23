@@ -24,6 +24,7 @@ PIPELINES = {
 DIFF_MIN = {"D1": 2.0, "D2": 6.0, "D3": 15.0, "D4": 25.0, "NA": 20.0, 1: 2.0, 2: 6.0, 3: 15.0, 4: 25.0}
 DIFF_FACTOR = {"D3": 1.3, "D4": 1.8, 3: 1.3, 4: 1.8}
 STEP_PARAMS = ("formula", "n", "f", "cut", "passes", "t_min", "t_max", "status")
+DIAMETER_MISMATCH_RISK = "刀径非全等，需工艺确认"
 
 
 def suggested_lead_time_days(hours_total: float, setup_count: int, batch: int) -> int:
@@ -95,6 +96,92 @@ def _nearest_sku(conn, step: dict):
             "ORDER BY ABS(diameter_mm-?) ASC, sku LIMIT 1", (cat, float(d)),
         ).fetchone()
     return row["sku"] if row else None
+
+
+def _diameter_selection(conn, step: dict) -> dict | None:
+    """按目标刀径全等优先，否则返回同大类最近的在库 SKU。"""
+    attrs = step.get("tool_attrs") or {}
+    category = attrs.get("category")
+    target = attrs.get("nominal_diameter_mm")
+    if not category or target is None:
+        return None
+    target = float(target)
+    rows = conn.execute(
+        "SELECT sku,diameter_mm,structure,base_material,coating,precision_grade,is_mock,source "
+        "FROM tools WHERE category=? AND in_stock=1 "
+        "ORDER BY ABS(diameter_mm-?) ASC, sku",
+        (category, target),
+    ).fetchall()
+    if not rows:
+        return None
+
+    row = rows[0]
+    preferred = step.get("selected_candidate") or {}
+    preferred_sku = preferred.get("candidate_id") if preferred.get("candidate_type") == "sku" else None
+    best_distance = abs(float(row["diameter_mm"]) - target)
+    row = next(
+        (
+            candidate
+            for candidate in rows
+            if candidate["sku"] == preferred_sku
+            and abs(abs(float(candidate["diameter_mm"]) - target) - best_distance) < 0.001
+        ),
+        row,
+    )
+    actual = float(row["diameter_mm"])
+    match_status = "exact" if abs(actual - target) < 0.001 else "nearest"
+    if match_status == "exact":
+        reason = f"库存刀径全等：目标 Ø{target:g}mm，选用 {row['sku']} Ø{actual:g}mm"
+        differences = []
+    else:
+        reason = (
+            f"库存无 Ø{target:g}mm 全等刀具；选用最近在库 "
+            f"{row['sku']} Ø{actual:g}mm，需工艺确认"
+        )
+        differences = [f"刀径 {actual:g}mm（目标 {target:g}mm）"]
+
+    selected_attrs = {
+        **attrs,
+        "nominal_diameter_mm": actual,
+        "structure": row["structure"],
+        "base_material": row["base_material"],
+        "coating": row["coating"],
+        "precision_grade": row["precision_grade"],
+    }
+    return {
+        "sku": row["sku"],
+        "target_diameter_mm": target,
+        "tool_diameter_mm": actual,
+        "match_status": match_status,
+        "match_reason": reason,
+        "candidate": {
+            "candidate_type": "sku",
+            "candidate_id": row["sku"],
+            "tier": match_status,
+            "match_status": match_status,
+            "match_reason": reason,
+            "is_mock": bool(row["is_mock"]),
+            "in_stock": True,
+            "differences": differences,
+            "verification_required": bool(row["is_mock"]) or match_status == "nearest",
+            "source": row["source"],
+            "tool_attrs": selected_attrs,
+        },
+    }
+
+
+def _uses_exact_diameter_policy(feature_type: str, step: dict) -> bool:
+    """冻结 MVP：只接孔钻、槽铣刀、螺纹底孔钻和丝锥；面铣保持原规则。"""
+    process = step.get("process")
+    if feature_type == "hole":
+        return process == "drill"
+    if feature_type in {"pocket", "slot"}:
+        return process in {
+            "rough_pocket", "semi_finish_pocket", "finish_pocket", "rest_mill",
+        }
+    if feature_type == "thread":
+        return process in {"drill", "tap"}
+    return False
 
 
 def _material_row(material: str, factory: dict, payload: dict):
@@ -222,12 +309,37 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
         steps = result.get("tool_chain") or result.get("process_chain") or []
         timed_steps = (result.get("time") or {}).get("steps") or []
         for si, step in enumerate(steps):
-            sel = step.get("selected_candidate") or {}
-            sku = sel.get("candidate_id") if sel.get("candidate_type") == "sku" else None
-            if not sku:
-                sku = next((c for c in (step.get("sku_candidates") or []) if c), None)
-            if not sku:
-                sku = _nearest_sku(conn, step)
+            selection = _diameter_selection(conn, step) if _uses_exact_diameter_policy(ftype, step) else None
+            if selection:
+                sku = selection["sku"]
+                match_status = selection["match_status"]
+                step["selected_candidate"] = selection["candidate"]
+                step["match_status"] = match_status
+                step["match_tier"] = match_status
+                step["match_reason"] = selection["match_reason"]
+                step["tool_diameter_mm"] = selection["tool_diameter_mm"]
+                step["selection_target_diameter_mm"] = selection["target_diameter_mm"]
+                if match_status == "nearest":
+                    step["risk_tags"] = list(dict.fromkeys([
+                        *(step.get("risk_tags") or []),
+                        DIAMETER_MISMATCH_RISK,
+                    ]))
+                    result.setdefault("risk_tags", []).extend([
+                        DIAMETER_MISMATCH_RISK,
+                        selection["match_reason"],
+                    ])
+            else:
+                sel = step.get("selected_candidate") or {}
+                sku = sel.get("candidate_id") if sel.get("candidate_type") == "sku" else None
+                if not sku:
+                    sku = next((c for c in (step.get("sku_candidates") or []) if c), None)
+                if not sku:
+                    sku = _nearest_sku(conn, step)
+                match_status = (
+                    step.get("match_status")
+                    if sel.get("candidate_type") == "sku"
+                    else ("nearest" if sku else step.get("match_status"))
+                )
             seq.append({
                 "order": len(seq) + 1,
                 "feature_id": fid,
@@ -235,9 +347,14 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
                 "cycle": step.get("cycle"),
                 "sku": sku,
                 "side": step.get("side"),
-                "match_status": step.get("match_status") if sel.get("candidate_type") == "sku" else ("nearest" if sku else step.get("match_status")),
+                "match_status": match_status,
                 "tool": sku or step.get("cycle") or step.get("process") or "—",
             })
+            for key in (
+                "match_reason", "tool_diameter_mm", "selection_target_diameter_mm", "risk_tags",
+            ):
+                if step.get(key) is not None:
+                    seq[-1][key] = step[key]
             if step.get("name"):
                 seq[-1]["name"] = step["name"]
             if si < len(timed_steps):
