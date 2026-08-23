@@ -84,7 +84,16 @@ export function InquiryDetail({ id, go }: { id: string; go: (h: string) => void 
               <Badge>{UI[p.status] || p.status}</Badge>
               {risk?.level && risk.level !== "low" && <span className="text-xs text-amber-600">存在工艺风险</span>}
             </div>
-            <div className="mt-1 text-xs text-slate-500">{p.qty || 1}件 · {p.material_code || "—"}</div>
+            <div className="mt-1 text-xs text-slate-500">
+              {p.qty || 1}件 · {p.material_code || "—"} · IT{p.tolerance_it ?? "—"} · Ra{p.roughness_ra ?? "—"}
+              {p.surface_finish ? ` · ${p.surface_finish}` : ""}
+              {(p.thread_specs || []).length ? ` · 螺纹 ${(p.thread_specs || []).join("、")}` : ""}
+            </div>
+            {p.pdf_backfill_status === "failed" && (
+              <div className="mt-1 text-xs text-amber-700" role="status">
+                PDF 回填失败，STEP 报价已继续；进入零件可手工填写。
+              </div>
+            )}
             <div className="mt-2 grid grid-cols-1 gap-2 text-sm text-slate-700 md:grid-cols-5 md:gap-3">
               <div>单件报价 <span className="font-semibold">¥{yen(q?.amount)}</span></div>
               <div>单件成本 ¥{yen(q?.cost)}</div>

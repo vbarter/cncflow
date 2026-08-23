@@ -249,6 +249,9 @@ CREATE TABLE IF NOT EXISTS parts (
   surface_finish TEXT,
   tolerance_it INTEGER,
   roughness_ra REAL,
+  thread_specs_json TEXT,
+  pdf_backfill_status TEXT,
+  pdf_backfill_warning TEXT,
   batch_size INTEGER NOT NULL DEFAULT 1,
   is_repeat_order INTEGER NOT NULL DEFAULT 0,
   blank_type TEXT DEFAULT '板料',
@@ -300,6 +303,9 @@ def init_schema(conn: sqlite3.Connection) -> None:
     _ensure_column(conn, "factory_material_prices", "warning", "TEXT")
     _ensure_column(conn, "factory_material_prices", "extra_json", "TEXT")
     _ensure_column(conn, "machines", "extra_json", "TEXT")
+    _ensure_column(conn, "parts", "thread_specs_json", "TEXT")
+    _ensure_column(conn, "parts", "pdf_backfill_status", "TEXT")
+    _ensure_column(conn, "parts", "pdf_backfill_warning", "TEXT")
     # 一期数据库中的无来源刀具全部由 seed_tools.py 生成；迁移后不得冒充真实库存。
     conn.execute(
         "UPDATE tools SET is_mock=1, source='legacy_generated_mock' "

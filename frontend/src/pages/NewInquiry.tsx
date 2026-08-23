@@ -70,7 +70,7 @@ export function NewInquiry({ go }: { go: (h: string) => void }) {
     })
   }
   async function submit() {
-    const usable = parts.filter(p => p.name.trim() || p.step)
+    const usable = parts.filter(p => p.name.trim() || p.step || p.pdf)
     if (!usable.length) { setErr("请至少添加一个零件名称或 STEP 图纸"); return }
     setErr(""); setBusy(true)
     try {
@@ -82,7 +82,7 @@ export function NewInquiry({ go }: { go: (h: string) => void }) {
         const part = await json<any>(`/inquiries/${inq.id}/parts`, {
           method: "POST",
           body: JSON.stringify({
-            name: p.name || (p.step ? stem(p.step) : "零件"),
+            name: p.name || stem(p.step || p.pdf!),
             qty: Number(p.qty) || 1,
             material: p.material,
             blank_type: "板料",
@@ -201,7 +201,7 @@ export function NewInquiry({ go }: { go: (h: string) => void }) {
         </table>
       </div>
       <input ref={stepRef} type="file" accept=".step,.stp" className="hidden" onChange={e => { const f = e.target.files?.[0]; const row = fileRow.current; if (f && row) upd(row.i, { step: f, name: parts[row.i]?.name || stem(f) }); e.target.value = "" }} />
-      <input ref={pdfRef} type="file" accept=".pdf" className="hidden" onChange={e => { const f = e.target.files?.[0]; const row = fileRow.current; if (f && row) upd(row.i, { pdf: f }); e.target.value = "" }} />
+      <input ref={pdfRef} type="file" accept=".pdf" className="hidden" onChange={e => { const f = e.target.files?.[0]; const row = fileRow.current; if (f && row) upd(row.i, { pdf: f, name: parts[row.i]?.name || stem(f) }); e.target.value = "" }} />
       <input ref={dropRef} type="file" multiple accept=".step,.stp,.pdf" className="hidden" onChange={e => { if (e.target.files) addFiles(e.target.files); e.target.value = "" }} />
       <div
         role="button"
@@ -216,8 +216,8 @@ export function NewInquiry({ go }: { go: (h: string) => void }) {
       >
         <div>
           <UploadCloud className="mx-auto mb-2 text-slate-400" size={28} />
-          <div className="text-sm font-medium text-slate-700">拖拽或点击上传多个 3D 图纸批量识别</div>
-          <div className="mt-1 text-xs text-slate-500">支持 STEP / STP 格式</div>
+          <div className="text-sm font-medium text-slate-700">拖拽或点击上传 3D 模型与 2D 图纸</div>
+          <div className="mt-1 text-xs text-slate-500">PDF 可选；识别失败不影响 STEP 报价</div>
           <div className="mt-1 font-mono text-[10px] text-slate-400">3D · STEP / STP　　2D · PDF　　≤ 100 MB</div>
         </div>
       </div>

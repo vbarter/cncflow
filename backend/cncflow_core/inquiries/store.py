@@ -36,6 +36,7 @@ def _part(row):
     item = dict(row)
     item["is_repeat_order"] = bool(item.get("is_repeat_order"))
     item["quote"] = json.loads(item.pop("quote_json") or "null")
+    item["thread_specs"] = json.loads(item.pop("thread_specs_json", None) or "[]")
     item["ui_status"] = UI.get(item["status"], "pending")
     return item
 
@@ -85,13 +86,14 @@ def add_part(conn, iid: str, payload: dict) -> dict:
     get_inquiry(conn, iid)
     pid = str(uuid.uuid4())
     conn.execute(
-        "INSERT INTO parts (id,inquiry_id,name,qty,material_code,surface_finish,tolerance_it,roughness_ra,"
+        "INSERT INTO parts (id,inquiry_id,name,qty,material_code,surface_finish,tolerance_it,roughness_ra,thread_specs_json,"
         "batch_size,is_repeat_order,blank_type,length,width,height,diameter,status,slider) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (
             pid, iid, payload.get("name") or "零件",
             int(payload.get("qty") or 1), payload.get("material") or payload.get("material_code") or "铝合金",
             payload.get("surface_finish") or "", payload.get("tolerance_it"), payload.get("roughness_ra"),
+            json.dumps(payload.get("thread_specs") or [], ensure_ascii=False),
             int(payload.get("batch_size") or payload.get("qty") or 1),
             1 if payload.get("is_repeat_order") else 0,
             payload.get("blank_type") or "板料",
@@ -115,9 +117,21 @@ def update_part(conn, pid: str, patch: dict) -> dict:
     if part["status"] == "confirmed":
         raise PermissionError("confirmed")
     allowed = {"name", "qty", "material_code", "surface_finish", "tolerance_it", "roughness_ra",
-               "batch_size", "is_repeat_order", "blank_type", "length", "width", "height", "diameter", "slider"}
+               "thread_specs_json", "batch_size", "is_repeat_order", "blank_type",
+               "length", "width", "height", "diameter", "slider"}
     if "material" in patch:
         patch = {**patch, "material_code": patch["material"]}
+    if "thread_specs" in patch:
+        specs = patch["thread_specs"]
+        if not isinstance(specs, list) or not all(isinstance(item, str) for item in specs):
+            raise ValueError("thread_specs 须为字符串列表")
+        patch = {
+            **patch,
+            "thread_specs_json": json.dumps(
+                [item.strip() for item in specs if item.strip()],
+                ensure_ascii=False,
+            ),
+        }
     sets, vals = [], []
     for key in allowed:
         if key in patch:

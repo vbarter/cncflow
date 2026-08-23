@@ -140,6 +140,59 @@ def _apply_bbox(conn, part_id, result):
         )
 
 
+def _apply_pdf_backfill(conn, job_id, part_id, result):
+    drawing = (result or {}).get("drawing")
+    if not isinstance(drawing, dict):
+        return
+    backfill = drawing.get("backfill")
+    if not isinstance(backfill, dict):
+        backfill = {}
+    tuzi = drawing.get("tuzi") if isinstance(drawing.get("tuzi"), dict) else {}
+    sets, values = [], []
+    for field in (
+        "material_code",
+        "tolerance_it",
+        "roughness_ra",
+        "surface_finish",
+        "qty",
+    ):
+        if backfill.get(field) not in (None, ""):
+            sets.append(f"{field}=?")
+            values.append(backfill[field])
+    if isinstance(backfill.get("thread_specs"), list):
+        sets.append("thread_specs_json=?")
+        values.append(json.dumps(backfill["thread_specs"], ensure_ascii=False))
+
+    status = "applied" if sets else "failed"
+    warning = None if sets else (
+        tuzi.get("warning")
+        or next(iter(drawing.get("warnings") or []), None)
+        or "tu-zi 未返回可回填字段"
+    )
+    sets.extend(["pdf_backfill_status=?", "pdf_backfill_warning=?"])
+    values.extend([status, warning])
+    values.append(part_id)
+    conn.execute(
+        f"UPDATE parts SET {', '.join(sets)}, updated_at=datetime('now') WHERE id=?",
+        values,
+    )
+    if sets and status == "applied":
+        names = [label for field, label in BACKFILL_EVENT_FIELDS.items() if field in backfill]
+        event(conn, job_id, "pdf_backfill", f"PDF 已回填：{', '.join(names)}")
+    else:
+        event(conn, job_id, "pdf_backfill", f"PDF 未回填：{warning}")
+
+
+BACKFILL_EVENT_FIELDS = {
+    "material_code": "材料",
+    "tolerance_it": "IT",
+    "roughness_ra": "Ra",
+    "surface_finish": "表面处理",
+    "thread_specs": "螺纹规格",
+    "qty": "数量",
+}
+
+
 def _checkpoint_db():
     """解析落库后立刻打检查点；备份失败不影响任务状态。"""
     persist.try_backup_db()
@@ -162,6 +215,7 @@ def finish_job(conn, job_id, result, *, worker_id=None, attempt=None):
     event(conn, job_id, "review", "解析完成，请确认识别结果")
     pid = _current_part_id(conn, job_id)
     if pid:
+        _apply_pdf_backfill(conn, job_id, pid, result)
         _apply_bbox(conn, pid, result)
     conn.commit()
     if pid:
