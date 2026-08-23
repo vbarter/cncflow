@@ -10,7 +10,7 @@ def _handbook_chain(nominal_d, pitch, thread_length, material):
         "process": "drill", "op": "drill", "name": "钻孔", "cycle": "G83",
         "tool_attrs": {
             "category": "钻头",
-            "nominal_diameter_mm": max(1.0, float(nominal_d) - float(pitch or 1.25)),
+            "nominal_diameter_mm": max(1.0, round(float(nominal_d) * 0.85, 1)),
         },
     }]
     if tap:
