@@ -17,8 +17,6 @@ from reportlab.pdfgen import canvas
 _FONT_NAME = "CNCFlowCJK"
 _FONT_LOCK = Lock()
 _CJK_FONT_CANDIDATES = (
-    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-    "/usr/share/fonts/opentype/noto/NotoSansCJKsc-Regular.otf",
     "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
 )
 _COST_LABELS = (
@@ -44,13 +42,12 @@ def _register_cjk_font() -> str:
         for candidate in candidates:
             if not candidate or not Path(candidate).is_file():
                 continue
-            subfont_index = 2 if candidate.lower().endswith(".ttc") and "notosanscjk" in candidate.lower() else 0
             pdfmetrics.registerFont(
-                TTFont(_FONT_NAME, candidate, subfontIndex=subfont_index),
+                TTFont(_FONT_NAME, candidate),
             )
             return _FONT_NAME
 
-        # 仅用于非容器开发/CI；生产镜像安装 Noto Sans CJK 并嵌入其子集。
+        # 仅用于非容器开发/CI；生产镜像安装文泉驿正黑并嵌入其 TrueType 子集。
         fallback = "STSong-Light"
         if fallback not in pdfmetrics.getRegisteredFontNames():
             pdfmetrics.registerFont(UnicodeCIDFont(fallback))
