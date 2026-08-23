@@ -70,7 +70,7 @@ def test_inquiry_quote_pdf_contains_live_o8_quote(client, seeded_db_path):
     for expected in (
         "询价 ID", "询价标题", "客户", "零件", "材料", "数量",
         "金额", "成本", "毛利", "工时", "建议交期", "成本明细",
-        "工艺顺序", "风险扣分", "Ø8通孔板", "694.4", "0.1 h", "2 天",
+        "工艺顺序", "风险扣分", "Ø8通孔板", "694.4", "0.1h", "2 天",
     ):
         assert expected in text
     assert "amount=694.4;hours=0.1;suggested_days=2" in reader.metadata["/Keywords"]

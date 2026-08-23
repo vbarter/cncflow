@@ -107,7 +107,7 @@ def _records(inquiry: dict) -> list[tuple[str, str]]:
             f"金额 ¥{_number(quote.get('amount'))}    "
             f"成本 ¥{_number(quote.get('cost'))}    "
             f"毛利 {_number(quote.get('margin'))}%    "
-            f"工时 {_quote_hours(quote_data)} h    "
+            f"工时 {_quote_hours(quote_data)}h    "
             f"建议交期 {_number(quote_data.get('suggested_days'), 0)} 天",
         ))
 
