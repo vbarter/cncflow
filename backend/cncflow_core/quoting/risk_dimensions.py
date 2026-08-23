@@ -204,7 +204,7 @@ def _is_finish(step: dict) -> bool:
 
 
 def collect_d6(process_sequence: list) -> list[dict]:
-    """同一装夹/夹具组内精加工不得早于粗加工，倒角/去毛刺必须最后。"""
+    """同一装夹/夹具组内精加工不得早于粗加工，倒角必须最后。"""
     groups: dict[tuple, list[dict]] = {}
     for step in process_sequence:
         if isinstance(step, dict):
@@ -225,7 +225,7 @@ def collect_d6(process_sequence: list) -> list[dict]:
             and min(finish_indexes) < max(rough_indexes)
         )
         chamfer_not_last = any(
-            str(step.get("process") or step.get("op") or "") in AUX_PROCESSES
+            str(step.get("process") or step.get("op") or "") == "chamfer"
             for step in ordered_steps[:-1]
         )
         if finish_before_rough or chamfer_not_last:
@@ -242,7 +242,7 @@ def collect_d6(process_sequence: list) -> list[dict]:
     if any(item["finish_before_rough"] for item in violations):
         reasons.append("精加工早于粗加工")
     if any(item["chamfer_not_last"] for item in violations):
-        reasons.append("倒角/去毛刺不是组内最后工步")
+        reasons.append("倒角不是组内最后工步")
     return [_item(
         "D6-1",
         "D6",
