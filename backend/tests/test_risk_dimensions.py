@@ -84,3 +84,36 @@ def test_d5_missing_parameters_do_not_deduct():
         {"order": 1, "process": "manual"},
         {"order": 2, "process": "chamfer", "n": None, "f": ""},
     ]) == []
+
+
+def test_quote_engine_wires_d2_from_removed_volume_and_cut_minutes(client):
+    body = client.post("/api/v1/quotes", json={
+        "material": "铝合金",
+        "stock_type": "板材",
+        "length": 80,
+        "width": 60,
+        "height": 12,
+        # 84 * 64 * 16 = 86,016 mm³ blank，留下 0.1 mm³ 去除量。
+        "v_part_cad": 86_015.9,
+        "features": [{"type": "face", "length": 80, "width": 60}],
+    }).get_json()
+
+    assert body["status"] == "quoted"
+    assert body["quote"]["amount"] > 0
+    assert [item["rule_id"] for item in body["deductions"] if item["dimension"] == "D2"] == ["D2-1"]
+
+
+def test_quote_engine_wires_d3_from_quote_cost_shares(client):
+    body = client.post("/api/v1/quotes", json={
+        "material": "铝合金",
+        "stock_type": "板材",
+        "length": 80,
+        "width": 60,
+        "height": 12,
+        "price_per_kg": 1_000_000_000,
+        "features": [{"type": "face", "length": 80, "width": 60}],
+    }).get_json()
+
+    assert body["status"] == "quoted"
+    assert body["quote"]["amount"] > 0
+    assert [item["rule_id"] for item in body["deductions"] if item["dimension"] == "D3"] == ["D3-1"]
