@@ -1,4 +1,6 @@
 """报价引擎：跑特征管道 + 夹具 + 体积 + 滑轴 → 始终出报价。"""
+import math
+
 from ..factory.store import get_config
 from ..features.face import pipeline as face_pipeline
 from ..features.fixture import pipeline as fixture_pipeline
@@ -22,6 +24,14 @@ PIPELINES = {
 DIFF_MIN = {"D1": 2.0, "D2": 6.0, "D3": 15.0, "D4": 25.0, "NA": 20.0, 1: 2.0, 2: 6.0, 3: 15.0, 4: 25.0}
 DIFF_FACTOR = {"D3": 1.3, "D4": 1.8, 3: 1.3, 4: 1.8}
 STEP_PARAMS = ("formula", "n", "f", "cut", "passes", "t_min", "t_max", "status")
+
+
+def suggested_lead_time_days(hours_total: float, setup_count: int, batch: int) -> int:
+    """建议交期：8 小时工作日 + 每次装夹 1 天 + 批量级数，至少 1 天。"""
+    batch = max(int(batch or 1), 1)
+    batch_days = math.ceil(math.log10(batch)) if batch > 1 else 0
+    days = math.ceil(float(hours_total or 0) * 60 / 480) + int(setup_count or 0) + batch_days
+    return max(days, 1)
 
 
 def _copy_step_params(dst: dict, src: dict | None) -> None:
@@ -314,6 +324,7 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
         "rapid": round(rapid_min / 60.0, 4),
         "total": hours_total,
     }
+    suggested_days = suggested_lead_time_days(hours["total"], setups, batch)
     legacy_conf = confidence.score(ops)
     tags.extend(tag for tag in legacy_conf["tags"] if tag != "禁止给客户")
     tags = [tag for tag in tags if tag not in {"低于下限", "需人工复核"}]
@@ -387,6 +398,7 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
             "floor_applied": floor_applied,
         },
         "hours": hours,
+        "suggested_days": suggested_days,
         "confidence": confidence_value,
         "deductions": deductions,
         "risk": {

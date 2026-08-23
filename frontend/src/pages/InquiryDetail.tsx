@@ -2,6 +2,7 @@ import { useEffect, useState } from "react"
 import { Badge, Button, Card } from "../components/ui"
 import { json } from "../api"
 import { hoursLabel, quoteHours } from "../quoteHours"
+import { inquirySuggestedDays, quoteSuggestedDays, suggestedDaysLabel } from "../suggestedDays"
 
 const UI: Record<string, string> = {
   quoted: "待审核", confirmed: "已完成", parsing: "报价中", quoting: "报价中",
@@ -22,13 +23,16 @@ export function InquiryDetail({ id, go }: { id: string; go: (h: string) => void 
   if (!inq) return <div className="text-sm text-slate-500">{err || "加载中…"}</div>
   const parts = inq.parts || []
   const total = parts.reduce((s: number, p: any) => s + (Number(p.quote?.quote?.amount) || 0) * (Number(p.qty) || 1), 0)
+  const suggestedDays = inquirySuggestedDays(parts)
   function exportQuote() {
     const name = (inq.title || "RFQ") + "-报价单.json"
     const blob = new Blob([JSON.stringify({
       rfq: inq.title, customer: inq.customer, project: inq.project, due_date: inq.due_date,
+      suggested_days: suggestedDays,
       parts: parts.map((p: any) => ({
         name: p.name, qty: p.qty, material: p.material_code, status: p.status,
         amount: p.quote?.quote?.amount, cost: p.quote?.quote?.cost, margin: p.quote?.quote?.margin,
+        suggested_days: quoteSuggestedDays(p.quote),
       })),
       total,
     }, null, 2)], { type: "application/json" })
@@ -49,7 +53,7 @@ export function InquiryDetail({ id, go }: { id: string; go: (h: string) => void 
       <div>
         <div className="font-mono text-[10px] uppercase tracking-[.18em] text-slate-400">{inq.title || "RFQ"} / {inq.customer || "未填客户"}</div>
         <div className="mt-1 font-serif text-2xl font-semibold">{parts.length} 个零件综合报价</div>
-        <div className="mt-1 text-sm text-slate-300">合计 ¥{yen(total)} · 交期 {inq.due_date || "—"}</div>
+        <div className="mt-1 text-sm text-slate-300">合计 ¥{yen(total)} · 交期 {inq.due_date || "—"} · 建议交期 {suggestedDaysLabel(suggestedDays)}</div>
       </div>
       <Button type="button" className="min-h-11 md:min-h-10" onClick={exportQuote}>导出报价单</Button>
     </div>
@@ -67,11 +71,12 @@ export function InquiryDetail({ id, go }: { id: string; go: (h: string) => void 
               {risk?.level && risk.level !== "low" && <span className="text-xs text-amber-600">存在工艺风险</span>}
             </div>
             <div className="mt-1 text-xs text-slate-500">{p.qty || 1}件 · {p.material_code || "—"}</div>
-            <div className="mt-2 grid grid-cols-1 gap-2 text-sm text-slate-700 md:grid-cols-4 md:gap-3">
+            <div className="mt-2 grid grid-cols-1 gap-2 text-sm text-slate-700 md:grid-cols-5 md:gap-3">
               <div>单件报价 <span className="font-semibold">¥{yen(q?.amount)}</span></div>
               <div>单件成本 ¥{yen(q?.cost)}</div>
               <div>毛利 {q?.margin ?? "—"}%</div>
               <div>加工时间 {hoursLabel(quoteHours(p.quote))}</div>
+              <div>建议交期 {suggestedDaysLabel(quoteSuggestedDays(p.quote))}</div>
             </div>
           </div>
           <span className="min-h-11 text-sm text-blue-600 md:min-h-0 md:self-auto">进入零件 →</span>

@@ -3,6 +3,7 @@ import { Plus } from "lucide-react"
 import { Badge, Button, Card, Input, Select } from "../components/ui"
 import { json } from "../api"
 import { hoursLabel, quoteHours } from "../quoteHours"
+import { inquirySuggestedDays, suggestedDaysLabel } from "../suggestedDays"
 
 const LABELS: Record<string, string> = { pending: "待处理", quoting: "报价中", review: "待审核", done: "已完成" }
 
@@ -24,7 +25,14 @@ function totals(inq: any) {
     if (h != null) { hours += h * qty; hasHours = true }
   }
   const margin = amount ? ((amount - cost) / amount) * 100 : 0
-  return { amount, cost, margin, hours: hasHours ? Math.round(hours * 10) / 10 : null, n: parts.length }
+  return {
+    amount,
+    cost,
+    margin,
+    hours: hasHours ? Math.round(hours * 10) / 10 : null,
+    suggestedDays: inquirySuggestedDays(parts),
+    n: parts.length,
+  }
 }
 
 export function Workbench({ go }: { go: (h: string) => void }) {
@@ -94,6 +102,7 @@ export function Workbench({ go }: { go: (h: string) => void }) {
               <div className="text-sm font-semibold">{yen(t.amount)}</div>
             </div>
           </div>
+          <div className="mt-3 text-xs text-slate-500">交期要求 {i.due_date || "—"} · 建议交期 {suggestedDaysLabel(t.suggestedDays)}</div>
         </Card>
       })}
       {!shown.length && <Card className="px-4 py-10 text-center text-sm text-slate-500">还没有询价单</Card>}
@@ -101,7 +110,7 @@ export function Workbench({ go }: { go: (h: string) => void }) {
     <Card className="hidden overflow-x-auto md:block">
       <table className="w-full text-left text-sm">
         <thead><tr className="border-b border-[#e2e8f0] text-xs text-slate-500">
-          <th className="px-4 py-3">询价单号</th><th>客户</th><th>零件</th><th>报价金额</th><th>成本</th><th>综合毛利</th><th>加工时间</th><th>状态</th><th>操作</th>
+          <th className="px-4 py-3">询价单号</th><th>客户</th><th>零件</th><th>报价金额</th><th>成本</th><th>综合毛利</th><th>加工时间</th><th>交期</th><th>状态</th><th>操作</th>
         </tr></thead>
         <tbody>
           {shown.map(i => {
@@ -114,11 +123,12 @@ export function Workbench({ go }: { go: (h: string) => void }) {
               <td>{yen(t.cost)}</td>
               <td>{t.amount ? `${t.margin.toFixed(0)}%` : "—"}</td>
               <td>{hoursLabel(t.hours)}</td>
+              <td><div>{i.due_date || "—"}</div><div className="text-xs text-slate-500">建议 {suggestedDaysLabel(t.suggestedDays)}</div></td>
               <td><Badge>{LABELS[i.ui_status] || i.ui_status}</Badge></td>
               <td><button type="button" className="text-sm text-blue-600" onClick={() => go("inquiry/" + i.id)}>查看询价单 →</button></td>
             </tr>
           })}
-          {!shown.length && <tr><td colSpan={9} className="px-4 py-10 text-center text-slate-500">还没有询价单</td></tr>}
+          {!shown.length && <tr><td colSpan={10} className="px-4 py-10 text-center text-slate-500">还没有询价单</td></tr>}
         </tbody>
       </table>
     </Card>

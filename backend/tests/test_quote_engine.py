@@ -1,6 +1,8 @@
 """报价引擎：体积公式、始终出价、滑轴、翻单。"""
 import math
 
+from cncflow_core.quoting.engine import suggested_lead_time_days
+
 
 def quote(client, payload):
     return client.post("/api/v1/quotes", json=payload)
@@ -106,3 +108,26 @@ def test_hours_is_cut_toolchg_setup_rapid_not_machine_setup(client):
     hourly = body["equipment"]["hourly_rate"]
     if hourly:
         assert h["total"] < items["MACHINE_SETUP"] / hourly
+
+
+def test_suggested_days_batch_adds_ceil_log10(client):
+    payload = {
+        "material": "铝合金",
+        "stock_type": "板材",
+        "length": 80, "width": 60, "height": 12,
+        "features": [{"type": "face", "length": 80, "width": 60}],
+    }
+    single = quote(client, {**payload, "batch_size": 1}).get_json()
+    batch = 101
+    bulk = quote(client, {**payload, "batch_size": batch}).get_json()
+
+    assert bulk["hours"]["total"] == single["hours"]["total"]
+    assert bulk["fixture"]["setup_count"] == single["fixture"]["setup_count"]
+    assert bulk["suggested_days"] == single["suggested_days"] + math.ceil(math.log10(batch))
+
+
+def test_suggested_days_hours_setup_edges_minimum_one():
+    assert suggested_lead_time_days(0, 0, 1) == 1
+    assert suggested_lead_time_days(0, 1, 1) == 1
+    assert suggested_lead_time_days(0.1, 1, 1) == 2
+    assert suggested_lead_time_days(8, 2, 1) == 3
