@@ -9,9 +9,11 @@ from ..ingestion.jobs import get_job
 from ..ingestion import r2
 from ..common.materials import resolve_material
 from ..quoting.engine import quote
+from ..quoting import process_edits
 from . import store
 
 bp = Blueprint("inquiries", __name__)
+_UNSET = object()
 
 
 def _conn():
@@ -373,7 +375,10 @@ def _overlay_manual_hours(features, override, part_hours=None):
     return features
 
 
-def _quote_part(conn, part, selected_ids=None, features_override=None, extra=None):
+def _quote_part(
+    conn, part, selected_ids=None, features_override=None, extra=None,
+    process_overrides=_UNSET,
+):
     geometry, parsed_feats = _parse_geom(conn, part)
     L, W, H = _bbox_lwh(part, geometry)
     box = (geometry or {}).get("bounding_box_mm") or {}
@@ -399,6 +404,9 @@ def _quote_part(conn, part, selected_ids=None, features_override=None, extra=Non
         material = resolve_material(conn, raw_mat).family or raw_mat
     except ValueError:
         material = raw_mat
+    if process_overrides is _UNSET:
+        saved_quote = part.get("quote") if isinstance(part.get("quote"), dict) else {}
+        process_overrides = saved_quote.get("process_overrides") or []
     result = quote({
         "material": material,
         "stock_type": part.get("blank_type") or "板料",
@@ -413,6 +421,7 @@ def _quote_part(conn, part, selected_ids=None, features_override=None, extra=Non
         "roughness_ra": part.get("roughness_ra"),
         "v_part_cad": geometry.get("volume_cm3"),
         "features": features,
+        "process_overrides": process_overrides,
     }, conn, rules_version=rules_version)
     result["review_features"] = review
     return store.set_quote(conn, part["id"], result)
@@ -425,6 +434,20 @@ def _explicit_quote_selection(payload):
         return None
     selected = [str(fid) for fid in raw if fid not in (None, "")]
     return selected or None
+
+
+def _saved_quote_selection(part):
+    quote_data = part.get("quote") if isinstance(part.get("quote"), dict) else {}
+    review = quote_data.get("review_features")
+    if not isinstance(review, list):
+        return None
+    return [
+        str(feature.get("feature_id") or feature.get("id"))
+        for feature in review
+        if isinstance(feature, dict)
+        and feature.get("selected") is not False
+        and (feature.get("feature_id") or feature.get("id")) not in (None, "")
+    ]
 
 
 def _maybe_quote(conn, part):
@@ -581,6 +604,92 @@ def quote_part(pid):
         quoted = _quote_part(
             conn, part, selected_ids=_explicit_quote_selection(req),
             features_override=req.get("features") or req.get("review_features"), extra=req,
+        )
+        if quoted is None:
+            return jsonify({"error": "缺少长宽尺寸，无法报价"}), 400
+        return jsonify(_attach_parsed_features(conn, quoted))
+    except KeyError:
+        return jsonify({"error": "零件不存在"}), 404
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    finally:
+        conn.close()
+
+
+def _merge_process_overrides(current_sequence, saved, incoming):
+    if not isinstance(incoming, list) or not incoming:
+        raise ValueError("steps 须为非空数组")
+    valid_ids = {str(step.get("step_id") or "") for step in current_sequence}
+    merged = {
+        item["step_id"]: dict(item)
+        for item in process_edits.normalize_overrides(saved)
+    }
+    for patch in incoming:
+        if not isinstance(patch, dict):
+            raise ValueError("steps 每项须为对象")
+        step_id = str(patch.get("step_id") or "").strip()
+        if not step_id or step_id not in valid_ids:
+            raise ValueError(f"工步不存在：{step_id or '—'}")
+        item = merged.setdefault(step_id, {"step_id": step_id})
+        for field in ("order", *process_edits.EDITABLE_PARAMS):
+            if field not in patch:
+                continue
+            if patch[field] is None:
+                item.pop(field, None)
+            else:
+                item[field] = patch[field]
+        # minutes 是直接工时覆盖；改公式参数时切回公式重算，避免旧 minutes 吞掉本次修改。
+        if "minutes" not in patch and any(
+            field in patch for field in ("n", "f", "cut", "passes")
+        ):
+            item.pop("minutes", None)
+        if len(item) == 1:
+            merged.pop(step_id, None)
+
+    normalized = process_edits.normalize_overrides(list(merged.values()))
+    if any("order" in patch for patch in incoming):
+        by_id = {item["step_id"]: item for item in normalized}
+        orders = [
+            by_id.get(step["step_id"], {}).get("order", step.get("order"))
+            for step in current_sequence
+        ]
+        if sorted(orders) != list(range(1, len(current_sequence) + 1)):
+            raise ValueError("改序时须提交完整且不重复的 1..N order")
+    return normalized
+
+
+@bp.patch("/api/v1/parts/<pid>/process-sequence")
+def patch_process_sequence(pid):
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"error": "请求体须为 JSON 对象"}), 400
+    conn = _conn()
+    try:
+        part = store.get_part(conn, pid)
+        if part["status"] in {"confirmed", "abandoned"}:
+            return jsonify({"error": f"状态 {part['status']} 不能修改工步"}), 409
+        quote_data = part.get("quote") if isinstance(part.get("quote"), dict) else {}
+        sequence_now = quote_data.get("process_sequence") or []
+        if not sequence_now or not all(step.get("step_id") for step in sequence_now):
+            part = _quote_part(
+                conn, part, selected_ids=_saved_quote_selection(part),
+                features_override=quote_data.get("review_features"),
+            )
+            if part is None:
+                return jsonify({"error": "缺少长宽尺寸，无法报价"}), 400
+            quote_data = part.get("quote") or {}
+            sequence_now = quote_data.get("process_sequence") or []
+        if payload.get("reset") is True:
+            overrides = []
+        else:
+            overrides = _merge_process_overrides(
+                sequence_now, quote_data.get("process_overrides") or [], payload.get("steps"),
+            )
+        quoted = _quote_part(
+            conn, part,
+            selected_ids=_saved_quote_selection(part),
+            features_override=quote_data.get("review_features"),
+            process_overrides=overrides,
         )
         if quoted is None:
             return jsonify({"error": "缺少长宽尺寸，无法报价"}), 400

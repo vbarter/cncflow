@@ -1,18 +1,13 @@
 import { useEffect, useState } from "react"
 import { Button, Card, Select } from "../components/ui"
 import { FeatureReview } from "../components/FeatureReview"
+import { ProcessSequenceEditor } from "../components/ProcessSequenceEditor"
 import { json } from "../api"
 import { hoursLabel, quoteHours } from "../quoteHours"
 
 const COST_LABEL: Record<string, string> = {
   material: "原材料", machining: "加工工时", setup: "装夹", fixture: "夹具",
   programming: "编程", inspect: "检测", toolwear: "刀具损耗", scrap: "不良损耗",
-}
-
-const PROCESS_NAME: Record<string, string> = {
-  spot_drill: "点钻", drill: "钻孔", gun_drill: "枪钻", u_drill: "U钻",
-  ream: "铰孔", bore: "镗孔", tap: "攻丝", chamfer: "倒角",
-  face: "铣面", mill: "铣削",
 }
 
 const MATERIALS = ["AL6061-T6", "SUS304", "AL7075", "POM", "铝合金", "钢", "不锈钢"]
@@ -32,36 +27,6 @@ function costValue(q: any, ui: any, key: string) {
     return hit ? Number(hit.amount) || 0 : 0
   }
   return 0
-}
-
-function stepParams(s: any) {
-  const tm = s.time || {}
-  return {
-    formula: s.formula ?? tm.formula,
-    n: s.n ?? tm.n ?? tm.n_act,
-    f: s.f ?? tm.f,
-    cut: s.cut ?? tm.cut,
-    passes: s.passes ?? tm.passes,
-    t_min: s.t_min ?? tm.t_min,
-    t_max: s.t_max ?? tm.t_max,
-    status: s.status ?? tm.status,
-  }
-}
-
-function stepFormulaLine(s: any) {
-  const p = stepParams(s)
-  if (p.n == null && p.f == null && !p.formula) return ""
-  const bits = [
-    p.formula,
-    `n=${p.n ?? "—"}`,
-    `f=${p.f ?? "—"}`,
-    `cut=${p.cut ?? "—"}`,
-    `passes=${p.passes ?? "—"}`,
-    `t_min=${p.t_min ?? "—"}`,
-    `t_max=${p.t_max ?? "—"}`,
-    p.status || "ok",
-  ]
-  return bits.filter(Boolean).join(" ")
 }
 
 function featId(f: any, i: number) {
@@ -98,6 +63,12 @@ export function PartDetail({ id, go }: { id: string; go: (h: string) => void }) 
     try {
       setBusy(true); setErr("")
       setPart(await json<any>("/parts/" + id, { method: "PATCH", body: JSON.stringify(body) }))
+    } catch (e: any) { setErr(e.message) } finally { setBusy(false) }
+  }
+  async function patchProcess(body: object) {
+    try {
+      setBusy(true); setErr("")
+      setPart(await json<any>("/parts/" + id + "/process-sequence", { method: "PATCH", body: JSON.stringify(body) }))
     } catch (e: any) { setErr(e.message) } finally { setBusy(false) }
   }
   async function act(path: string) {
@@ -270,32 +241,13 @@ export function PartDetail({ id, go }: { id: string; go: (h: string) => void }) 
         <div className="mb-1 text-xs uppercase tracking-wide text-slate-400">05</div>
         <div className="mb-3 font-medium">加工工艺方案</div>
         {q.equipment && <div className="mb-2 text-xs text-slate-500">设备 {q.equipment.model || "—"} · {q.equipment.type || "—"} · {q.equipment.hourly_rate != null ? `${q.equipment.hourly_rate} 元/h` : "—"}</div>}
-        <div className="space-y-2 text-sm">{(q.process_sequence || []).length ? (q.process_sequence || []).map((s: any, i: number) => {
-          const step = `STEP ${String(s.order || i + 1).padStart(2, "0")}`
-          const name = s.name || PROCESS_NAME[s.process] || s.op || s.process || s.feature_id || "工序"
-          const sku = s.sku || s.tool || s.cycle || "—"
-          const minutes = s.minutes != null ? `${Number(s.minutes).toFixed(1)} min` : "—"
-          const amount = s.amount != null ? `¥${yen(s.amount)}` : "—"
-          const formula = stepFormulaLine(s)
-          return <div key={i} className="border-b border-[#e2e8f0] py-2">
-            <div className="md:hidden">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-slate-500">{step}</span>
-                <span className="font-medium">{amount}</span>
-              </div>
-              <div className="mt-1">{name}</div>
-              <div className="mt-1 text-xs text-slate-500">{sku} · {minutes}</div>
-              {formula && <div className="mt-1 font-mono text-[11px] text-slate-500">{formula}</div>}
-            </div>
-            <div className="hidden grid-cols-[72px_1fr_88px_72px_72px] gap-2 md:grid">
-              <span className="text-slate-500">{step}</span>
-              <span>{name}{formula && <div className="mt-0.5 font-mono text-[11px] text-slate-500">{formula}</div>}</span>
-              <span className="text-slate-500">{sku}</span>
-              <span className="text-right text-slate-500">{minutes}</span>
-              <span className="text-right">{amount}</span>
-            </div>
-          </div>
-        }) : <div className="text-slate-400">暂无工序。改滑轴会触发重算。</div>}</div>
+        <ProcessSequenceEditor
+          sequence={q.process_sequence || []}
+          hasOverrides={Boolean((q.process_overrides || []).length)}
+          locked={locked}
+          busy={busy}
+          onPatch={patchProcess}
+        />
         {q.validation && <div className="mt-3 text-xs text-slate-600">
           防错 {q.validation.ok ? "通过" : `${(q.validation.items || []).length}项`}
           {(q.validation.items || []).length ? `：${(q.validation.items || []).map((v: any) => `STEP ${String(v.order || "").padStart(2, "0")} ${v.status}`).join("、")}` : ""}
