@@ -8,8 +8,10 @@ interface Env {
   CNCFLOW_R2_ACCESS_KEY_ID?: string;
   CNCFLOW_R2_SECRET_ACCESS_KEY?: string;
   CNCFLOW_R2_BUCKET?: string;
+  TUZI_API_KEY?: string;
+  TUZI_MODEL?: string;
+  // Legacy secret name kept so existing deployments continue to work.
   VISION_API_KEY?: string;
-  VISION_API_BASE?: string;
 }
 
 /**
@@ -35,8 +37,8 @@ export class CncflowContainer extends Container<Env> {
       CNCFLOW_R2_ACCESS_KEY_ID: env.CNCFLOW_R2_ACCESS_KEY_ID || "",
       CNCFLOW_R2_SECRET_ACCESS_KEY: env.CNCFLOW_R2_SECRET_ACCESS_KEY || "",
       CNCFLOW_R2_BUCKET: env.CNCFLOW_R2_BUCKET || "cncflow-files",
-      VISION_API_KEY: env.VISION_API_KEY || "",
-      VISION_API_BASE: env.VISION_API_BASE || "https://api.tu-zi.com",
+      TUZI_API_KEY: env.TUZI_API_KEY || env.VISION_API_KEY || "",
+      TUZI_MODEL: env.TUZI_MODEL || "gpt-4.1-mini",
     };
   }
 

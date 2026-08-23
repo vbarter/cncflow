@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { Button, Card, Select } from "../components/ui"
+import { Button, Card, Input, Select } from "../components/ui"
 import { FeatureReview } from "../components/FeatureReview"
 import { ProcessSequenceEditor } from "../components/ProcessSequenceEditor"
 import { json } from "../api"
@@ -10,10 +10,6 @@ const COST_LABEL: Record<string, string> = {
   material: "原材料", machining: "加工工时", setup: "装夹", fixture: "夹具",
   programming: "编程", inspect: "检测", toolwear: "刀具损耗", scrap: "不良损耗",
 }
-
-const MATERIALS = ["AL6061-T6", "SUS304", "AL7075", "POM", "铝合金", "钢", "不锈钢"]
-const IT_OPTIONS = [11, 8, 7, 6]
-const RA_OPTIONS = [3.2, 1.6, 0.8]
 
 function yen(n: any) {
   if (n == null || n === "") return "—"
@@ -58,13 +54,17 @@ export function PartDetail({ id, go }: { id: string; go: (h: string) => void }) 
   const [err, setErr] = useState("")
   const [busy, setBusy] = useState(false)
   const [view, setView] = useState<"engineer" | "boss">("engineer")
+  const [fieldEpoch, setFieldEpoch] = useState(0)
   async function load() { setPart(await json<any>("/parts/" + id)) }
   useEffect(() => { load().catch(e => setErr(e.message)) }, [id])
   async function patch(body: object) {
     try {
       setBusy(true); setErr("")
       setPart(await json<any>("/parts/" + id, { method: "PATCH", body: JSON.stringify(body) }))
-    } catch (e: any) { setErr(e.message) } finally { setBusy(false) }
+    } catch (e: any) {
+      setErr(e.message)
+      setFieldEpoch(value => value + 1)
+    } finally { setBusy(false) }
   }
   async function patchProcess(body: object) {
     try {
@@ -91,19 +91,8 @@ export function PartDetail({ id, go }: { id: string; go: (h: string) => void }) 
   const reviewFeats = (q.review_features || q.features || part.parsed_features || []).map((f: any, i: number) => ({
     ...f, feature_id: featId(f, i),
   }))
-  const materials = MATERIALS.includes(part.material_code) || !part.material_code
-    ? MATERIALS
-    : [part.material_code, ...MATERIALS]
   const conf = confidenceParts(part, q, reviewFeats)
   const meshAvailable = Boolean(part.mesh?.available)
-
-  function patchParams(next: { material?: string; tolerance_it?: number; roughness_ra?: number }) {
-    patch({
-      material: next.material ?? part.material_code,
-      tolerance_it: next.tolerance_it ?? part.tolerance_it ?? 11,
-      roughness_ra: next.roughness_ra ?? part.roughness_ra ?? 3.2,
-    })
-  }
 
   function toggleFeat(fid: string, checked: boolean) {
     const ids = reviewFeats
@@ -175,6 +164,104 @@ export function PartDetail({ id, go }: { id: string; go: (h: string) => void }) 
       {decision(true)}
 
       <Card className="p-5">
+        <div className="mb-1 text-xs uppercase tracking-wide text-slate-400">PDF / PART FIELDS</div>
+        <div className="mb-3 flex flex-wrap items-center gap-2 font-medium">
+          <span>图纸字段（可手工修改）</span>
+          {part.pdf_backfill_status === "applied" && (
+            <span className="rounded bg-emerald-50 px-2 py-1 text-xs font-normal text-emerald-700">PDF 已回填</span>
+          )}
+        </div>
+        {part.pdf_backfill_status === "failed" && (
+          <div className="mb-4 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800" role="status">
+            PDF 回填失败：{part.pdf_backfill_warning || "未识别到字段"}；STEP 报价未受影响。
+          </div>
+        )}
+        <div className="grid gap-4 md:grid-cols-3">
+          <label className="block text-sm">
+            <div className="mb-1 text-xs text-slate-500">材料</div>
+            <Input
+              key={`${fieldEpoch}-${part.material_code || ""}`}
+              disabled={locked || busy}
+              defaultValue={part.material_code || ""}
+              onBlur={e => {
+                const value = e.currentTarget.value.trim()
+                if (value !== (part.material_code || "")) patch({ material_code: value })
+              }}
+            />
+          </label>
+          <label className="block text-sm">
+            <div className="mb-1 text-xs text-slate-500">IT</div>
+            <Input
+              key={`${fieldEpoch}-${part.tolerance_it ?? ""}`}
+              disabled={locked || busy}
+              type="number"
+              min={1}
+              max={18}
+              defaultValue={part.tolerance_it ?? ""}
+              onBlur={e => {
+                const value = e.currentTarget.value
+                if (value !== String(part.tolerance_it ?? "")) patch({ tolerance_it: value === "" ? null : Number(value) })
+              }}
+            />
+          </label>
+          <label className="block text-sm">
+            <div className="mb-1 text-xs text-slate-500">Ra</div>
+            <Input
+              key={`${fieldEpoch}-${part.roughness_ra ?? ""}`}
+              disabled={locked || busy}
+              type="number"
+              min="0"
+              step="any"
+              defaultValue={part.roughness_ra ?? ""}
+              onBlur={e => {
+                const value = e.currentTarget.value
+                if (value !== String(part.roughness_ra ?? "")) patch({ roughness_ra: value === "" ? null : Number(value) })
+              }}
+            />
+          </label>
+          <label className="block text-sm">
+            <div className="mb-1 text-xs text-slate-500">表面处理</div>
+            <Input
+              key={`${fieldEpoch}-${part.surface_finish || ""}`}
+              disabled={locked || busy}
+              defaultValue={part.surface_finish || ""}
+              onBlur={e => {
+                const value = e.currentTarget.value.trim()
+                if (value !== (part.surface_finish || "")) patch({ surface_finish: value })
+              }}
+            />
+          </label>
+          <label className="block text-sm">
+            <div className="mb-1 text-xs text-slate-500">螺纹规格列表</div>
+            <Input
+              key={`${fieldEpoch}-${(part.thread_specs || []).join(",")}`}
+              disabled={locked || busy}
+              defaultValue={(part.thread_specs || []).join("、")}
+              placeholder="M6、M8×1.25"
+              onBlur={e => {
+                const specs = e.currentTarget.value.split(/[,，、;；\n]+/).map(value => value.trim()).filter(Boolean)
+                if (JSON.stringify(specs) !== JSON.stringify(part.thread_specs || [])) patch({ thread_specs: specs })
+              }}
+            />
+          </label>
+          <label className="block text-sm">
+            <div className="mb-1 text-xs text-slate-500">数量</div>
+            <Input
+              key={`${fieldEpoch}-${part.qty || 1}`}
+              disabled={locked || busy}
+              type="number"
+              min={1}
+              defaultValue={part.qty || 1}
+              onBlur={e => {
+                const value = Number(e.currentTarget.value)
+                if (Number.isInteger(value) && value > 0 && value !== Number(part.qty || 1)) patch({ qty: value })
+              }}
+            />
+          </label>
+        </div>
+      </Card>
+
+      <Card className="p-5">
         <div className="mb-1 text-xs uppercase tracking-wide text-slate-400">02</div>
         <div className="mb-3 font-medium">报价可信度</div>
         <div className="flex items-end gap-3">
@@ -203,24 +290,6 @@ export function PartDetail({ id, go }: { id: string; go: (h: string) => void }) 
         <div className="mb-1 text-xs uppercase tracking-wide text-slate-400">04</div>
         <div className="mb-3 font-medium">Feature 模型审查</div>
         <div className="mb-4 grid gap-4 md:grid-cols-4">
-          <label className="block text-sm">
-            <div className="mb-1 text-xs text-slate-500">材料</div>
-            <Select disabled={locked || busy} value={part.material_code || "铝合金"} onChange={e => patchParams({ material: e.target.value })}>
-              {materials.map(m => <option key={m} value={m}>{m}</option>)}
-            </Select>
-          </label>
-          <label className="block text-sm">
-            <div className="mb-1 text-xs text-slate-500">IT</div>
-            <Select disabled={locked || busy} value={String(part.tolerance_it || 11)} onChange={e => patchParams({ tolerance_it: Number(e.target.value) })}>
-              {IT_OPTIONS.map(n => <option key={n} value={n}>{n}</option>)}
-            </Select>
-          </label>
-          <label className="block text-sm">
-            <div className="mb-1 text-xs text-slate-500">Ra</div>
-            <Select disabled={locked || busy} value={String(part.roughness_ra || 3.2)} onChange={e => patchParams({ roughness_ra: Number(e.target.value) })}>
-              {RA_OPTIONS.map(n => <option key={n} value={n}>{n}</option>)}
-            </Select>
-          </label>
           <label className="block text-sm">
             <div className="mb-1 text-xs text-slate-500">滑轴</div>
             <Select disabled={locked || busy} value={q.slider?.slider || part.slider || "标准"} onChange={e => patch({ slider: e.target.value })}>

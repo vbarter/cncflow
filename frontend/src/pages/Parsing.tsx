@@ -7,7 +7,15 @@ import {
   type ParseJobProgress,
 } from "../parseProgress"
 
-type ParseJob = ParseJobProgress & { job_id: string }
+type ParseJob = ParseJobProgress & {
+  job_id: string
+  result?: {
+    drawing?: {
+      tuzi?: { ok?: boolean; warning?: string }
+      warnings?: string[]
+    } | null
+  } | null
+}
 
 const wait = (milliseconds: number) => new Promise(resolve => window.setTimeout(resolve, milliseconds))
 
@@ -17,6 +25,7 @@ export function Parsing({ id, go }:{ id:string; go:(h:string)=>void }) {
   const [failedJobIds, setFailedJobIds] = useState<string[]>([])
   const [retrying, setRetrying] = useState(false)
   const [pollError, setPollError] = useState("")
+  const [pdfHint, setPdfHint] = useState("")
   const [cycle, setCycle] = useState(0)
 
   useEffect(()=>{
@@ -86,6 +95,16 @@ export function Parsing({ id, go }:{ id:string; go:(h:string)=>void }) {
         }
         const pending = jobs.filter(job => !isParseJobTerminal(job))
         if (pending.length) return
+        const pdfFailure = jobs
+          .map(job => job.result?.drawing)
+          .find(drawing => drawing?.tuzi?.ok === false)
+        if (pdfFailure) {
+          setPdfHint(
+            pdfFailure.tuzi?.warning
+            || pdfFailure.warnings?.[0]
+            || "PDF 未识别到可回填字段，STEP 报价已继续",
+          )
+        }
         if (quoted) return
         quoted = true
         await quoteWithStagedProgress()
@@ -99,6 +118,7 @@ export function Parsing({ id, go }:{ id:string; go:(h:string)=>void }) {
     setFailed(false)
     setFailedJobIds([])
     setPollError("")
+    setPdfHint("")
     setStep(0)
     tick()
     const iv = window.setInterval(tick, 1000)
@@ -137,6 +157,11 @@ export function Parsing({ id, go }:{ id:string; go:(h:string)=>void }) {
       {pollError && (
         <p className="mt-3 text-center text-xs text-red-700" role="status">
           {pollError}
+        </p>
+      )}
+      {pdfHint && (
+        <p className="mt-3 text-center text-xs text-amber-700" role="status">
+          {pdfHint}
         </p>
       )}
     </div>

@@ -18,6 +18,32 @@ UI = {
 }
 
 
+def _thread_specs(value):
+    if value in (None, []):
+        return []
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        raise ValueError("thread_specs 须为字符串列表")
+    return [item.strip()[:100] for item in value if item.strip()][:100]
+
+
+def _qty(value, default=1):
+    if value in (None, ""):
+        if default is not None:
+            return default
+        raise ValueError("qty 须为 1~1000000 的整数")
+    if isinstance(value, bool) or (
+        isinstance(value, float) and not value.is_integer()
+    ):
+        raise ValueError("qty 须为 1~1000000 的整数")
+    try:
+        qty = int(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("qty 须为 1~1000000 的整数") from exc
+    if qty < 1 or qty > 1_000_000:
+        raise ValueError("qty 须为 1~1000000 的整数")
+    return qty
+
+
 def rollup(statuses):
     if not statuses:
         return "pending"
@@ -36,6 +62,12 @@ def _part(row):
     item = dict(row)
     item["is_repeat_order"] = bool(item.get("is_repeat_order"))
     item["quote"] = json.loads(item.pop("quote_json") or "null")
+    try:
+        item["thread_specs"] = _thread_specs(
+            json.loads(item.pop("thread_specs_json", None) or "[]")
+        )
+    except (TypeError, ValueError, json.JSONDecodeError):
+        item["thread_specs"] = []
     item["ui_status"] = UI.get(item["status"], "pending")
     return item
 
@@ -84,15 +116,17 @@ def get_inquiry(conn, iid: str) -> dict:
 def add_part(conn, iid: str, payload: dict) -> dict:
     get_inquiry(conn, iid)
     pid = str(uuid.uuid4())
+    qty = _qty(payload.get("qty"))
     conn.execute(
-        "INSERT INTO parts (id,inquiry_id,name,qty,material_code,surface_finish,tolerance_it,roughness_ra,"
+        "INSERT INTO parts (id,inquiry_id,name,qty,material_code,surface_finish,tolerance_it,roughness_ra,thread_specs_json,"
         "batch_size,is_repeat_order,blank_type,length,width,height,diameter,status,slider) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (
             pid, iid, payload.get("name") or "零件",
-            int(payload.get("qty") or 1), payload.get("material") or payload.get("material_code") or "铝合金",
+            qty, payload.get("material") or payload.get("material_code") or "铝合金",
             payload.get("surface_finish") or "", payload.get("tolerance_it"), payload.get("roughness_ra"),
-            int(payload.get("batch_size") or payload.get("qty") or 1),
+            json.dumps(_thread_specs(payload.get("thread_specs")), ensure_ascii=False),
+            int(payload.get("batch_size") or qty),
             1 if payload.get("is_repeat_order") else 0,
             payload.get("blank_type") or "板料",
             payload.get("length"), payload.get("width"), payload.get("height"), payload.get("diameter"),
@@ -114,10 +148,30 @@ def update_part(conn, pid: str, patch: dict) -> dict:
     part = get_part(conn, pid)
     if part["status"] == "confirmed":
         raise PermissionError("confirmed")
+    patch = dict(patch)
+    if "thread_specs_json" in patch:
+        raise ValueError("thread_specs_json 是内部字段，请使用 thread_specs")
     allowed = {"name", "qty", "material_code", "surface_finish", "tolerance_it", "roughness_ra",
-               "batch_size", "is_repeat_order", "blank_type", "length", "width", "height", "diameter", "slider"}
+               "thread_specs_json", "batch_size", "is_repeat_order", "blank_type",
+               "length", "width", "height", "diameter", "slider"}
     if "material" in patch:
         patch = {**patch, "material_code": patch["material"]}
+    if "thread_specs" in patch:
+        patch = {
+            **patch,
+            "thread_specs_json": json.dumps(
+                _thread_specs(patch["thread_specs"]),
+                ensure_ascii=False,
+            ),
+        }
+    if "qty" in patch:
+        qty = _qty(patch["qty"], default=None)
+        patch["qty"] = qty
+        if (
+            "batch_size" not in patch
+            and int(part.get("batch_size") or 1) == int(part.get("qty") or 1)
+        ):
+            patch["batch_size"] = qty
     sets, vals = [], []
     for key in allowed:
         if key in patch:

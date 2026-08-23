@@ -1,5 +1,6 @@
 """解析任务的SQLite仓储与轻量队列操作。"""
 import json
+import math
 import sqlite3
 import uuid
 
@@ -140,6 +141,114 @@ def _apply_bbox(conn, part_id, result):
         )
 
 
+def _apply_pdf_backfill(conn, job_id, part_id, result):
+    drawing = (result or {}).get("drawing")
+    if not isinstance(drawing, dict):
+        return
+    backfill = drawing.get("backfill")
+    if not isinstance(backfill, dict):
+        backfill = {}
+    tuzi = drawing.get("tuzi") if isinstance(drawing.get("tuzi"), dict) else {}
+    sets, values = [], []
+    applied = []
+
+    for field in ("material_code", "surface_finish"):
+        value = backfill.get(field)
+        if isinstance(value, str) and value.strip():
+            sets.append(f"{field}=?")
+            values.append(value.strip()[:200])
+            applied.append(field)
+
+    try:
+        tolerance_it = int(backfill.get("tolerance_it"))
+    except (TypeError, ValueError, OverflowError):
+        tolerance_it = None
+    if tolerance_it is not None and 1 <= tolerance_it <= 18:
+        sets.append("tolerance_it=?")
+        values.append(tolerance_it)
+        applied.append("tolerance_it")
+
+    try:
+        roughness_ra = float(backfill.get("roughness_ra"))
+    except (TypeError, ValueError, OverflowError):
+        roughness_ra = None
+    if roughness_ra is not None and math.isfinite(roughness_ra) and 0 < roughness_ra <= 1000:
+        sets.append("roughness_ra=?")
+        values.append(roughness_ra)
+        applied.append("roughness_ra")
+
+    specs = backfill.get("thread_specs")
+    if isinstance(specs, list) and all(isinstance(item, str) for item in specs):
+        specs = [item.strip()[:100] for item in specs if item.strip()][:100]
+        sets.append("thread_specs_json=?")
+        values.append(json.dumps(specs, ensure_ascii=False))
+        applied.append("thread_specs")
+
+    raw_qty = backfill.get("qty")
+    try:
+        qty = int(raw_qty)
+    except (TypeError, ValueError, OverflowError):
+        qty = None
+    if isinstance(raw_qty, bool) or (
+        isinstance(raw_qty, float) and not raw_qty.is_integer()
+    ):
+        qty = None
+    if qty is not None and 1 <= qty <= 1_000_000:
+        current = conn.execute(
+            "SELECT qty,batch_size FROM parts WHERE id=?",
+            (part_id,),
+        ).fetchone()
+        sets.append("qty=?")
+        values.append(qty)
+        if current and int(current["batch_size"] or 1) == int(current["qty"] or 1):
+            sets.append("batch_size=?")
+            values.append(qty)
+        applied.append("qty")
+
+    status = "applied" if sets else "failed"
+    warning = None if sets else (
+        tuzi.get("warning")
+        or next(iter(drawing.get("warnings") or []), None)
+        or "tu-zi 未返回可回填字段"
+    )
+    sets.extend(["pdf_backfill_status=?", "pdf_backfill_warning=?"])
+    values.extend([status, warning])
+    values.append(part_id)
+    conn.execute("SAVEPOINT pdf_backfill")
+    try:
+        conn.execute(
+            f"UPDATE parts SET {', '.join(sets)}, updated_at=datetime('now') WHERE id=?",
+            values,
+        )
+        conn.execute("RELEASE SAVEPOINT pdf_backfill")
+    except Exception as exc:
+        conn.execute("ROLLBACK TO SAVEPOINT pdf_backfill")
+        conn.execute("RELEASE SAVEPOINT pdf_backfill")
+        warning = f"PDF 回填落库失败: {exc}"
+        conn.execute(
+            "UPDATE parts SET pdf_backfill_status='failed',pdf_backfill_warning=?,"
+            "updated_at=datetime('now') WHERE id=?",
+            (warning[:1000], part_id),
+        )
+        event(conn, job_id, "pdf_backfill", warning[:500])
+        return
+    if status == "applied":
+        names = [BACKFILL_EVENT_FIELDS[field] for field in applied]
+        event(conn, job_id, "pdf_backfill", f"PDF 已回填：{', '.join(names)}")
+    else:
+        event(conn, job_id, "pdf_backfill", f"PDF 未回填：{warning}")
+
+
+BACKFILL_EVENT_FIELDS = {
+    "material_code": "材料",
+    "tolerance_it": "IT",
+    "roughness_ra": "Ra",
+    "surface_finish": "表面处理",
+    "thread_specs": "螺纹规格",
+    "qty": "数量",
+}
+
+
 def _checkpoint_db():
     """解析落库后立刻打检查点；备份失败不影响任务状态。"""
     persist.try_backup_db()
@@ -162,6 +271,7 @@ def finish_job(conn, job_id, result, *, worker_id=None, attempt=None):
     event(conn, job_id, "review", "解析完成，请确认识别结果")
     pid = _current_part_id(conn, job_id)
     if pid:
+        _apply_pdf_backfill(conn, job_id, pid, result)
         _apply_bbox(conn, pid, result)
     conn.commit()
     if pid:

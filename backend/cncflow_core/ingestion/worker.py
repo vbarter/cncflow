@@ -129,10 +129,24 @@ def process_claimed(conn, job):
         elif file["detected_type"] == "pdf":
             update_job(
                 conn, job["job_id"], stage="pdf_drawing", progress=65,
-                message="正在识别PDF图纸", **claim,
+                message="正在通过 tu-zi 识别 PDF 图纸", **claim,
             )
-            result["drawing"] = isolated_parse("pdf", materialize(file["storage_path"], suffix=suffix), job["options"])
-            result["warnings"].extend(result["drawing"].get("warnings", []))
+            try:
+                result["drawing"] = isolated_parse(
+                    "pdf",
+                    materialize(file["storage_path"], suffix=suffix),
+                    job["options"],
+                )
+                result["warnings"].extend(result["drawing"].get("warnings", []))
+            except Exception as exc:
+                warning = f"PDF 回填失败，STEP 报价继续: {exc}"
+                result["drawing"] = {
+                    "parser": "pdf",
+                    "backfill": {},
+                    "tuzi": {"provider": "tu-zi", "called": False, "ok": False},
+                    "warnings": [warning],
+                }
+                result["warnings"].append(warning)
     if result["geometry"] is None:
         result["warnings"].append("未上传STEP，无法获得真实体积、表面积和B-Rep制造特征")
     finish_job(conn, job["job_id"], result, **claim)

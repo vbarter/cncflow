@@ -23,7 +23,11 @@ def _conn():
 def capabilities():
     return jsonify({
         "formats": ["step", "stp", "pdf"], "max_file_mb": 100, "max_job_mb": 150,
-        "max_files": 2, "external_ai_available": bool(os.environ.get("VISION_API_KEY")),
+        "max_files": 2,
+        "pdf_backfill_provider": "tu-zi",
+        "external_ai_available": bool(
+            os.environ.get("TUZI_API_KEY") or os.environ.get("VISION_API_KEY")
+        ),
         "retention": "r2" if r2.configured() else "local_archive", "confirmation_required": True,
     })
 
@@ -48,7 +52,7 @@ def upload_job():
             raise ValueError("单次任务文件总大小不能超过150MB")
         part_id = (request.form.get("part_id") or "").strip()
         options = {
-            "allow_external_ai": request.form.get("allow_external_ai", "false").lower() == "true",
+            "allow_external_ai": drawing is not None,
             "part_id": part_id or None,
         }
         if part_id:
