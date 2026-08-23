@@ -141,7 +141,7 @@ def test_part_detail_shows_parse_job_holes_before_quote(client, seeded_db_path):
     assert "hours" in q["quote"]
     assert q["hours"]["total"] == q["quote"]["hours"]
     assert "ui_cost" in q
-    for key in ("material", "machining", "setup", "programming", "inspect", "toolwear", "scrap"):
+    for key in ("material", "machining", "setup", "fixture", "programming", "inspect", "toolwear", "scrap"):
         assert key in q["ui_cost"]
     assert q.get("process_sequence")
     step = q["process_sequence"][0]

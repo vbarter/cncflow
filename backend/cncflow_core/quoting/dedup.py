@@ -92,6 +92,14 @@ def merge_chamfers(seq: list) -> list:
     tm = next((s.get("time") for s in chamfers if s.get("time")), None)
     if tm:
         merged["time"] = tm
+    for key in ("formula", "n", "f", "cut", "passes", "t_min", "t_max", "status"):
+        hit = next((s.get(key) for s in chamfers if s.get(key) is not None), None)
+        if hit is None and tm and tm.get(key) is not None:
+            hit = tm[key]
+        if hit is not None:
+            merged[key] = hit
+        elif key == "status":
+            merged.setdefault("status", "ok")
     out = others + [merged]
     for i, s in enumerate(out, 1):
         s["order"] = i
