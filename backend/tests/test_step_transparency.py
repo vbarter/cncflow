@@ -110,6 +110,8 @@ def _assert_smoke(body, names, hours=0.1):
     assert [s["name"] for s in body["process_sequence"]] == names
     assert body["hours"]["total"] == hours
     assert body["quote"]["hours"] == hours
+    assert body["fixture"]["setup_count"] == 1
+    assert body["suggested_days"] == 2
     for step in body["process_sequence"]:
         _assert_step_params(step)
     _assert_costs_split(body)

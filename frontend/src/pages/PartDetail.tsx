@@ -4,6 +4,7 @@ import { FeatureReview } from "../components/FeatureReview"
 import { ProcessSequenceEditor } from "../components/ProcessSequenceEditor"
 import { json } from "../api"
 import { hoursLabel, quoteHours } from "../quoteHours"
+import { quoteSuggestedDays, suggestedDaysLabel } from "../suggestedDays"
 
 const COST_LABEL: Record<string, string> = {
   material: "原材料", machining: "加工工时", setup: "装夹", fixture: "夹具",
@@ -148,6 +149,7 @@ export function PartDetail({ id, go }: { id: string; go: (h: string) => void }) 
           <div>单件成本 ¥{yen(quote.cost)}</div>
           <div>毛利率 {quote.margin ?? "—"}%</div>
           <div>加工时间 {hoursLabel(quoteHours(q))}</div>
+          <div>建议交期 {suggestedDaysLabel(quoteSuggestedDays(q))}</div>
           <div>工艺风险 <span className={riskCount ? "text-red-300" : ""}>{riskCount}项</span> · 置信度 {q.confidence ?? "—"}</div>
         </div>
       </div>
