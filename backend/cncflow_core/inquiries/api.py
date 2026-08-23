@@ -419,8 +419,7 @@ def _quote_part(
         "slider": part.get("slider") or "标准",
         "tolerance_it": part.get("tolerance_it"),
         "roughness_ra": part.get("roughness_ra"),
-        # 几何解析输出 cm³；报价体积与 D2 MRR 全程使用 mm³。
-        "v_part_cad": float(geometry["volume_cm3"]) * 1000 if geometry.get("volume_cm3") else None,
+        "v_part_cad": geometry.get("volume_cm3"),
         "features": features,
         "process_overrides": process_overrides,
     }, conn, rules_version=rules_version)
