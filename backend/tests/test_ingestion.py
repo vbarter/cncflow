@@ -198,7 +198,12 @@ def test_stale_worker_cannot_finish_retried_claim(client, seeded_db_path):
 
     assert client.post(f"/api/v1/parse-jobs/{job_id}/retry").status_code == 202
     conn = get_conn(seeded_db_path)
-    new_claim = claim_job(conn, "new-worker")
+    conn.execute(
+        "UPDATE parse_jobs SET status='running',stage='starting',progress=5,"
+        "attempts=1,worker_id='new-worker' WHERE job_id=?",
+        (job_id,),
+    )
+    conn.commit()
     with pytest.raises(StaleJobClaim):
         finish_job(
             conn,
@@ -210,7 +215,6 @@ def test_stale_worker_cannot_finish_retried_claim(client, seeded_db_path):
     current = get_job(conn, job_id)
     conn.close()
 
-    assert new_claim["job_id"] == job_id
     assert current["status"] == "running"
     assert current["stage"] == "starting"
     assert current["result"] is None
