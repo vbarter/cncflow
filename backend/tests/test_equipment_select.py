@@ -84,5 +84,8 @@ def test_no_match_still_quotes(client):
     assert body["status"] == "quoted"
     assert body["quote"]["amount"] > 0
     assert "设备不匹配" in body["risk"]["tags"]
+    d4 = [item for item in body["deductions"] if item["rule_id"] == "D4-1"]
+    assert len(d4) == 1
+    assert d4[0]["deduction"] == 10
     assert body["equipment"]["type"]
     assert body["equipment"]["hourly_rate"] is not None
