@@ -156,6 +156,54 @@ def _drop_slot_as_steps(features):
 
 
 
+def _feat_num(feat, *keys):
+    dim = feat.get("dimensions") or {}
+    for key in keys:
+        raw = feat.get(key)
+        if raw is None:
+            raw = dim.get(key)
+        if raw is None or raw == "":
+            continue
+        try:
+            return float(raw)
+        except (TypeError, ValueError):
+            continue
+    return 0.0
+
+
+def _unselect_step_shoulder_tops(features):
+    """台阶肩顶不当默认面铣。Ø8 整板顶面无台阶，勾选不动。特征仍保留供手勾。"""
+    steps = [f for f in features if f.get("type") == "step" or f.get("subtype") == "recognized_step"]
+    if not steps:
+        return features
+    for feat in features:
+        if feat.get("type") != "face" and feat.get("subtype") != "recognized_face":
+            continue
+        if feat.get("selected") is False:
+            continue
+        pos = feat.get("face_position") or (feat.get("dimensions") or {}).get("face_position") or "水平"
+        if pos != "水平":
+            continue
+        length = _feat_num(feat, "length")
+        width = _feat_num(feat, "width")
+        if length <= 0 or width <= 0:
+            continue
+        face_area = length * width
+        for step in steps:
+            step_l = _feat_num(step, "length")
+            step_w = _feat_num(step, "width")
+            same_footprint = (
+                step_l > 0 and step_w > 0
+                and abs(length - step_l) <= 3 and abs(width - step_w) <= 3
+            )
+            step_area = step_l * step_w if step_l > 0 and step_w > 0 else 0.0
+            partial = step_area > 0 and face_area < 0.8 * (face_area + step_area)
+            if same_footprint or partial:
+                feat["selected"] = False
+                break
+    return features
+
+
 def _drop_hole_as_surfaces(features):
     """孔壁/倒圆不当曲面。Ø8 / ZN-010 回退不得出 recognized_surface。"""
     holes = [f for f in features if f.get("subtype") == "recognized_hole"]
@@ -200,6 +248,7 @@ def parse_step_file(path):
     features = _drop_slot_as_steps(features)
     features = _drop_threaded_holes(features)
     features = _drop_hole_as_surfaces(features)
+    features = _unselect_step_shoulder_tops(features)
     result["service"] = SERVICE_NAME
     result["parser"] = "geometry-service"
     result["parser_version"] = FEATURE_SCHEMA

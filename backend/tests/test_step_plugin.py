@@ -4,7 +4,7 @@ import os
 import pytest
 
 from cncflow_core.geometry.plugins import run_step
-from cncflow_core.geometry.service import parse_step_file
+from cncflow_core.geometry.service import _unselect_step_shoulder_tops, parse_step_file
 from cncflow_core.inquiries.api import _review_and_quote_features
 
 
@@ -73,6 +73,10 @@ def test_l_step_emits_profile_lh():
     rec = [f for f in result["features"] if f.get("subtype") == "recognized_step"]
     assert rec
     assert rec[0]["selected"] is True
+    assert not any(
+        f.get("subtype") == "recognized_face" and f.get("selected")
+        for f in result["features"]
+    )
 
 
 def test_step_chain_default_rough_chamfer(client):
@@ -138,3 +142,96 @@ def test_rect_step_h8_sample_emits_lh():
     assert st["selected"] is True
     assert st["height"] == pytest.approx(8, abs=1.5)
     assert st["length"] == pytest.approx(80, abs=3)
+
+
+def test_unselect_step_shoulder_drops_80x25_keeps_d8_top():
+    plate = [
+        {
+            "type": "face", "feature_id": "face-0", "subtype": "recognized_face",
+            "selected": True, "length": 80, "width": 60, "face_position": "水平",
+        },
+        {
+            "type": "hole", "feature_id": "hole-0", "selected": True, "diameter_mm": 8,
+        },
+    ]
+    kept = _unselect_step_shoulder_tops(plate)
+    assert kept[0]["selected"] is True
+    step_part = [
+        {
+            "type": "step", "feature_id": "step-0", "subtype": "recognized_step",
+            "selected": True, "profile_type": "台阶", "length": 80, "width": 25, "height": 8,
+        },
+        {
+            "type": "face", "feature_id": "face-0", "subtype": "recognized_face",
+            "selected": True, "length": 80, "width": 25, "face_position": "水平",
+        },
+    ]
+    out = _unselect_step_shoulder_tops(step_part)
+    by_id = {f["feature_id"]: f for f in out}
+    assert by_id["step-0"]["selected"] is True
+    assert by_id["face-0"]["selected"] is False
+
+
+def test_review_rect_step_default_only_step(client):
+    review, quoted = _review_and_quote_features([
+        {
+            "type": "step", "feature_id": "step-0", "selected": True,
+            "profile_type": "台阶", "length": 80, "height": 8, "width": 25,
+        },
+        {
+            "type": "face", "feature_id": "face-0", "selected": False,
+            "length": 80, "width": 25, "face_position": "水平",
+        },
+    ], None, 80, 50)
+    by_id = {f["feature_id"]: f for f in review}
+    assert by_id["step-0"]["selected"] is True
+    assert by_id["face-0"]["selected"] is False
+    assert [f["type"] for f in quoted] == ["step"]
+    resp = client.post("/api/v1/quotes", json={
+        "material": "铝合金",
+        "stock_type": "板料",
+        "length": 80, "width": 50, "height": 16,
+        "features": quoted,
+    })
+    assert resp.status_code == 200
+    seq = resp.get_json()["process_sequence"]
+    assert len(seq) == 2, seq
+    assert [s.get("sku") for s in seq] == ["TK-026", "TK-036"]
+
+
+def test_review_rect_step_manual_check_shoulder():
+    review, quoted = _review_and_quote_features([
+        {
+            "type": "step", "feature_id": "step-0", "selected": True,
+            "profile_type": "台阶", "length": 80, "height": 8, "width": 25,
+        },
+        {
+            "type": "face", "feature_id": "face-0", "selected": False,
+            "length": 80, "width": 25, "face_position": "水平",
+        },
+    ], ["step-0", "face-0"], 80, 50)
+    by_id = {f["feature_id"]: f for f in review}
+    assert by_id["face-0"]["selected"] is True
+    assert by_id["step-0"]["selected"] is True
+    assert {f["type"] for f in quoted} == {"step", "face"}
+
+
+def test_rect_step_h8_default_only_step_selected():
+    """78d9038e / rect_step_h8：默认只勾 step-0，肩顶 face 80×25 不自动勾。"""
+    pytest.importorskip("cadquery")
+    if not os.path.exists(STEP_H8):
+        pytest.skip("missing rect_step_h8 fixture")
+    result = parse_step_file(STEP_H8)
+    selected = [f for f in result["features"] if f.get("selected")]
+    assert [f.get("feature_id") for f in selected] == ["step-0"], selected
+    faces = [f for f in result["features"] if f.get("subtype") == "recognized_face"]
+    shoulder = [
+        f for f in faces
+        if abs((f.get("length") or 0) - 80) < 2 and abs((f.get("width") or 0) - 25) < 2
+    ]
+    assert shoulder, faces
+    assert all(f.get("selected") is False for f in shoulder)
+    review, quoted = _review_and_quote_features(result["features"], None, 80, 50)
+    assert any(f["feature_id"] == "step-0" and f["selected"] for f in review)
+    assert all(not (f.get("type") == "face" and f.get("selected")) for f in review)
+    assert [f["type"] for f in quoted] == ["step"]

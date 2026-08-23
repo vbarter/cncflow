@@ -3,7 +3,7 @@ import os
 
 import pytest
 
-from cncflow_core.geometry.face import _face_position
+from cncflow_core.geometry.face import _covers_stock_xy, _face_position
 from cncflow_core.geometry.plugins import run_face
 from cncflow_core.geometry.service import parse_step_file
 from cncflow_core.inquiries.api import _review_and_quote_features
@@ -19,6 +19,17 @@ class _BBox:
         self.xmin, self.xmax = xmin, xmax
         self.ymin, self.ymax = ymin, ymax
         self.zmin, self.zmax = zmin, zmax
+        self.xlen = xmax - xmin
+        self.ylen = ymax - ymin
+        self.zlen = zmax - zmin
+
+
+def test_covers_stock_xy_keeps_plate_rejects_shoulder():
+    plate = _BBox(-40, 40, -30, 30, 0, 12)
+    step_stock = _BBox(-40, 40, -25, 25, 0, 16)
+    assert _covers_stock_xy(80, 60, plate, 2) is True
+    assert _covers_stock_xy(80, 50, step_stock, 2) is True
+    assert _covers_stock_xy(80, 25, step_stock, 2) is False
 
 
 def test_face_position_horizontal_vertical_tilt():

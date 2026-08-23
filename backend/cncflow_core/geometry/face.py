@@ -19,6 +19,25 @@ def _is_top_face(normal, center, bbox, thick_axis):
     return abs(center[thick_axis] - hi) <= abs(center[thick_axis] - lo)
 
 
+def _bbox_spans(bbox):
+    x = getattr(bbox, "xlen", None)
+    y = getattr(bbox, "ylen", None)
+    z = getattr(bbox, "zlen", None)
+    if x is None or y is None or z is None:
+        x = bbox.xmax - bbox.xmin
+        y = bbox.ymax - bbox.ymin
+        z = bbox.zmax - bbox.zmin
+    return (x, y, z)
+
+
+def _covers_stock_xy(length, width, bbox, thick_axis, ratio=0.8):
+    """整板顶面才默认面铣；台阶肩顶（半幅 80×25）盖不住毛坯 XY。"""
+    spans = list(_bbox_spans(bbox))
+    spans.pop(thick_axis)
+    stock_l, stock_w = max(spans), min(spans)
+    return float(length) + 1e-6 >= ratio * stock_l and float(width) + 1e-6 >= ratio * stock_w
+
+
 def _measure_lw(fb):
     dims = sorted((fb.xlen, fb.ylen, fb.zlen), reverse=True)
     return dims[0], dims[1]
@@ -117,7 +136,7 @@ def detect_faces(path: str) -> list:
         (f["axis"]["x"], f["axis"]["y"], f["axis"]["z"]),
         (f["location"]["x"], f["location"]["y"], f["location"]["z"]),
         bbox, thick_axis,
-    )]
+    ) and _covers_stock_xy(f["length"], f["width"], bbox, thick_axis)]
     if tops:
         max(tops, key=lambda f: f["length"] * f["width"])["selected"] = True
     return found
