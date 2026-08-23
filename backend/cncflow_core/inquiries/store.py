@@ -26,9 +26,17 @@ def _thread_specs(value):
     return [item.strip()[:100] for item in value if item.strip()][:100]
 
 
-def _qty(value):
+def _qty(value, default=1):
+    if value in (None, ""):
+        if default is not None:
+            return default
+        raise ValueError("qty 须为 1~1000000 的整数")
+    if isinstance(value, bool) or (
+        isinstance(value, float) and not value.is_integer()
+    ):
+        raise ValueError("qty 须为 1~1000000 的整数")
     try:
-        qty = int(value or 1)
+        qty = int(value)
     except (TypeError, ValueError, OverflowError) as exc:
         raise ValueError("qty 须为 1~1000000 的整数") from exc
     if qty < 1 or qty > 1_000_000:
@@ -141,7 +149,8 @@ def update_part(conn, pid: str, patch: dict) -> dict:
     if part["status"] == "confirmed":
         raise PermissionError("confirmed")
     patch = dict(patch)
-    patch.pop("thread_specs_json", None)
+    if "thread_specs_json" in patch:
+        raise ValueError("thread_specs_json 是内部字段，请使用 thread_specs")
     allowed = {"name", "qty", "material_code", "surface_finish", "tolerance_it", "roughness_ra",
                "thread_specs_json", "batch_size", "is_repeat_order", "blank_type",
                "length", "width", "height", "diameter", "slider"}
@@ -156,9 +165,12 @@ def update_part(conn, pid: str, patch: dict) -> dict:
             ),
         }
     if "qty" in patch:
-        qty = _qty(patch["qty"])
+        qty = _qty(patch["qty"], default=None)
         patch["qty"] = qty
-        if "batch_size" not in patch:
+        if (
+            "batch_size" not in patch
+            and int(part.get("batch_size") or 1) == int(part.get("qty") or 1)
+        ):
             patch["batch_size"] = qty
     sets, vals = [], []
     for key in allowed:

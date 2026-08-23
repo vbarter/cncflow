@@ -184,13 +184,25 @@ def _apply_pdf_backfill(conn, job_id, part_id, result):
         values.append(json.dumps(specs, ensure_ascii=False))
         applied.append("thread_specs")
 
+    raw_qty = backfill.get("qty")
     try:
-        qty = int(backfill.get("qty"))
+        qty = int(raw_qty)
     except (TypeError, ValueError, OverflowError):
         qty = None
+    if isinstance(raw_qty, bool) or (
+        isinstance(raw_qty, float) and not raw_qty.is_integer()
+    ):
+        qty = None
     if qty is not None and 1 <= qty <= 1_000_000:
-        sets.extend(["qty=?", "batch_size=?"])
-        values.extend([qty, qty])
+        current = conn.execute(
+            "SELECT qty,batch_size FROM parts WHERE id=?",
+            (part_id,),
+        ).fetchone()
+        sets.append("qty=?")
+        values.append(qty)
+        if current and int(current["batch_size"] or 1) == int(current["qty"] or 1):
+            sets.append("batch_size=?")
+            values.append(qty)
         applied.append("qty")
 
     status = "applied" if sets else "failed"

@@ -253,5 +253,34 @@ def test_internal_thread_json_cannot_be_patched(client):
         json={"thread_specs_json": "invalid"},
     )
 
-    assert response.status_code == 200
-    assert response.get_json()["thread_specs"] == []
+    assert response.status_code == 400
+    assert "内部字段" in response.get_json()["error"]
+
+
+def test_qty_requires_integer_and_preserves_explicit_batch_size(client):
+    inquiry = client.post("/api/v1/inquiries", json={"customer": "数量字段"}).get_json()
+    invalid = client.post(
+        f"/api/v1/inquiries/{inquiry['id']}/parts",
+        json={"name": "非法数量", "qty": 1.9},
+    )
+    assert invalid.status_code == 400
+
+    part = client.post(
+        f"/api/v1/inquiries/{inquiry['id']}/parts",
+        json={
+            "name": "独立批量",
+            "qty": 2,
+            "batch_size": 5,
+            "length": 80,
+            "width": 40,
+            "height": 12,
+        },
+    ).get_json()
+    patched = client.patch(
+        f"/api/v1/parts/{part['id']}",
+        json={"qty": 10},
+    )
+
+    assert patched.status_code == 200
+    assert patched.get_json()["qty"] == 10
+    assert patched.get_json()["batch_size"] == 5
