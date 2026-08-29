@@ -44,10 +44,13 @@ test("AI 报价决策栏按冻结顺序堆叠六列，并保留 Ø8 实时 pin",
   const decision = header.closest("section")
   assert.ok(decision)
 
-  const decisionClasses = Array.from(
-    decision.querySelectorAll<HTMLElement>("[class]"),
-    element => element.className,
-  ).join(" ")
+  const decisionClasses = [
+    decision.className,
+    ...Array.from(
+      decision.querySelectorAll<HTMLElement>("[class]"),
+      element => element.className,
+    ),
+  ].join(" ")
   assert.doesNotMatch(decisionClasses, /\boverflow-x-auto\b/)
   assert.ok(!decisionClasses.includes("min-w-[720px]"))
 
