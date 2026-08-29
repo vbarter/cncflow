@@ -84,6 +84,12 @@ def _public_material(row) -> dict:
     return item
 
 
+def _public_rate(row) -> dict:
+    item = dict(row)
+    item.pop("programming_fee_new", None)
+    return item
+
+
 def _tool_extra(item: dict) -> dict:
     extra = {}
     raw = item.get("extra_attrs")
@@ -252,7 +258,10 @@ def get_config(conn) -> dict:
             _public_material(r)
             for r in conn.execute("SELECT * FROM factory_material_prices ORDER BY material_code")
         ],
-        "rate_table": [dict(r) for r in conn.execute("SELECT * FROM rate_table ORDER BY equipment_type")],
+        "rate_table": [
+            _public_rate(r)
+            for r in conn.execute("SELECT * FROM rate_table ORDER BY equipment_type")
+        ],
     }
 
 

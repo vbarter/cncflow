@@ -577,7 +577,7 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
         "labor_cost_breakdown": {
             "machining": round(machining_sub, 2),
             "setup": round(setup_ui, 2),
-            "total": round(machining_sub + setup_ui, 2),
+            "total": round(round(machining_sub, 2) + round(setup_ui, 2), 2),
         },
         "validation": _validation(seq),
         "volume": vol,

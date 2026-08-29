@@ -11,6 +11,7 @@ def test_get_seeds_rate_table(client):
     assert types["3轴立式加工中心"]["hourly_rate"] == 120
     assert types["3轴立式加工中心"]["programming_hourly_rate"] == 40
     assert types["5轴联动加工中心"]["programming_hourly_rate"] == 100
+    assert all("programming_fee_new" not in row for row in body["rate_table"])
 
 
 def test_put_roundtrip(client):
