@@ -212,7 +212,16 @@ def test_o8_material_cost_uses_full_scrap_value_without_eta(client):
     assert body["programming_cost"] == pytest.approx(62, abs=0.02)
 
 
-def test_o8_labor_trace_reconciles_live_machining_and_changeover(client):
+def test_o8_labor_trace_reconciles_live_machining_and_changeover(tmp_path):
+    from app import create_app
+    from cncflow_core.common.db import get_conn
+    from data.seed_tools import seed
+
+    db_path = tmp_path / "o8-labor.db"
+    conn = get_conn(db_path)
+    seed(conn)
+    conn.close()
+    client = create_app(db_path=str(db_path)).test_client()
     body = _quote(
         client,
         [
