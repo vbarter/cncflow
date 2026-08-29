@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import test, { afterEach } from "node:test"
 import { JSDOM } from "jsdom"
 import React from "react"
-import { PartDetail } from "../src/pages/PartDetail"
+import { PartQuoteDecision } from "../src/components/PartQuoteDecision"
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", {
   url: "http://localhost/",
@@ -22,52 +22,29 @@ Object.defineProperty(globalThis, "navigator", {
 })
 
 const { cleanup, render, screen } = await import("@testing-library/react")
-const originalFetch = globalThis.fetch
 
-afterEach(() => {
-  cleanup()
-  globalThis.fetch = originalFetch
-})
+afterEach(cleanup)
 
-test("AI 报价决策栏按冻结顺序堆叠六列，并保留 Ø8 实时 pin", async () => {
-  const part = {
-    id: "part-o8",
-    inquiry_id: "inquiry-1",
-    name: "Ø8",
-    material_code: "6061",
-    qty: 1,
-    status: "quoted",
-    mesh: { available: false },
-    parsed_features: [],
-    quote: {
-      quote: {
-        amount: 731,
-        cost: 636,
-        margin: 13.04,
-        hours: 0.1,
-      },
-      ui_cost: {},
-      risk: { level: "low", tags: [] },
-      deductions: [
-        { rule_id: "D1-1", dimension: "D1", deduction: 5, reason: "粗加工工时低于下限" },
-        { rule_id: "D1-2", dimension: "D1", deduction: 5, reason: "钻孔工时低于下限" },
-      ],
-      process_sequence: [],
-      suggested_days: 2,
-      confidence: 90,
-    },
-  }
-  globalThis.fetch = async () => ({
-    ok: true,
-    json: async () => part,
-  }) as Response
+test("AI 报价决策栏按冻结顺序堆叠六列，并保留 Ø8 实时 pin", () => {
+  render(
+    <PartQuoteDecision
+      recommend="建议接单"
+      quote="¥731"
+      cost="¥636"
+      margin="13.04%"
+      machiningTime="0.1h"
+      suggestedDelivery="2 天"
+      riskCount={2}
+      confidence={90}
+      confirmAction={<button type="button">确认本零件报价</button>}
+    />,
+  )
 
-  render(<PartDetail id={part.id} go={() => {}} />)
-
-  const header = await screen.findByText("01 AI QUOTE DECISION")
+  const header = screen.getByText("01 AI QUOTE DECISION")
   const decision = header.closest("section")
   assert.ok(decision)
 
+  assert.match(decision.querySelector("dl")?.className || "", /\bgrid-cols-6\b/)
   assert.deepEqual(
     Array.from(decision.querySelectorAll("dt"), element => element.textContent),
     [

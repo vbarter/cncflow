@@ -2,6 +2,7 @@ import { useEffect, useState } from "react"
 import { Button, Card, Input, Select } from "../components/ui"
 import { CostBreakdown } from "../components/CostBreakdown"
 import { FeatureReview } from "../components/FeatureReview"
+import { PartQuoteDecision } from "../components/PartQuoteDecision"
 import { ProcessSequenceEditor } from "../components/ProcessSequenceEditor"
 import { json } from "../api"
 import { hoursLabel, quoteHours } from "../quoteHours"
@@ -94,43 +95,19 @@ export function PartDetail({ id, go }: { id: string; go: (h: string) => void }) 
   )
 
   const decision = (withConfirm: boolean) => (
-    <section className="flex flex-col gap-4 rounded bg-slate-900 px-4 py-5 text-white md:flex-row md:flex-nowrap md:items-center md:justify-between md:px-6">
-      <div className="min-w-0 flex-1">
-        <div className="text-xs uppercase tracking-wide text-slate-400">01 AI QUOTE DECISION</div>
-        <div className="mt-1 text-sm text-emerald-300">{recommend}</div>
-        <div className="mt-3 overflow-x-auto">
-          <dl className="grid min-w-[720px] grid-cols-6 gap-x-5">
-            <div className="min-w-0">
-              <dt className="text-xs text-slate-400">单件报价</dt>
-              <dd className="mt-1 whitespace-nowrap text-2xl font-semibold">¥{yen(quote.amount)}</dd>
-            </div>
-            <div className="min-w-0">
-              <dt className="text-xs text-slate-400">单件成本</dt>
-              <dd className="mt-1 whitespace-nowrap text-base font-medium">¥{yen(quote.cost)}</dd>
-            </div>
-            <div className="min-w-0">
-              <dt className="text-xs text-slate-400">毛利率</dt>
-              <dd className="mt-1 whitespace-nowrap text-base font-medium">{quote.margin ?? "—"}%</dd>
-            </div>
-            <div className="min-w-0">
-              <dt className="text-xs text-slate-400">加工时间</dt>
-              <dd className="mt-1 whitespace-nowrap text-base font-medium">{hoursLabel(quoteHours(q))}</dd>
-            </div>
-            <div className="min-w-0">
-              <dt className="text-xs text-slate-400">建议交期</dt>
-              <dd className="mt-1 whitespace-nowrap text-base font-medium">{suggestedDaysLabel(quoteSuggestedDays(q))}</dd>
-            </div>
-            <div className="min-w-0">
-              <dt className="text-xs text-slate-400">工艺风险 · 置信度</dt>
-              <dd className="mt-1 whitespace-nowrap text-base font-medium">
-                <span className={riskCount ? "text-red-300" : ""}>{riskCount}项</span> · {q.confidence ?? "—"}
-              </dd>
-            </div>
-          </dl>
-        </div>
-      </div>
-      {withConfirm && <Button className="min-h-11 shrink-0 md:min-h-10" disabled={locked || part.status !== "quoted" || busy} onClick={() => act("/parts/" + id + "/confirm")}>确认本零件报价</Button>}
-    </section>
+    <PartQuoteDecision
+      recommend={recommend}
+      quote={<>¥{yen(quote.amount)}</>}
+      cost={<>¥{yen(quote.cost)}</>}
+      margin={<>{quote.margin ?? "—"}%</>}
+      machiningTime={hoursLabel(quoteHours(q))}
+      suggestedDelivery={suggestedDaysLabel(quoteSuggestedDays(q))}
+      riskCount={riskCount}
+      confidence={q.confidence ?? "—"}
+      confirmAction={withConfirm
+        ? <Button className="min-h-11 shrink-0 md:min-h-10" disabled={locked || part.status !== "quoted" || busy} onClick={() => act("/parts/" + id + "/confirm")}>确认本零件报价</Button>
+        : undefined}
+    />
   )
 
   return <div className="space-y-6">
