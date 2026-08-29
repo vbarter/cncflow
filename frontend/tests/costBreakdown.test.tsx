@@ -6,6 +6,7 @@ import {
   CostBreakdown,
   costValue,
   fixtureCost,
+  programmingDrawerValues,
 } from "../src/components/CostBreakdown"
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", {
@@ -42,6 +43,110 @@ const uiCost = {
   toolwear: 2,
   scrap: 3,
 }
+
+function programmingQuote(programmingTime: number, programmingCost: number) {
+  return {
+    program_count: 1,
+    programming_time: programmingTime,
+    t_programming: programmingTime,
+    programming_cost: programmingCost,
+    programming_cost_per_piece: programmingCost,
+    programming_cost_detail: [{
+      programming_time: programmingTime,
+      machine_axes: 3,
+      hourly_rate: 40,
+      batch_size: 1,
+      is_repeat_order: programmingCost === 0,
+      cost_before_batch: programmingCost,
+      cost_per_piece: programmingCost,
+    }],
+    equipment: {
+      model: "VMC850E",
+      axes: 3,
+      hourly_rate: 120,
+    },
+    fixture: {
+      setup_count: 1,
+    },
+  }
+}
+
+test("点击编程行打开 Ø8 编程费用抽屉并按冻结顺序显示现网字段", () => {
+  const quote = programmingQuote(93, 62)
+  render(
+    <CostBreakdown
+      quote={quote}
+      uiCost={uiCost}
+      quoteSummary={quoteSummary}
+    />,
+  )
+
+  const programmingRow = screen.getByRole("button", { name: /编程/ })
+  assert.ok(within(programmingRow).getByText("¥62"))
+  fireEvent.click(programmingRow)
+
+  const drawer = screen.getByRole("dialog", { name: "编程费用" })
+  assert.deepEqual(
+    Array.from(drawer.querySelectorAll("dt"), element => element.textContent),
+    [
+      "编程数量：",
+      "编程总工时：",
+      "设备名称：",
+      "编程单价：",
+      "编程总费用：",
+      "单件分摊成本：",
+    ],
+  )
+  assert.deepEqual(
+    Array.from(drawer.querySelectorAll("dd"), element => element.textContent),
+    ["1（程序）", "93 min", "VMC850E", "¥40/h", "¥62", "¥62"],
+  )
+  assert.equal(within(drawer).queryByText("¥120/h"), null)
+  assert.equal(quote.program_count, quote.fixture.setup_count)
+  assert.equal(
+    quote.programming_time * quote.programming_cost_detail[0].hourly_rate / 60,
+    quote.programming_cost,
+  )
+})
+
+for (const [sample, programmingTime, programmingCost] of [
+  ["开口槽", 103, 68.67],
+  ["M8", 93, 62],
+] as const) {
+  test(`${sample} 编程抽屉字段保持 #98 pin`, () => {
+    const values = programmingDrawerValues(
+      programmingQuote(programmingTime, programmingCost),
+    )
+
+    assert.deepEqual(values, {
+      count: "1（程序）",
+      time: `${programmingTime} min`,
+      equipment: "VMC850E",
+      hourlyRate: "¥40/h",
+      totalCost: `¥${programmingCost}`,
+      perPieceCost: `¥${programmingCost}`,
+    })
+  })
+}
+
+test("翻单仍显示 93 min，编程行、总费用和单件分摊均为 0", () => {
+  const quote = programmingQuote(93, 0)
+  render(
+    <CostBreakdown
+      quote={quote}
+      uiCost={{ ...uiCost, programming: 0 }}
+      quoteSummary={quoteSummary}
+    />,
+  )
+
+  const programmingRow = screen.getByRole("button", { name: /编程/ })
+  assert.ok(within(programmingRow).getByText("¥0"))
+  fireEvent.click(programmingRow)
+
+  const drawer = screen.getByRole("dialog", { name: "编程费用" })
+  assert.ok(within(drawer).getByText("93 min"))
+  assert.equal(within(drawer).getAllByText("¥0").length, 2)
+})
 
 test("点击加工工时行打开 Ø8 加工费用抽屉并与现网 labor 对账", () => {
   const labor = {
