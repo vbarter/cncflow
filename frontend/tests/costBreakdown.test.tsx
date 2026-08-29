@@ -43,6 +43,54 @@ const uiCost = {
   scrap: 3,
 }
 
+test("点击原材料行打开材料费用抽屉并显示 Ø8 冻结明细", () => {
+  render(
+    <CostBreakdown
+      quote={{
+        material_cost_breakdown: {
+          density_g_cm3: 2.7,
+          blank_price_per_kg: 30,
+          scrap_price_per_kg: 16,
+          blank_volume_mm3: 86016,
+          blank_weight_kg: 0.2322,
+          part_volume_mm3: 56.997,
+          part_weight_kg: 0.00015,
+          scrap_volume_mm3: 85959.003,
+          scrap_weight_kg: 0.2321,
+          blank_cost: 6.97,
+          scrap_recycle_cost: 3.71,
+          net_material_cost: 3.25,
+        },
+      }}
+      uiCost={{ ...uiCost, material: 3.25 }}
+      quoteSummary={quoteSummary}
+    />,
+  )
+
+  const materialRow = screen.getByRole("button", { name: /原材料/ })
+  assert.ok(within(materialRow).getByText("¥3.25"))
+  fireEvent.click(materialRow)
+
+  const drawer = screen.getByRole("dialog", { name: "材料费用" })
+  for (const heading of ["基础信息", "动态参数", "计算过程"]) {
+    assert.ok(within(drawer).getByRole("heading", { name: heading }))
+  }
+  for (const value of [
+    "2.7 g/cm³",
+    "¥30/kg",
+    "¥16/kg",
+    "86016 mm³ / 0.2322 kg",
+    "56.997 mm³ / 0.00015 kg",
+    "85959.003 mm³ / 0.2321 kg",
+    "¥6.97",
+    "¥3.71",
+    "¥3.25",
+  ]) {
+    assert.ok(within(drawer).getByText(value))
+  }
+  assert.ok(within(drawer).getByText("净材料费 = 毛坯费 − 回收费 = 原材料行金额"))
+})
+
 test("点击装夹行打开平口钳空态抽屉", () => {
   render(
     <CostBreakdown

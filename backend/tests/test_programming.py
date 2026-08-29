@@ -185,15 +185,29 @@ def test_o8_material_cost_uses_full_scrap_value_without_eta(client):
             {"type": "face", "feature_id": "face-1", "selected": True},
         ],
         # 现网 Ø8 样本的 CAD 体积字段；保持现有询价数据路径和单位行为不变。
-        v_part_cad=50,
+        v_part_cad=56.997,
     )
     items = {item["code"]: item["amount"] for item in body["cost_items"]}
+    material = body["material_cost_breakdown"]
 
     # 0.2322 kg×¥30/kg − 0.2321 kg×¥16/kg = ¥3.2524 → ¥3.25。
-    assert body["volume"]["blank_weight_kg"] == 0.2322
-    assert body["volume"]["scrap_weight_kg"] == 0.2321
+    assert material == {
+        "density_g_cm3": 2.7,
+        "blank_price_per_kg": 30,
+        "scrap_price_per_kg": 16,
+        "blank_volume_mm3": 86016,
+        "blank_weight_kg": 0.2322,
+        "part_volume_mm3": 56.997,
+        "part_weight_kg": 0.00015,
+        "scrap_volume_mm3": 85959.003,
+        "scrap_weight_kg": 0.2321,
+        "blank_cost": 6.97,
+        "scrap_recycle_cost": 3.71,
+        "net_material_cost": 3.25,
+    }
     assert items["MAT"] == pytest.approx(3.25, abs=0.01)
     assert body["ui_cost"]["material"] == pytest.approx(3.25, abs=0.01)
+    assert material["net_material_cost"] == items["MAT"]
     assert body["programming_time"] == 93
     assert body["programming_cost"] == pytest.approx(62, abs=0.02)
 
