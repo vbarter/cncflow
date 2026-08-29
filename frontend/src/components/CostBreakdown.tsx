@@ -87,6 +87,30 @@ export function materialDrawerValues(material: any) {
   }
 }
 
+function currency(value: unknown) {
+  const formatted = decimal(value, 2)
+  return formatted === "—" ? formatted : `¥${formatted}`
+}
+
+export function programmingDrawerValues(quote: any) {
+  const costDetail = Array.isArray(quote?.programming_cost_detail)
+    ? quote.programming_cost_detail[0]
+    : undefined
+  const programCount = quote?.program_count ?? quote?.fixture?.setup_count
+  const programmingTime = quote?.programming_time ?? quote?.t_programming
+
+  return {
+    count: `${decimal(programCount, 4)}（程序）`,
+    time: `${decimal(programmingTime, 4)} min`,
+    equipment: quote?.equipment?.model || "—",
+    hourlyRate: costDetail?.hourly_rate == null
+      ? "—"
+      : `${currency(costDetail.hourly_rate)}/h`,
+    totalCost: currency(quote?.programming_cost),
+    perPieceCost: currency(quote?.programming_cost_per_piece),
+  }
+}
+
 function MaterialDrawer({ material, onClose }: { material: any; onClose: () => void }) {
   const values = materialDrawerValues(material)
 
@@ -289,6 +313,63 @@ function MachiningDrawer({ labor, onClose }: { labor: any; onClose: () => void }
   </>
 }
 
+function ProgrammingDrawer({ quote, onClose }: { quote: any; onClose: () => void }) {
+  const values = programmingDrawerValues(quote)
+
+  useEffect(() => {
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") onClose()
+    }
+    window.addEventListener("keydown", closeOnEscape)
+    return () => window.removeEventListener("keydown", closeOnEscape)
+  }, [onClose])
+
+  const rows = [
+    ["编程数量：", values.count],
+    ["编程总工时：", values.time],
+    ["设备名称：", values.equipment],
+    ["编程单价：", values.hourlyRate],
+    ["编程总费用：", values.totalCost],
+    ["单件分摊成本：", values.perPieceCost],
+  ]
+
+  return <>
+    <button
+      type="button"
+      className="fixed inset-0 z-40 cursor-default bg-slate-950/30"
+      aria-label="关闭编程费用明细"
+      onClick={onClose}
+    />
+    <aside
+      id="programming-cost-drawer"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="programming-cost-drawer-title"
+      className="fixed inset-y-0 right-0 z-50 w-full max-w-md overflow-y-auto bg-white shadow-2xl"
+    >
+      <div className="flex items-center justify-between border-b border-slate-200 px-6 py-5">
+        <h2 id="programming-cost-drawer-title" className="text-lg font-semibold">编程费用</h2>
+        <button
+          type="button"
+          className="flex size-10 items-center justify-center rounded text-2xl text-slate-500 hover:bg-slate-100"
+          aria-label="关闭"
+          onClick={onClose}
+        >
+          ×
+        </button>
+      </div>
+      <dl className="divide-y divide-slate-100 px-6 py-6 text-sm">
+        {rows.map(([label, value]) => (
+          <div className="flex items-center justify-between gap-4 py-3 first:pt-0 last:pb-0" key={label}>
+            <dt className="text-slate-500">{label}</dt>
+            <dd className="font-mono text-right text-slate-900">{value}</dd>
+          </div>
+        ))}
+      </dl>
+    </aside>
+  </>
+}
+
 function FixtureDrawer({ fixture, onClose }: { fixture: any; onClose: () => void }) {
   const values = fixtureDrawerValues(fixture)
 
@@ -360,7 +441,9 @@ export function CostBreakdown({
   uiCost: any
   quoteSummary: any
 }) {
-  const [openDrawer, setOpenDrawer] = useState<"material" | "machining" | "fixture" | null>(null)
+  const [openDrawer, setOpenDrawer] = useState<
+    "material" | "machining" | "fixture" | "programming" | null
+  >(null)
   const maxCost = Math.max(1, ...COST_ROWS.map(([key]) => costValue(quote, uiCost, key)))
 
   return <>
@@ -385,7 +468,10 @@ export function CostBreakdown({
             </div>
           </>
 
-          return key === "fixture" || key === "material" || key === "machining" ? (
+          return key === "fixture"
+            || key === "material"
+            || key === "machining"
+            || key === "programming" ? (
             <button
               key={key}
               type="button"
@@ -426,6 +512,9 @@ export function CostBreakdown({
     )}
     {openDrawer === "fixture" && (
       <FixtureDrawer fixture={quote?.fixture} onClose={() => setOpenDrawer(null)} />
+    )}
+    {openDrawer === "programming" && (
+      <ProgrammingDrawer quote={quote} onClose={() => setOpenDrawer(null)} />
     )}
   </>
 }
