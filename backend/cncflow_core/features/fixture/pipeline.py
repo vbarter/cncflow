@@ -211,17 +211,17 @@ def _material_row(factory: dict, material: str) -> dict | None:
 
 
 def _fixture_hourly_rate(payload: dict, factory: dict) -> float:
-    candidates = [payload.get("hourly_rate")]
-    candidates.extend(
+    candidates = [
         row.get("hourly_rate")
         for row in factory.get("rate_table") or []
         if row.get("equipment_type") == "3轴立式加工中心"
-    )
+    ]
     candidates.extend(
         row.get("hourly_rate")
         for row in factory.get("machines") or []
         if row.get("enabled", 1) and int(row.get("axes") or 0) == 3
     )
+    candidates.append(payload.get("hourly_rate"))
     for candidate in candidates:
         try:
             rate = float(candidate)
