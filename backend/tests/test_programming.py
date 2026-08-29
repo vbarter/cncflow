@@ -1,0 +1,153 @@
+"""Word v3 编程工时与成本。"""
+import pytest
+
+from cncflow_core.quoting.programming import calculate_cost, calculate_time
+
+
+def _quote(client, features, **overrides):
+    payload = {
+        "material": "铝合金",
+        "stock_type": "板材",
+        "length": 80,
+        "width": 60,
+        "height": 12,
+        "batch_size": 1,
+        "features": features,
+    }
+    payload.update(overrides)
+    response = client.post("/api/v1/quotes", json=payload)
+    assert response.status_code == 200, response.get_json()
+    return response.get_json()
+
+
+def test_t_base_type_mapping_and_unmapped_type_is_not_counted():
+    result = calculate_time([
+        {"type": "hole", "feature_id": "hole"},
+        {"type": "thread", "feature_id": "thread"},
+        {"type": "face", "feature_id": "face"},
+        {"type": "plane", "feature_id": "plane"},
+        {"type": "step", "feature_id": "step"},
+        {"type": "slot", "feature_id": "slot"},
+        {"type": "pocket", "feature_id": "pocket"},
+        {"type": "surface", "feature_id": "surface"},
+        {"type": "pocket_or_step", "feature_id": "unsupported"},
+    ], setup_count=1, machine_axes=3)
+
+    minutes = {row["feature_id"]: row["t_base"] for row in result["programming_time_detail"]}
+    assert minutes == {
+        "hole": 5,
+        "thread": 5,
+        "face": 8,
+        "plane": 8,
+        "step": 10,
+        "slot": 15,
+        "pocket": 15,
+        "surface": 25,
+    }
+    assert "unsupported" not in minutes
+
+
+def test_difficulty_freeform_and_axes_factors():
+    result = calculate_time([
+        {"type": "face", "difficulty": {"level": "D2"}},
+        {"type": "step", "difficulty_level": "D3"},
+        {"type": "surface", "difficulty": "D4", "surface_type": "自由曲面"},
+        {"type": "hole", "difficulty": "D4"},
+    ], setup_count=2, machine_axes=5)
+
+    feature_minutes = 8 * 1.3 + 10 * 1.8 + 25 * 2.5 * 1.5 + 5
+    assert result["programming_time"] == pytest.approx((30 + feature_minutes + 2 * 50) * 1.6)
+    assert result["program_count"] == 2
+
+
+def test_empty_selected_feature_list_has_no_program():
+    result = calculate_time([
+        {"type": "hole", "selected": False},
+        {"type": "face", "selected": False},
+    ], setup_count=0, machine_axes=3)
+    assert result["programming_time"] == 0
+    assert result["program_count"] == 0
+
+
+@pytest.mark.parametrize(
+    ("sample_id", "features", "expected_time", "expected_cost"),
+    [
+        (
+            "0526dade-0448-44b9-8c5d-7a27cce2a1f7",
+            [
+                {"type": "hole", "feature_id": "hole-0", "selected": True},
+                {"type": "face", "feature_id": "face-1", "selected": True},
+            ],
+            93,
+            62.00,
+        ),
+        (
+            "5fbaf21e-16dc-4353-a708-fda46352642c",
+            [
+                {"type": "slot", "feature_id": "slot-0", "selected": True},
+                {"type": "face", "feature_id": "face-0", "selected": True},
+            ],
+            103,
+            68.67,
+        ),
+        (
+            "f6d22246-4224-4c93-8804-b8cdef19085c",
+            [
+                {"type": "thread", "feature_id": "thread-0", "selected": True},
+                {"type": "face", "feature_id": "face-2", "selected": True},
+            ],
+            93,
+            62.00,
+        ),
+    ],
+)
+def test_pinned_live_sample_numbers(client, sample_id, features, expected_time, expected_cost):
+    body = _quote(client, features)
+    items = {item["code"]: item["amount"] for item in body["cost_items"]}
+
+    assert body["fixture"]["setup_count"] == 1, sample_id
+    assert body["equipment"]["axes"] == 3, sample_id
+    assert body["programming_time"] == expected_time, sample_id
+    assert body["programming_cost"] == pytest.approx(expected_cost, abs=0.02), sample_id
+    assert body["programming_cost_per_piece"] == pytest.approx(expected_cost, abs=0.02)
+    assert body["ui_cost"]["programming"] == pytest.approx(expected_cost, abs=0.02)
+    assert items["PROG"] == pytest.approx(expected_cost, abs=0.02)
+    assert body["formula_trace"]["programming_time"].endswith(f"= {expected_time}")
+    assert body["formula_trace"]["programming_cost"].endswith(f"= {expected_cost:g}")
+    labor = body["labor_cost_breakdown"]
+    assert labor["total"] == pytest.approx(labor["machining"] + labor["setup"], abs=0.02)
+    assert labor["total"] == pytest.approx(
+        body["ui_cost"]["machining"] + body["ui_cost"]["setup"],
+        abs=0.02,
+    )
+
+
+def test_deselect_hole_recalculates_programming(client):
+    body = _quote(client, [
+        {"type": "hole", "feature_id": "hole-0", "selected": False},
+        {"type": "face", "feature_id": "face-1", "selected": True},
+    ])
+    assert body["programming_time"] == 88
+    assert body["programming_cost"] == pytest.approx(58.67, abs=0.02)
+
+
+def test_repeat_order_keeps_time_and_zeros_cost(client):
+    body = _quote(
+        client,
+        [
+            {"type": "hole", "feature_id": "hole-0", "selected": True},
+            {"type": "face", "feature_id": "face-1", "selected": True},
+        ],
+        is_repeat_order=True,
+    )
+    assert body["programming_time"] == 93
+    assert body["programming_cost"] == 0
+    assert body["programming_cost_per_piece"] == 0
+    assert body["ui_cost"]["programming"] == 0
+
+
+def test_programming_cost_uses_valid_override_and_defaults_invalid_rate():
+    overridden = calculate_cost(90, machine_axes=4, rate_row={"programming_hourly_rate": 80})
+    fallback = calculate_cost(90, machine_axes=4, rate_row={"programming_hourly_rate": 0})
+    assert overridden["programming_cost"] == 120
+    assert fallback["programming_cost"] == 90

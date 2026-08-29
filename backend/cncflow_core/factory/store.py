@@ -84,6 +84,12 @@ def _public_material(row) -> dict:
     return item
 
 
+def _public_rate(row) -> dict:
+    item = dict(row)
+    item.pop("programming_fee_new", None)
+    return item
+
+
 def _tool_extra(item: dict) -> dict:
     extra = {}
     raw = item.get("extra_attrs")
@@ -207,8 +213,10 @@ def seed_factory(conn) -> None:
         "ignore_available_machines, batch_size, blank_type) VALUES (1, 15, 0, 60, 0, 1, '板料')"
     )
     conn.executemany(
-        "INSERT OR IGNORE INTO rate_table (equipment_type, hourly_rate, setup_fee, programming_fee_new) "
-        "VALUES (:equipment_type, :hourly_rate, :setup_fee, :programming_fee_new)",
+        "INSERT INTO rate_table (equipment_type, hourly_rate, setup_fee, programming_hourly_rate) "
+        "VALUES (:equipment_type, :hourly_rate, :setup_fee, :programming_hourly_rate) "
+        "ON CONFLICT(equipment_type) DO UPDATE SET programming_hourly_rate="
+        "COALESCE(rate_table.programming_hourly_rate, excluded.programming_hourly_rate)",
         RATE_TABLE,
     )
     conn.execute(
@@ -250,7 +258,10 @@ def get_config(conn) -> dict:
             _public_material(r)
             for r in conn.execute("SELECT * FROM factory_material_prices ORDER BY material_code")
         ],
-        "rate_table": [dict(r) for r in conn.execute("SELECT * FROM rate_table ORDER BY equipment_type")],
+        "rate_table": [
+            _public_rate(r)
+            for r in conn.execute("SELECT * FROM rate_table ORDER BY equipment_type")
+        ],
     }
 
 
@@ -360,13 +371,13 @@ def put_config(conn, payload: dict) -> dict:
             raise ValueError("rate_table 须为数组")
         for item in payload["rate_table"]:
             conn.execute(
-                "INSERT INTO rate_table (equipment_type, hourly_rate, setup_fee, programming_fee_new) "
+                "INSERT INTO rate_table (equipment_type, hourly_rate, setup_fee, programming_hourly_rate) "
                 "VALUES (?,?,?,?) ON CONFLICT(equipment_type) DO UPDATE SET "
                 "hourly_rate=excluded.hourly_rate, setup_fee=excluded.setup_fee, "
-                "programming_fee_new=excluded.programming_fee_new",
+                "programming_hourly_rate=excluded.programming_hourly_rate",
                 (
                     item["equipment_type"], float(item["hourly_rate"]),
-                    float(item.get("setup_fee", 0)), float(item.get("programming_fee_new", 300)),
+                    float(item.get("setup_fee", 0)), _opt_float(item.get("programming_hourly_rate")),
                 ),
             )
     conn.commit()
