@@ -29,9 +29,39 @@ class TestPrimaryDrillSelection:
         drill = chain[1]
         assert drill["cycle"] == "G83"
 
+    def test_hd_boundary_5_uses_g83(self):
+        chain = generate_chain(hole(10, 50), "铝合金", 11)
+        drill = next(step for step in chain if step["process"] == "drill")
+        assert drill["cycle"] == "G83"
+
+    def test_hd_boundary_10_still_uses_g83(self):
+        chain = generate_chain(hole(10, 100), "铝合金", 11)
+        assert "gun_drill" not in procs(chain)
+        drill = next(step for step in chain if step["process"] == "drill")
+        assert drill["cycle"] == "G83"
+
     def test_ultra_deep_gun_drill(self):
         chain = generate_chain(hole(10, 120), "铝合金", 11)   # H/D=12
         assert "gun_drill" in procs(chain)
+
+    def test_hd_boundary_20_still_allows_gun_drill(self):
+        chain = generate_chain(hole(10, 200), "铝合金", 11)
+        assert "gun_drill" in procs(chain)
+
+    def test_hd_over_20_replaces_gun_drill_with_special_route(self):
+        chain = generate_chain(hole(10, 201), "铝合金", 11)
+        assert "special_hole" in procs(chain)
+        assert "gun_drill" not in procs(chain)
+        assert "drill" not in procs(chain)
+
+    def test_micro_hole_replaces_ordinary_primary_drill(self):
+        chain = generate_chain(hole(0.8, 3), "铝合金", 7)
+        primary = [
+            proc for proc in procs(chain)
+            if proc in {"drill", "u_drill", "gun_drill", "micro_hole", "special_hole"}
+        ]
+        assert primary == ["micro_hole"]
+        assert "ream" in procs(chain)
 
     def test_large_hole_bore_only_path(self):
         chain = generate_chain(hole(90, 90), "铝合金", 11)    # D>80 不可钻
@@ -72,6 +102,27 @@ class TestThreadAndBottom:
     def test_flat_bottom_blind_hole(self):
         chain = generate_chain(hole(20, 40, hole_type="blind", bottom_shape="flat"), "铝合金", 11)
         assert "flat_bottom_mill" in procs(chain)
+
+    def test_frozen_finishing_thread_bottom_chamfer_order(self):
+        chain = generate_chain(
+            hole(
+                12,
+                24,
+                hole_type="blind",
+                bottom_shape="flat",
+                thread={"spec": "M12"},
+            ),
+            "铝合金",
+            7,
+        )
+        assert procs(chain) == [
+            "spot_drill",
+            "drill",
+            "ream",
+            "tap",
+            "flat_bottom_mill",
+            "chamfer",
+        ]
 
     def test_chamfer_always_last(self):
         for spec in [hole(10, 20), hole(50, 100), hole(90, 90)]:

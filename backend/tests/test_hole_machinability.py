@@ -1,6 +1,7 @@
 """孔可加工性判定测试（文档1模块一）。边界值全部取自 YAML 定死的区间。"""
 from cncflow_core.features.hole.machinability import evaluate
 from cncflow_core.features.hole.models import HoleSpec
+from cncflow_core.features.hole.pipeline import run
 
 
 def hole(d, h, **kw):
@@ -18,14 +19,18 @@ class TestDepthRatioBands:
         r = evaluate(hole(10, 50), "铝合金", 11)          # H/D=5 → 深孔档（min 含）
         assert r.level == 2
 
-    def test_hd_boundary_10_is_ultra_deep(self):
-        r = evaluate(hole(10, 100), "铝合金", 11)         # H/D=10 → 超深孔
+    def test_hd_boundary_10_is_still_deep(self):
+        r = evaluate(hole(10, 100), "铝合金", 11)         # H/D=10 → G83 深孔档
+        assert r.level == 2
+
+    def test_hd_boundary_20_is_special_process(self):
+        r = evaluate(hole(10, 200), "铝合金", 11)         # H/D=20 → 枪钻档上界
         assert r.level == 3
 
-    def test_hd_over_20_not_recommended(self):
-        r = evaluate(hole(10, 200), "铝合金", 11)         # H/D=20 → 极限深孔
-        assert r.level == 4
-        assert r.label == "Not recommended"
+    def test_hd_over_20_is_special_not_na(self):
+        r = evaluate(hole(10, 201), "铝合金", 11)
+        assert r.level == 3
+        assert r.label == "Special process required"
 
 
 class TestGeometryChecks:
@@ -63,3 +68,73 @@ class TestMaterialAndPrecision:
     def test_no_conflict_when_shallow(self):
         r = evaluate(hole(10, 30), "铝合金", 6)           # IT6 但 H/D=3
         assert "HOLE-PREC-DEEP-CONFLICT" not in r.fired_rules
+
+
+def _pipeline_payload(**overrides):
+    payload = {
+        "feature": {
+            "type": "hole",
+            "diameter_mm": 10,
+            "depth_mm": 20,
+            "hole_type": "through",
+            "position_type": "垂直",
+        },
+        "material": "铝合金",
+        "tolerance_it": 11,
+    }
+    for key, value in overrides.pop("feature", {}).items():
+        payload["feature"][key] = value
+    payload.update(overrides)
+    return payload
+
+
+class TestFrozenNaGuards:
+    def test_z_overtravel_is_na_and_has_no_process_chain(self, seeded_conn):
+        result = run(_pipeline_payload(machine_max_z=19), seeded_conn)
+        assert result["machinability"]["label"] == "NA"
+        assert result["process_chain"] == []
+        assert result["tool_chain"] == []
+        assert [item["code"] for item in result["blockers"]] == ["Z_OVERTRAVEL"]
+
+    def test_three_axis_side_hole_is_na(self, seeded_conn):
+        result = run(
+            _pipeline_payload(
+                feature={"position_type": "侧向", "surface": "side"},
+                machine_axes=3,
+            ),
+            seeded_conn,
+        )
+        assert result["machinability"]["label"] == "NA"
+        assert result["process_chain"] == []
+        assert [item["code"] for item in result["blockers"]] == ["THREE_AXIS_SIDE_HOLE"]
+
+    def test_side_hole_without_machine_axes_is_not_na(self, seeded_conn):
+        result = run(
+            _pipeline_payload(feature={"position_type": "侧向", "surface": "side"}),
+            seeded_conn,
+        )
+        assert result["is_machinable"] is True
+        assert result["process_chain"]
+        assert result["blockers"] == []
+
+    def test_r15_deep_cavity_interference_does_not_auto_na(self, seeded_conn):
+        result = run(
+            _pipeline_payload(
+                feature={"deep_cavity_interference": True},
+                rule_hits=["R15"],
+            ),
+            seeded_conn,
+        )
+        assert result["is_machinable"] is True
+        assert result["process_chain"]
+
+    def test_r22_missing_nonstandard_tool_channel_does_not_auto_na(self, seeded_conn):
+        result = run(
+            _pipeline_payload(
+                feature={"diameter_mm": 9.7, "nonstandard_tool_channel": False},
+                rule_hits=["R22"],
+            ),
+            seeded_conn,
+        )
+        assert result["is_machinable"] is True
+        assert result["process_chain"]
