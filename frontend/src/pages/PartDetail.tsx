@@ -4,23 +4,12 @@ import { FeatureReview } from "../components/FeatureReview"
 import { ProcessSequenceEditor } from "../components/ProcessSequenceEditor"
 import { json } from "../api"
 import { hoursLabel, quoteHours } from "../quoteHours"
+import { confidenceColumns, DIMENSION_LABEL, EMPTY_DEDUCTION_TEXT, formatDeduction } from "../quoteConfidence"
 import { quoteSuggestedDays, suggestedDaysLabel } from "../suggestedDays"
 
 const COST_LABEL: Record<string, string> = {
   material: "原材料", machining: "加工工时", setup: "装夹", fixture: "夹具",
   programming: "编程", inspect: "检测", toolwear: "刀具损耗", scrap: "不良损耗",
-}
-
-const DIMENSION_LABEL: Record<string, string> = {
-  D1: "工时边界",
-  D2: "材料去除率",
-  D3: "成本比例",
-  D4: "设备匹配",
-  D5: "切削参数",
-  D6: "工序顺序",
-  D7: "材料成本",
-  D8: "数据一致性",
-  D9: "关键字段",
 }
 
 function yen(n: any) {
@@ -40,25 +29,6 @@ function costValue(q: any, ui: any, key: string) {
 
 function featId(f: any, i: number) {
   return String(f.feature_id || f.id || `f${i}`)
-}
-
-function confidenceParts(part: any, q: any, reviewFeats: any[]) {
-  const holes = reviewFeats.filter((f) => f.subtype === "recognized_hole" || (f.type === "hole" && f.selected !== false))
-  const drawing = holes.length ? 88 : (reviewFeats.length ? 52 : 18)
-  const process = Number(q.confidence)
-  const factory = q.fixture?.is_machinable === false ? 32 : (q.fixture?.type ? 82 : 58)
-  const keys = Object.keys(COST_LABEL)
-  const ui = q.ui_cost || {}
-  const filled = keys.filter((k) => ui[k] != null || (k === "fixture" && (q.cost_items || []).some((i: any) => i.code === "FIX"))).length
-  const cost = Math.round((filled / keys.length) * 100)
-  const total = Number.isFinite(process) ? process : Math.round((drawing + factory + cost) / 3)
-  return [
-    { key: "drawing", label: "图纸识别", value: drawing },
-    { key: "process", label: "工艺可加工性", value: Number.isFinite(process) ? process : 0 },
-    { key: "factory", label: "工厂资源匹配", value: factory },
-    { key: "cost", label: "成本数据完整性", value: cost },
-    { key: "total", label: "总分", value: total },
-  ]
 }
 
 export function PartDetail({ id, go }: { id: string; go: (h: string) => void }) {
@@ -95,7 +65,9 @@ export function PartDetail({ id, go }: { id: string; go: (h: string) => void }) 
   const quote = q.quote || {}
   const ui = q.ui_cost || {}
   const risk = q.risk || {}
-  const deductions = q.deductions || risk.deductions || []
+  const deductions = Array.isArray(q.deductions)
+    ? q.deductions
+    : (Array.isArray(risk.deductions) ? risk.deductions : [])
   const riskCount = deductions.length || risk.tags?.length || 0
   const locked = part.status === "confirmed"
   const recommend = risk.customer_forbidden ? "建议暂缓" : (risk.level === "high" ? "建议暂缓" : "建议接单")
@@ -103,7 +75,9 @@ export function PartDetail({ id, go }: { id: string; go: (h: string) => void }) 
   const reviewFeats = (q.review_features || q.features || part.parsed_features || []).map((f: any, i: number) => ({
     ...f, feature_id: featId(f, i),
   }))
-  const conf = confidenceParts(part, q, reviewFeats)
+  const confidenceBreakdown = confidenceColumns(deductions)
+  const confidenceValue = q.confidence == null || q.confidence === "" ? null : Number(q.confidence)
+  const overallConfidence = confidenceValue != null && Number.isFinite(confidenceValue) ? confidenceValue : null
   const meshAvailable = Boolean(part.mesh?.available)
 
   function toggleFeat(fid: string, checked: boolean) {
@@ -277,43 +251,56 @@ export function PartDetail({ id, go }: { id: string; go: (h: string) => void }) 
         <div className="mb-1 text-xs uppercase tracking-wide text-slate-400">02</div>
         <div className="mb-3 font-medium">报价可信度</div>
         <div className="flex items-end gap-3">
-          <div className="text-3xl font-semibold text-blue-600">{conf.find(c => c.key === "total")?.value ?? "—"}</div>
+          <div className="text-3xl font-semibold text-blue-600">{overallConfidence ?? "—"}</div>
           <div className="text-xs text-slate-500">{risk.customer_forbidden ? "置信度偏低，不建议直接给客户" : "可内部确认后出给客户"}</div>
         </div>
-        <div className="mt-4 grid gap-3 md:grid-cols-4">
-          {conf.filter(c => c.key !== "total").map((c) => (
-            <div key={c.key}>
-              <div className="text-xs text-slate-500">{c.label}</div>
-              <div className="mt-1 text-lg font-medium">{c.value}</div>
-              <div className="mt-1 h-1.5 rounded bg-slate-100"><div className="h-1.5 rounded bg-blue-600" style={{ width: `${Math.min(100, c.value)}%` }} /></div>
+        <div className="mt-4 grid items-start gap-3 md:grid-cols-2 xl:grid-cols-4">
+          {confidenceBreakdown.map((column) => (
+            <div className="min-w-0 rounded border border-[#e2e8f0]" key={column.key}>
+              <div className="p-3">
+                <div className="text-xs text-slate-500">{column.label}</div>
+                <div className="mt-1 text-lg font-medium">{column.score}</div>
+                <div className="mt-1 h-1.5 rounded bg-slate-100">
+                  <div className="h-1.5 rounded bg-blue-600" style={{ width: `${column.score}%` }} />
+                </div>
+              </div>
+              <details className="border-t border-slate-200" open>
+                <summary className="cursor-pointer bg-[#f8fafc] px-3 py-2 text-xs text-slate-500">
+                  扣分项（{column.deductions.length}）
+                </summary>
+                {column.deductions.length > 0 ? (
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[280px] text-left text-xs">
+                      <thead className="text-slate-400">
+                        <tr>
+                          <th className="px-3 py-2 font-medium">原因</th>
+                          <th className="w-14 px-2 py-2 text-right font-medium">扣分</th>
+                          <th className="w-24 px-2 py-2 font-medium">归类</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200 text-slate-600">
+                        {column.deductions.map((item, i) => (
+                          <tr key={`${item.ruleId}-${i}`}>
+                            <td className="px-3 py-2">{item.reason}</td>
+                            <td className="px-2 py-2 text-right font-medium text-slate-700">
+                              {formatDeduction(item.deduction)}
+                            </td>
+                            <td className="px-2 py-2">
+                              {item.dimension
+                                ? `${item.dimension} ${DIMENSION_LABEL[item.dimension] || "—"}`
+                                : "—"}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="px-3 py-3 text-xs text-slate-400">{EMPTY_DEDUCTION_TEXT}</div>
+                )}
+              </details>
             </div>
           ))}
-        </div>
-        <div className="mt-4 overflow-x-auto rounded border border-[#e2e8f0]">
-          <table className="w-full min-w-[480px] text-left text-xs">
-            <thead className="bg-[#f8fafc] text-slate-500">
-              <tr>
-                <th className="px-3 py-2 font-medium">原因</th>
-                <th className="w-20 px-3 py-2 text-right font-medium">扣分</th>
-                <th className="w-36 px-3 py-2 font-medium">归类</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-200 text-slate-600">
-              {deductions.length > 0 ? deductions.map((item: any, i: number) => (
-                <tr key={`${item.rule_id}-${i}`}>
-                  <td className="px-3 py-2">{item.reason}</td>
-                  <td className="px-3 py-2 text-right font-medium text-slate-700">−{item.deduction}</td>
-                  <td className="whitespace-nowrap px-3 py-2">
-                    {item.dimension} {DIMENSION_LABEL[item.dimension] || "—"}
-                  </td>
-                </tr>
-              )) : (
-                <tr>
-                  <td className="px-3 py-3 text-slate-400" colSpan={3}>无扣分项</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
         </div>
       </Card>
 
