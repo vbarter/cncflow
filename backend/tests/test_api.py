@@ -82,16 +82,17 @@ class TestValidation:
 
 
 class TestRiskGate:
-    def test_level4_returns_empty_chain(self, client):
-        # H/D=25 > 20 → 四级不建议加工
+    def test_hd_over_20_uses_special_route_instead_of_level4(self, client):
+        # 冻结口径：H/D>20 是三级特种/EDM 路线，不得仅凭深径比自动 NA。
         resp = post(client, make_payload(
             feature={"type": "hole", "diameter_mm": 10.0, "depth_mm": 250.0}, tolerance_it=None,
         ))
         assert resp.status_code == 200
         body = resp.get_json()
-        assert body["machinability"]["level"] == 4
-        assert body["tool_chain"] == []
-        assert "不建议加工" in body["match_status"]
+        assert body["machinability"]["level"] == 3
+        processes = [step["process"] for step in body["tool_chain"]]
+        assert "special_hole" in processes
+        assert "gun_drill" not in processes
 
 
 class TestSkuMissing:
