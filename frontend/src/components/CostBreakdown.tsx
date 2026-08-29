@@ -27,6 +27,13 @@ function dimension(value: unknown) {
   return Number.isInteger(parsed) ? String(parsed) : String(parsed)
 }
 
+function decimal(value: unknown, maximumFractionDigits: number) {
+  if (value == null || value === "") return "—"
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) return "—"
+  return parsed.toFixed(maximumFractionDigits).replace(/\.?0+$/, "")
+}
+
 export function fixtureCost(fixture: any) {
   return number(fixture?.fixture_material_cost) + number(fixture?.fixture_processing_cost)
 }
@@ -61,6 +68,113 @@ export function fixtureDrawerValues(fixture: any) {
     materialCost: number(fixture.fixture_material_cost).toFixed(2),
     processingCost: number(fixture.fixture_processing_cost).toFixed(2),
   }
+}
+
+export function materialDrawerValues(material: any) {
+  const volumeWeight = (volume: unknown, weight: unknown) =>
+    `${decimal(volume, 3)} mm³ / ${decimal(weight, 5)} kg`
+
+  return {
+    density: `${decimal(material?.density_g_cm3, 2)} g/cm³`,
+    blankPrice: `¥${decimal(material?.blank_price_per_kg, 2)}/kg`,
+    scrapPrice: `¥${decimal(material?.scrap_price_per_kg, 2)}/kg`,
+    blank: volumeWeight(material?.blank_volume_mm3, material?.blank_weight_kg),
+    part: volumeWeight(material?.part_volume_mm3, material?.part_weight_kg),
+    scrap: volumeWeight(material?.scrap_volume_mm3, material?.scrap_weight_kg),
+    blankCost: `¥${number(material?.blank_cost).toFixed(2)}`,
+    scrapRecycleCost: `¥${number(material?.scrap_recycle_cost).toFixed(2)}`,
+    netMaterialCost: `¥${number(material?.net_material_cost).toFixed(2)}`,
+  }
+}
+
+function MaterialDrawer({ material, onClose }: { material: any; onClose: () => void }) {
+  const values = materialDrawerValues(material)
+
+  useEffect(() => {
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") onClose()
+    }
+    window.addEventListener("keydown", closeOnEscape)
+    return () => window.removeEventListener("keydown", closeOnEscape)
+  }, [onClose])
+
+  const blocks = [
+    {
+      title: "基础信息",
+      rows: [
+        ["材料密度", values.density],
+        ["毛坯单价", values.blankPrice],
+        ["废料回收单价", values.scrapPrice],
+      ],
+    },
+    {
+      title: "动态参数",
+      rows: [
+        ["毛坯体积 / 毛坯重量", values.blank],
+        ["工件体积 / 工件重量", values.part],
+        ["废料体积 / 废料重量", values.scrap],
+      ],
+    },
+    {
+      title: "计算过程",
+      rows: [
+        ["毛坯费用", values.blankCost],
+        ["废料回收费用", values.scrapRecycleCost],
+        ["工件最终材料费用 / 净材料费", values.netMaterialCost],
+      ],
+    },
+  ]
+
+  return <>
+    <button
+      type="button"
+      className="fixed inset-0 z-40 cursor-default bg-slate-950/30"
+      aria-label="关闭材料费用明细"
+      onClick={onClose}
+    />
+    <aside
+      id="material-cost-drawer"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="material-cost-drawer-title"
+      className="fixed inset-y-0 right-0 z-50 w-full max-w-md overflow-y-auto bg-white shadow-2xl"
+    >
+      <div className="flex items-center justify-between border-b border-slate-200 px-6 py-5">
+        <h2 id="material-cost-drawer-title" className="text-lg font-semibold">材料费用</h2>
+        <button
+          type="button"
+          className="flex size-10 items-center justify-center rounded text-2xl text-slate-500 hover:bg-slate-100"
+          aria-label="关闭"
+          onClick={onClose}
+        >
+          ×
+        </button>
+      </div>
+      <div className="space-y-7 px-6 py-6 text-sm">
+        {blocks.map((block) => (
+          <section key={block.title} aria-labelledby={`material-${block.title}`}>
+            <h3
+              id={`material-${block.title}`}
+              className="mb-3 font-medium text-slate-900"
+            >
+              {block.title}
+            </h3>
+            <dl className="divide-y divide-slate-100 rounded border border-slate-200">
+              {block.rows.map(([label, value]) => (
+                <div className="px-4 py-3" key={label}>
+                  <dt className="text-slate-500">{label}</dt>
+                  <dd className="mt-1 font-mono text-slate-900">{value}</dd>
+                </div>
+              ))}
+            </dl>
+          </section>
+        ))}
+        <p className="rounded bg-slate-50 px-4 py-3 text-xs text-slate-500">
+          净材料费 = 毛坯费 − 回收费 = 原材料行金额
+        </p>
+      </div>
+    </aside>
+  </>
 }
 
 function FixtureDrawer({ fixture, onClose }: { fixture: any; onClose: () => void }) {
@@ -134,7 +248,7 @@ export function CostBreakdown({
   uiCost: any
   quoteSummary: any
 }) {
-  const [fixtureOpen, setFixtureOpen] = useState(false)
+  const [openDrawer, setOpenDrawer] = useState<"material" | "fixture" | null>(null)
   const maxCost = Math.max(1, ...COST_ROWS.map(([key]) => costValue(quote, uiCost, key)))
 
   return <>
@@ -153,18 +267,18 @@ export function CostBreakdown({
               />
             </div>
             <div className="text-right">
-              ¥{key === "fixture" ? value.toFixed(2) : yen(value)}
+              ¥{key === "fixture" || key === "material" ? value.toFixed(2) : yen(value)}
             </div>
           </>
 
-          return key === "fixture" ? (
+          return key === "fixture" || key === "material" ? (
             <button
               key={key}
               type="button"
               className="grid min-h-11 w-full grid-cols-[72px_1fr_64px] items-center gap-2 rounded text-sm hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 md:min-h-0 md:grid-cols-[96px_1fr_72px]"
-              aria-expanded={fixtureOpen}
-              aria-controls="fixture-cost-drawer"
-              onClick={() => setFixtureOpen(true)}
+              aria-expanded={openDrawer === key}
+              aria-controls={`${key}-cost-drawer`}
+              onClick={() => setOpenDrawer(key)}
             >
               {content}
             </button>
@@ -184,8 +298,14 @@ export function CostBreakdown({
         最终报价 ¥{yen(quoteSummary?.amount)}
       </div>
     </Card>
-    {fixtureOpen && (
-      <FixtureDrawer fixture={quote?.fixture} onClose={() => setFixtureOpen(false)} />
+    {openDrawer === "material" && (
+      <MaterialDrawer
+        material={quote?.material_cost_breakdown}
+        onClose={() => setOpenDrawer(null)}
+      />
+    )}
+    {openDrawer === "fixture" && (
+      <FixtureDrawer fixture={quote?.fixture} onClose={() => setOpenDrawer(null)} />
     )}
   </>
 }

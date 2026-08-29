@@ -257,6 +257,20 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
     vol = volume.compute(stock, L, D, H, density=dens, v_part_cad=payload.get("v_part_cad"))
     price, scrap_price = _price(material, factory, payload)
     mat_cost = vol["blank_weight_kg"] * price - vol["scrap_weight_kg"] * scrap_price
+    material_cost_breakdown = {
+        "density_g_cm3": dens,
+        "blank_price_per_kg": price,
+        "scrap_price_per_kg": scrap_price,
+        "blank_volume_mm3": vol["v_blank_mm3"],
+        "blank_weight_kg": vol["blank_weight_kg"],
+        "part_volume_mm3": vol["v_part_mm3"],
+        "part_weight_kg": round(vol["v_part_mm3"] * dens / 1_000_000, 5),
+        "scrap_volume_mm3": vol["v_removed_mm3"],
+        "scrap_weight_kg": vol["scrap_weight_kg"],
+        "blank_cost": round(vol["blank_weight_kg"] * price, 2),
+        "scrap_recycle_cost": round(vol["scrap_weight_kg"] * scrap_price, 2),
+        "net_material_cost": round(mat_cost, 2),
+    }
 
     features = dedup.absorb_holes(features)
     picked = equipment.select(factory, payload, features, L, D, H)
@@ -583,6 +597,7 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
             "setup": round(setup_ui, 2),
             "total": round(round(machining_sub, 2) + round(setup_ui, 2), 2),
         },
+        "material_cost_breakdown": material_cost_breakdown,
         "validation": _validation(seq),
         "volume": vol,
         "features": plans,
