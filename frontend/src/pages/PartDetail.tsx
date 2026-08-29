@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react"
 import { Button, Card, Input, Select } from "../components/ui"
+import { CostBreakdown } from "../components/CostBreakdown"
 import { FeatureReview } from "../components/FeatureReview"
 import { ProcessSequenceEditor } from "../components/ProcessSequenceEditor"
 import { json } from "../api"
@@ -13,24 +14,10 @@ import {
 } from "../quoteConfidence"
 import { quoteSuggestedDays, suggestedDaysLabel } from "../suggestedDays"
 
-const COST_LABEL: Record<string, string> = {
-  material: "原材料", machining: "加工工时", setup: "装夹", fixture: "夹具",
-  programming: "编程", inspect: "检测", toolwear: "刀具损耗", scrap: "不良损耗",
-}
-
 function yen(n: any) {
   if (n == null || n === "") return "—"
   const v = Number(n)
   return Number.isFinite(v) ? v.toFixed(0) : "—"
-}
-
-function costValue(q: any, ui: any, key: string) {
-  if (ui?.[key] != null && ui[key] !== "") return Number(ui[key]) || 0
-  if (key === "fixture") {
-    const hit = (q.cost_items || []).find((i: any) => i.code === "FIX")
-    return hit ? Number(hit.amount) || 0 : 0
-  }
-  return 0
 }
 
 function featId(f: any, i: number) {
@@ -77,7 +64,6 @@ export function PartDetail({ id, go }: { id: string; go: (h: string) => void }) 
   const riskCount = deductions.length || risk.tags?.length || 0
   const locked = part.status === "confirmed"
   const recommend = risk.customer_forbidden ? "建议暂缓" : (risk.level === "high" ? "建议暂缓" : "建议接单")
-  const maxCost = Math.max(1, ...Object.keys(COST_LABEL).map((k) => costValue(q, ui, k)))
   const reviewFeats = (q.review_features || q.features || part.parsed_features || []).map((f: any, i: number) => ({
     ...f, feature_id: featId(f, i),
   }))
@@ -96,19 +82,7 @@ export function PartDetail({ id, go }: { id: string; go: (h: string) => void }) 
   }
 
   const costCard = (
-    <Card className="p-5">
-      <div className="mb-1 text-xs uppercase tracking-wide text-slate-400">03</div>
-      <div className="mb-3 font-medium">为什么是这个报价？（成本构成）</div>
-      <div className="space-y-2">{Object.entries(COST_LABEL).map(([k, label]) => {
-        const v = costValue(q, ui, k)
-        return <div key={k} className="grid grid-cols-[72px_1fr_64px] items-center gap-2 text-sm md:grid-cols-[96px_1fr_72px]">
-          <div className="text-slate-500">{label}</div>
-          <div className="h-2 rounded bg-slate-100"><div className="h-2 rounded bg-blue-600" style={{ width: `${Math.min(100, v / maxCost * 100)}%` }} /></div>
-          <div className="text-right">¥{yen(v)}</div>
-        </div>
-      })}</div>
-      <div className="mt-3 text-sm text-slate-600">预估单件利润 ¥{yen((quote.amount || 0) - (quote.cost || 0))} · 最终报价 ¥{yen(quote.amount)}</div>
-    </Card>
+    <CostBreakdown quote={q} uiCost={ui} quoteSummary={quote} />
   )
 
   const actions = (
