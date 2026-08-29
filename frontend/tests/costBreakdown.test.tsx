@@ -133,8 +133,8 @@ test("387101 显示夹具材料加加工费用且刀具损耗保持 0.24", () =>
   )
 
   assert.ok(costRow("加工工时").getByText("¥311.40"))
-  const fixtureRow = costRow("装夹")
-  assert.ok(fixtureRow.getByText("¥42.50"))
+  const fixtureRow = screen.getByRole("button", { name: /装夹/ })
+  assert.ok(within(fixtureRow).getByText("¥42.50"))
   assert.ok(costRow("刀具损耗").getByText("¥0.24"))
   fireEvent.click(fixtureRow)
   assert.ok(
