@@ -44,7 +44,21 @@ test("AI 报价决策栏按冻结顺序堆叠六列，并保留 Ø8 实时 pin",
   const decision = header.closest("section")
   assert.ok(decision)
 
-  assert.match(decision.querySelector("dl")?.className || "", /\bgrid-cols-6\b/)
+  const decisionClasses = [
+    decision.className,
+    ...Array.from(
+      decision.querySelectorAll<HTMLElement>("[class]"),
+      element => element.className,
+    ),
+  ].join(" ")
+  assert.doesNotMatch(decisionClasses, /\boverflow-x-auto\b/)
+  assert.ok(!decisionClasses.includes("min-w-[720px]"))
+
+  const metrics = decision.querySelector("dl")
+  assert.ok(metrics)
+  assert.match(metrics.className, /\bw-full\b/)
+  assert.match(metrics.className, /\bgrid-cols-3\b/)
+  assert.match(metrics.className, /\blg:grid-cols-6\b/)
   assert.deepEqual(
     Array.from(decision.querySelectorAll("dt"), element => element.textContent),
     [
@@ -73,5 +87,7 @@ test("AI 报价决策栏按冻结顺序堆叠六列，并保留 Ø8 实时 pin",
     "2项 · 90",
   ])
   assert.match(values[5].querySelector("span")?.className || "", /\btext-red-300\b/)
-  assert.ok(screen.getByRole("button", { name: "确认本零件报价" }))
+  const confirmButton = screen.getByRole("button", { name: "确认本零件报价" })
+  assert.ok(confirmButton)
+  assert.equal(metrics.contains(confirmButton), false)
 })
