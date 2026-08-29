@@ -104,8 +104,28 @@ def test_empty_selected_feature_list_has_no_program():
 def test_pinned_live_sample_numbers(client, sample_id, features, expected_time, expected_cost):
     body = _quote(client, features)
     items = {item["code"]: item["amount"] for item in body["cost_items"]}
+    fixture = body["fixture"]
 
-    assert body["fixture"]["setup_count"] == 1, sample_id
+    assert fixture["method"] == "平口钳", sample_id
+    assert fixture["setup_count"] == 1, sample_id
+    assert fixture["is_fixture_needed"] is False, sample_id
+    assert fixture["fixture_material"] == "-", sample_id
+    assert fixture["fixture_count"] == 0, sample_id
+    assert (
+        fixture["fixture_block_L"],
+        fixture["fixture_block_W"],
+        fixture["fixture_block_H"],
+    ) == (0, 0, 0), sample_id
+    assert fixture["datum_face"] is False, sample_id
+    assert fixture["clamp_hole_count"] == 0, sample_id
+    assert fixture["thread_count"] == 0, sample_id
+    assert fixture["profile_mill"] is False, sample_id
+    assert fixture["angled_feature_count"] == 0, sample_id
+    assert fixture["surface_type"] == "平面", sample_id
+    assert fixture["orientation_count"] == 1, sample_id
+    assert fixture["fixture_material_cost"] == 0, sample_id
+    assert fixture["fixture_processing_cost"] == 0, sample_id
+    assert items["FIX"] == 0, sample_id
     assert body["equipment"]["axes"] == 3, sample_id
     assert body["programming_time"] == expected_time, sample_id
     assert body["programming_cost"] == pytest.approx(expected_cost, abs=0.02), sample_id
@@ -120,6 +140,41 @@ def test_pinned_live_sample_numbers(client, sample_id, features, expected_time, 
         body["ui_cost"]["machining"] + body["ui_cost"]["setup"],
         abs=0.02,
     )
+
+
+def test_it6_requires_aluminum_fixture_without_changing_programming(client):
+    body = _quote(
+        client,
+        [
+            {"type": "hole", "feature_id": "hole-0", "selected": True},
+            {"type": "face", "feature_id": "face-1", "selected": True},
+        ],
+        tolerance_it="IT6",
+    )
+    fixture = body["fixture"]
+    items = {item["code"]: item["amount"] for item in body["cost_items"]}
+
+    assert fixture["is_fixture_needed"] is True
+    assert fixture["fixture_material"] == "铝合金"
+    assert fixture["fixture_count"] == 1
+    assert (
+        fixture["fixture_block_L"],
+        fixture["fixture_block_W"],
+        fixture["fixture_block_H"],
+    ) == (120, 100, 42)
+    assert fixture["datum_face"] is True
+    assert fixture["clamp_hole_count"] == 2
+    assert fixture["thread_count"] == 2
+    assert fixture["profile_mill"] is False
+    assert fixture["angled_feature_count"] == 0
+    assert fixture["surface_type"] == "平面"
+    assert fixture["fixture_orientation_count"] == 1
+    # AL-01: 120*100*42 mm³ * 2.70 g/cm³ / 1e6 * ¥22/kg = ¥29.9376。
+    assert fixture["fixture_material_cost"] == pytest.approx(29.94, abs=0.01)
+    assert fixture["fixture_processing_cost"] == 0
+    assert items["FIX"] == pytest.approx(29.94, abs=0.01)
+    assert body["programming_time"] == 93
+    assert body["programming_cost"] == pytest.approx(62, abs=0.02)
 
 
 def test_deselect_hole_recalculates_programming(client):

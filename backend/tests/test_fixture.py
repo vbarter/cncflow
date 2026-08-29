@@ -75,4 +75,9 @@ def test_repeat_order_zero_fixture_cost(client):
         "material": "铝合金",
         "is_repeat_order": True,
     })
-    assert resp.get_json()["fixture_cost_per_piece"] == 0
+    body = resp.get_json()
+    assert body["is_fixture_needed"] is False
+    assert body["fixture_count"] == 0
+    assert body["fixture_material_cost"] == 0
+    assert body["fixture_processing_cost"] == 0
+    assert body["fixture_cost_per_piece"] == 0

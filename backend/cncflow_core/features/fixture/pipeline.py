@@ -1,7 +1,7 @@
-"""夹具 F1–F5：first-match，不可装夹仍返回结果（内部模式不 blocked）。"""
-import math
+"""夹具 F1–F5 + 0824 v3 夹具需求判断。"""
 
 from ...common.rule_loader import load_rules
+from ...factory.store import get_config, resolve_material_code
 
 TIMES = {
     ("F1", "平口钳"): (0, 3, 8),
@@ -100,7 +100,7 @@ def _setup_count(shape, axes, d1, d3, dset, a_flag) -> int:
     return max(1, len(dset) + (1 if a_flag else 0)) or 1
 
 
-def _costs(ftype, method, setup_count, length, width, depth, it, dset, hourly, batch, repeat):
+def _setup_times(ftype, method, it):
     t_prep, t_clamp, t_change = TIMES.get((ftype, method), (45, 3, 5))
     if it <= 6:
         t_align = 10
@@ -108,34 +108,150 @@ def _costs(ftype, method, setup_count, length, width, depth, it, dset, hourly, b
         t_align = 5
     else:
         t_align = 0
-    if ftype == "F1":
-        mat_cost, mach_min = 0, 0
-    elif ftype == "F2":
-        mat_cost, mach_min = 50, 15 + (setup_count - 1) * 10
-    elif ftype == "F5":
-        mat_cost, mach_min = 50, 15
-    elif ftype == "F4":
-        mat_cost, mach_min = 0, 0
+    return t_prep, t_clamp, t_change, t_align
+
+
+def _field(payload: dict, feature: dict, key: str, default):
+    for source in (payload, feature):
+        value = source.get(key)
+        if value not in (None, ""):
+            return value
+    return default
+
+
+def _number(payload: dict, feature: dict, key: str, default: float) -> float:
+    try:
+        return float(_field(payload, feature, key, default))
+    except (TypeError, ValueError):
+        return float(default)
+
+
+def _it_number(payload: dict, feature: dict) -> int:
+    raw = _field(payload, feature, "tolerance_it", None)
+    if raw is None:
+        raw = _field(payload, feature, "tolerance_grade", 11)
+    try:
+        return int(str(raw).upper().removeprefix("IT"))
+    except (TypeError, ValueError):
+        return 11
+
+
+def _material_row(factory: dict, material: str) -> dict | None:
+    code = resolve_material_code(material)
+    return next(
+        (
+            row
+            for row in factory.get("material_prices") or []
+            if row.get("material_code") in {material, code}
+        ),
+        None,
+    )
+
+
+def _fixture_spec(
+    payload: dict,
+    feature: dict,
+    conn,
+    *,
+    material: str,
+    length: float,
+    width: float,
+    depth: float,
+    fallback_density: float,
+) -> dict:
+    """0824 first-match；未命中平口钳时再计算夹具材料和特征。"""
+    repeat = bool(payload.get("is_repeat_order"))
+    has_clamp_face = bool(_field(payload, feature, "has_clamp_face", True))
+    wall = _number(payload, feature, "wall_thickness", 3)
+    angled = int(_number(payload, feature, "angled_feature_count", 0))
+    surface = str(_field(payload, feature, "surface_type", "平面"))
+    it = _it_number(payload, feature)
+    orientation = int(_number(payload, feature, "orientation_count", 1))
+
+    vise_path = (
+        has_clamp_face
+        and wall >= 3
+        and angled == 0
+        and surface == "平面"
+        and it >= 8
+        and orientation <= 2
+    )
+    needed = not repeat and not vise_path
+    if not needed:
+        return {
+            "is_fixture_needed": False,
+            "fixture_material": "-",
+            "fixture_count": 0,
+            "fixture_block_L": 0,
+            "fixture_block_W": 0,
+            "fixture_block_H": 0,
+            "datum_face": False,
+            "clamp_hole_count": 0,
+            "thread_count": 0,
+            "profile_mill": False,
+            "angled_feature_count": 0,
+            "surface_type": "平面",
+            "orientation_count": 1,
+            "fixture_orientation_count": 1,
+            "fixture_material_cost": 0,
+            "fixture_processing_cost": 0,
+            "fixture_cost_per_piece": 0,
+        }
+
+    factory = get_config(conn)
+    part_row = _material_row(factory, material)
+    part_family = (part_row or {}).get("family") or material
+    explicit_weight = _field(payload, feature, "weight_kg", None)
+    if explicit_weight is None:
+        explicit_weight = _field(payload, feature, "weight", None)
+    try:
+        weight = float(explicit_weight)
+    except (TypeError, ValueError):
+        part_density = float((part_row or {}).get("density_g_cm3") or fallback_density)
+        weight = length * width * depth * part_density * 1e-6
+
+    if it <= 6 or wall < 2:
+        fixture_material = "铝合金"
+    elif weight > 10 and part_family in {"钢", "普通碳钢", "不锈钢"}:
+        fixture_material = "45钢"
+    elif material in {"铝", "铝合金", "铜"} or part_family in {"铝", "铝合金", "铜"}:
+        fixture_material = "铝合金"
     else:
-        block_l, block_w = length + 40, width + 40
-        block_h = max(50, depth * 0.5 + 30)
-        frame = 0.3 if block_l > 500 or block_w > 500 else 1.0
-        vol = block_l * block_w * block_h * frame
-        steel_w = vol * 7.85 * 1e-6
-        use_al = it > 6 and steel_w > 25
-        dens, price = (2.70, 25) if use_al else (7.85, 8)
-        mat_cost = vol * dens * 1e-6 * price
-        c1 = 1.0 if len(dset) <= 2 else 1.5 if len(dset) == 3 else 2.0
-        c2 = 1.5 if it <= 6 else 1.0
-        n = max(2, math.ceil(len(dset) * 0.5))
-        mach_min = 120 * c1 * c2 + n * 10
-    fixture_cost = mat_cost + mach_min * hourly / 60
-    per = 0 if repeat or ftype in {"F1", "F4"} else fixture_cost / max(batch, 1)
-    if ftype == "F5" and repeat:
-        per = 0
-    elif ftype == "F5":
-        per = fixture_cost / max(batch, 1)
-    return t_prep, t_clamp, t_change, t_align, mat_cost, mach_min, per
+        fixture_material = "45钢"
+
+    count = 2 if orientation >= 3 else 1
+    block_l = length + 40
+    block_w = width + 40
+    block_h = max(depth + 30, 40)
+    catalog_material = "铝合金" if fixture_material == "铝合金" else "钢"
+    fixture_row = _material_row(factory, catalog_material)
+    if not fixture_row:
+        raise ValueError(f"工厂材料目录缺少夹具材料：{catalog_material}")
+    density = float(fixture_row["density_g_cm3"])
+    unit_price = float(fixture_row["price_per_kg"])
+    material_cost = block_l * block_w * block_h * density / 1e6 * unit_price * count
+    processing_cost = 0  # 缺少《夹具加工工序规则》，本切片不虚构加工工时。
+    fixture_orientation = 2 if angled >= 1 else 1
+
+    return {
+        "is_fixture_needed": True,
+        "fixture_material": fixture_material,
+        "fixture_count": count,
+        "fixture_block_L": round(block_l, 3),
+        "fixture_block_W": round(block_w, 3),
+        "fixture_block_H": round(block_h, 3),
+        "datum_face": True,
+        "clamp_hole_count": 2 * count,
+        "thread_count": 2 * count,
+        "profile_mill": surface in {"回转面", "自由曲面"} or angled >= 1,
+        "angled_feature_count": angled,
+        "surface_type": surface,
+        "orientation_count": fixture_orientation,
+        "fixture_orientation_count": fixture_orientation,
+        "fixture_material_cost": round(material_cost, 2),
+        "fixture_processing_cost": processing_cost,
+        "fixture_cost_per_piece": round(material_cost + processing_cost, 2),
+    }
 
 
 def run(payload: dict, conn) -> dict:
@@ -143,14 +259,13 @@ def run(payload: dict, conn) -> dict:
     d1, d2, d3 = _dims(feature)
     length, width, depth = float(feature["length"]), float(feature["width"]), float(feature["depth"])
     material = payload.get("material") or payload.get("material_code") or "钢"
-    it = int(payload.get("tolerance_it") or feature.get("tolerance_grade") or 11)
+    it = _it_number(payload, feature)
     wall = float(feature.get("wall_thickness") or payload.get("wall_thickness") or 999)
     axes = int((payload.get("machine_profile") or {}).get("axes") or payload.get("machine_axes") or 3)
     max_z = (payload.get("machine_profile") or {}).get("max_z") or payload.get("machine_max_z")
     batch = int(payload.get("batch_size") or 1)
     repeat = bool(payload.get("is_repeat_order"))
     blank = payload.get("blank_type") or "板料"
-    hourly = float(payload.get("hourly_rate") or 120)
     ignore = bool(payload.get("ignore_available_machines"))
 
     mat = _mat(material)
@@ -171,14 +286,24 @@ def run(payload: dict, conn) -> dict:
 
     ftype, method = _fixture_type(shape, material, d1, d2, wall, it)
     setup = _setup_count(shape, axes, d1, d3, dset, a_flag)
-    t_prep, t_clamp, t_change, t_align, mat_cost, mach_min, per = _costs(
-        ftype, method, setup, length, width, depth, it, dset, hourly, batch, repeat
+    t_prep, t_clamp, t_change, t_align = _setup_times(
+        ftype, method, it,
     )
     w_factor = 1.5 if weight > 25 else 1.0
     setup_time = (t_clamp + (setup - 1) * (t_change + t_align) + 2) * mat["material_factor"] * w_factor
     if blank in {"铸件", "锻件", "焊接件"}:
         setup_time += 5
     prep = 0 if repeat else t_prep / max(batch, 1)
+    fixture_spec = _fixture_spec(
+        payload,
+        feature,
+        conn,
+        material=material,
+        length=length,
+        width=width,
+        depth=depth,
+        fallback_density=float(mat["density"]),
+    )
 
     return {
         "feature_type": "fixture",
@@ -189,9 +314,8 @@ def run(payload: dict, conn) -> dict:
         "change_count": max(setup - 1, 0),
         "setup_time_total": round(setup_time, 3),
         "prep_per_piece": round(prep, 3),
-        "fixture_material_cost": round(mat_cost, 2),
-        "fixture_machining_time": round(mach_min, 3),
-        "fixture_cost_per_piece": round(per, 2),
+        **fixture_spec,
+        "fixture_machining_time": 0,
         "is_machinable": machinable,
         "weight_kg": round(weight, 3),
         "risk_tags": risks if machinable else risks + ["不可装夹仍出价，标高风险"],

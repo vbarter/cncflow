@@ -423,7 +423,13 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
     toolchg_fee = (toolchg_min / 60) * hourly
     setup_fee_time = (setup_min / 60) * hourly
     rapid_fee = (rapid_min / 60) * hourly
-    fix_fee = 0 if repeat else float(fixture.get("fixture_cost_per_piece") or 0)
+    if not fixture.get("is_fixture_needed") or not fixture.get("fixture_count"):
+        fix_fee = 0
+    else:
+        fix_fee = (
+            float(fixture.get("fixture_material_cost") or 0)
+            + float(fixture.get("fixture_processing_cost") or 0)
+        )
     toolwear = cut_hours * 15
     machining_sub = cut_fee + toolchg_fee + rapid_fee
     setup_ui = setup_fee_time + setup_amort
@@ -591,6 +597,22 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
             "method": fixture.get("fixture_method"),
             "setup_count": fixture.get("setup_count"),
             "is_machinable": fixture.get("is_machinable"),
+            "is_fixture_needed": fixture.get("is_fixture_needed"),
+            "fixture_material": fixture.get("fixture_material"),
+            "fixture_count": fixture.get("fixture_count"),
+            "fixture_block_L": fixture.get("fixture_block_L"),
+            "fixture_block_W": fixture.get("fixture_block_W"),
+            "fixture_block_H": fixture.get("fixture_block_H"),
+            "datum_face": fixture.get("datum_face"),
+            "clamp_hole_count": fixture.get("clamp_hole_count"),
+            "thread_count": fixture.get("thread_count"),
+            "profile_mill": fixture.get("profile_mill"),
+            "angled_feature_count": fixture.get("angled_feature_count"),
+            "surface_type": fixture.get("surface_type"),
+            "orientation_count": fixture.get("orientation_count"),
+            "fixture_orientation_count": fixture.get("fixture_orientation_count"),
+            "fixture_material_cost": fixture.get("fixture_material_cost"),
+            "fixture_processing_cost": fixture.get("fixture_processing_cost"),
         },
         "slider": slide,
         "rules_version": rules_version,
