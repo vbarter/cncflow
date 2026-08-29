@@ -177,6 +177,118 @@ function MaterialDrawer({ material, onClose }: { material: any; onClose: () => v
   </>
 }
 
+function MachiningDrawer({ labor, onClose }: { labor: any; onClose: () => void }) {
+  const groups = Array.isArray(labor?.groups) ? labor.groups : []
+  const changeover = labor?.changeover || {}
+
+  useEffect(() => {
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") onClose()
+    }
+    window.addEventListener("keydown", closeOnEscape)
+    return () => window.removeEventListener("keydown", closeOnEscape)
+  }, [onClose])
+
+  return <>
+    <button
+      type="button"
+      className="fixed inset-0 z-40 cursor-default bg-slate-950/30"
+      aria-label="关闭加工费用明细"
+      onClick={onClose}
+    />
+    <aside
+      id="machining-cost-drawer"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="machining-cost-drawer-title"
+      className="fixed inset-y-0 right-0 z-50 w-full max-w-xl overflow-y-auto bg-white shadow-2xl"
+    >
+      <div className="flex items-center justify-between border-b border-slate-200 px-6 py-5">
+        <h2 id="machining-cost-drawer-title" className="text-lg font-semibold">加工费用</h2>
+        <button
+          type="button"
+          className="flex size-10 items-center justify-center rounded text-2xl text-slate-500 hover:bg-slate-100"
+          aria-label="关闭"
+          onClick={onClose}
+        >
+          ×
+        </button>
+      </div>
+      <div className="space-y-7 px-6 py-6 text-sm">
+        {groups.map((group: any) => (
+          <section key={group.feature_type} aria-labelledby={`machining-${group.feature_type}`}>
+            <h3
+              id={`machining-${group.feature_type}`}
+              className="mb-3 font-medium text-slate-900"
+            >
+              {group.name} × {number(group.quantity)}
+            </h3>
+            <div className="space-y-3">
+              {(group.operations || []).map((operation: any, index: number) => (
+                <dl
+                  className="grid grid-cols-2 gap-x-4 gap-y-3 rounded border border-slate-200 px-4 py-3"
+                  key={`${operation.name}-${operation.tool_sku}-${index}`}
+                >
+                  {[
+                    ["工序名称", operation.name || "—"],
+                    ["设备名称", operation.equipment_name || "—"],
+                    ["刀具 SKU", operation.tool_sku || "—"],
+                    ["加工时长 (min)", number(operation.minutes).toFixed(2)],
+                    ["设备费率 (¥/h)", number(operation.hourly_rate).toFixed(0)],
+                    ["工序费用", `¥${number(operation.cost).toFixed(2)}`],
+                  ].map(([label, value]) => (
+                    <div key={label}>
+                      <dt className="text-xs text-slate-500">{label}</dt>
+                      <dd className="mt-1 font-mono text-slate-900">{value}</dd>
+                    </div>
+                  ))}
+                </dl>
+              ))}
+            </div>
+          </section>
+        ))}
+        <section aria-labelledby="machining-subtotal">
+          <h3 id="machining-subtotal" className="mb-3 font-medium text-slate-900">工序合计</h3>
+          <div className="rounded border border-slate-200 px-4 py-3">
+            <div className="flex items-center justify-between">
+              <span className="text-slate-500">工序总费用</span>
+              <span className="font-mono">¥{number(labor?.machining_total).toFixed(2)}</span>
+            </div>
+            <p className="mt-2 text-xs text-slate-500">
+              含空程 / 换刀 ¥{number(labor?.air_cut_and_tool_change_cost).toFixed(2)}
+            </p>
+          </div>
+        </section>
+        <section aria-labelledby="machining-changeover">
+          <h3 id="machining-changeover" className="mb-3 font-medium text-slate-900">换夹</h3>
+          <dl className="divide-y divide-slate-100 rounded border border-slate-200">
+            {[
+              ["夹具换夹时长", `${number(changeover.minutes).toFixed(2)} min`],
+              ["加工设备", changeover.equipment_name || "—"],
+              ["设备费率", `¥${number(changeover.hourly_rate).toFixed(0)}/h`],
+              ["夹具换夹费用", `¥${number(changeover.cost).toFixed(2)}`],
+            ].map(([label, value]) => (
+              <div className="flex items-center justify-between gap-4 px-4 py-3" key={label}>
+                <dt className="text-slate-500">{label}</dt>
+                <dd className="font-mono text-right text-slate-900">{value}</dd>
+              </div>
+            ))}
+          </dl>
+          <p className="mt-2 text-xs text-slate-500">
+            调机 ¥{number(changeover.machine_setup_cost).toFixed(2)}
+            {" + "}
+            工时 ¥{number(changeover.labor_cost).toFixed(2)}
+          </p>
+        </section>
+        <div className="flex items-center justify-between rounded bg-slate-900 px-4 py-4 text-white">
+          <span className="font-medium">总计</span>
+          <span className="font-mono text-lg">¥{number(labor?.total).toFixed(2)}</span>
+        </div>
+      </div>
+    </aside>
+  </>
+}
+
 function FixtureDrawer({ fixture, onClose }: { fixture: any; onClose: () => void }) {
   const values = fixtureDrawerValues(fixture)
 
@@ -248,7 +360,7 @@ export function CostBreakdown({
   uiCost: any
   quoteSummary: any
 }) {
-  const [openDrawer, setOpenDrawer] = useState<"material" | "fixture" | null>(null)
+  const [openDrawer, setOpenDrawer] = useState<"material" | "machining" | "fixture" | null>(null)
   const maxCost = Math.max(1, ...COST_ROWS.map(([key]) => costValue(quote, uiCost, key)))
 
   return <>
@@ -267,11 +379,13 @@ export function CostBreakdown({
               />
             </div>
             <div className="text-right">
-              ¥{key === "fixture" || key === "material" ? value.toFixed(2) : yen(value)}
+              ¥{key === "fixture" || key === "material" || key === "machining"
+                ? value.toFixed(2)
+                : yen(value)}
             </div>
           </>
 
-          return key === "fixture" || key === "material" ? (
+          return key === "fixture" || key === "material" || key === "machining" ? (
             <button
               key={key}
               type="button"
@@ -301,6 +415,12 @@ export function CostBreakdown({
     {openDrawer === "material" && (
       <MaterialDrawer
         material={quote?.material_cost_breakdown}
+        onClose={() => setOpenDrawer(null)}
+      />
+    )}
+    {openDrawer === "machining" && (
+      <MachiningDrawer
+        labor={quote?.labor_cost_breakdown}
         onClose={() => setOpenDrawer(null)}
       />
     )}

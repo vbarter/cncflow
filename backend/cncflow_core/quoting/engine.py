@@ -28,6 +28,15 @@ DIFF_MIN = {"D1": 2.0, "D2": 6.0, "D3": 15.0, "D4": 25.0, "NA": 20.0, 1: 2.0, 2:
 DIFF_FACTOR = {"D3": 1.3, "D4": 1.8, 3: 1.3, 4: 1.8}
 STEP_PARAMS = ("formula", "n", "f", "cut", "passes", "t_min", "t_max", "status")
 DIAMETER_MISMATCH_RISK = "刀径非全等，需工艺确认"
+FEATURE_NAME = {
+    "hole": "孔",
+    "face": "面",
+    "pocket": "型腔",
+    "slot": "槽",
+    "thread": "螺纹",
+    "surface": "曲面",
+    "step": "台阶",
+}
 
 
 def suggested_lead_time_days(hours_total: float, setup_count: int, batch: int) -> int:
@@ -80,6 +89,76 @@ def _validation(seq: list) -> dict:
             "t_max": step.get("t_max"),
         })
     return {"ok": not items, "items": items}
+
+
+def _labor_trace(
+    plans: list,
+    seq: list,
+    picked: dict,
+    hourly: float,
+    machining_sub: float,
+    setup_min: float,
+    setup_fee_time: float,
+    setup_amort: float,
+    setup_ui: float,
+) -> dict:
+    """只组织展示所需的工时来源；不参与任何报价计算。"""
+    groups = []
+    groups_by_type = {}
+    feature_types = {}
+    for plan in plans:
+        feature_id = plan["feature_id"]
+        feature_type = plan["type"]
+        feature_types[feature_id] = feature_type
+        group = groups_by_type.get(feature_type)
+        if group is None:
+            group = {
+                "feature_type": feature_type,
+                "name": FEATURE_NAME.get(feature_type, feature_type or "特征"),
+                "quantity": 0,
+                "feature_ids": [],
+                "operations": [],
+            }
+            groups_by_type[feature_type] = group
+            groups.append(group)
+        group["quantity"] += 1
+        group["feature_ids"].append(feature_id)
+
+    for step in seq:
+        feature_type = feature_types.get(step.get("feature_id"))
+        group = groups_by_type.get(feature_type)
+        if group is None:
+            continue
+        group["operations"].append({
+            "name": step.get("name") or step.get("process") or "工序",
+            "equipment_name": picked.get("model") or picked.get("type") or "—",
+            "tool_sku": step.get("sku"),
+            "minutes": round(float(step.get("minutes") or 0), 4),
+            "hourly_rate": round(hourly, 2),
+            "cost": round(float(step.get("amount") or 0), 2),
+        })
+
+    operation_cost = round(sum(
+        operation["cost"]
+        for group in groups
+        for operation in group["operations"]
+    ), 2)
+    return {
+        "groups": groups,
+        "operation_cost": operation_cost,
+        # 现有 machining 还含 TOOLCHG/RAPID；按冻结 UI 不虚构额外工序。
+        "air_cut_and_tool_change_cost": round(round(machining_sub, 2) - operation_cost, 2),
+        "machining_total": round(machining_sub, 2),
+        "changeover": {
+            "minutes": round(setup_min, 2),
+            "equipment_name": picked.get("model") or picked.get("type") or "—",
+            "hourly_rate": round(hourly, 2),
+            "labor_cost": round(setup_fee_time, 2),
+            "machine_setup_cost": round(setup_amort, 2),
+            "cost": round(setup_ui, 2),
+        },
+        "total": round(round(machining_sub, 2) + round(setup_ui, 2), 2),
+    }
 
 
 def _nearest_sku(conn, step: dict):
@@ -501,6 +580,18 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
                 s["amount"] = round(per_amt, 2)
             _copy_step_params(s, s.get("time"))
 
+    labor_trace = _labor_trace(
+        plans,
+        seq,
+        picked,
+        hourly,
+        machining_sub,
+        setup_min,
+        setup_fee_time,
+        setup_amort,
+        setup_ui,
+    )
+
     equipment_info = {
         "model": picked.get("model"),
         "type": picked.get("type"),
@@ -596,6 +687,7 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
             "machining": round(machining_sub, 2),
             "setup": round(setup_ui, 2),
             "total": round(round(machining_sub, 2) + round(setup_ui, 2), 2),
+            **labor_trace,
         },
         "material_cost_breakdown": material_cost_breakdown,
         "validation": _validation(seq),
