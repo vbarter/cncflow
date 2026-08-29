@@ -1,6 +1,6 @@
 # 孔可加工性判定规则（前置风控层）
 # 来源：《1、孔是否可加工_加工工艺图》模块一
-# 区间约定：band 的 min 含（>=）、max 不含（<）。原文档"5~10"等模糊边界在此定死。
+# 区间约定：band 的 min 含（>=）、max 不含（<）；exclusive_min / inclusive_max 可改边界。
 # level 对应四级判定：1=可加工 2=高风险可加工 3=需特殊工艺 4=不建议加工
 version: 1
 
@@ -11,7 +11,7 @@ levels:
   4: Not recommended
 
 checks:
-  # ── 1.2.1 深径比检查【核心必查项】 ──
+  # ── 冻结深径比 R01–R04；不得叠加 R17–R20 第二套深径比分档 ──
   - id: HOLE-GEO-HD
     layer: geometry
     name: 深径比检查
@@ -25,21 +25,25 @@ checks:
         clamping: 无需特殊装夹；常规钻头，一次装夹完成
       - min: 5
         max: 10
+        inclusive_max: true
         grade: 深孔
         level: 2
         risk: 排屑困难，轻微摆动
         process_stage: 需分段啄钻（G83）
         clamping: 常规装夹；需换刀，采用内冷深孔钻
       - min: 10
+        exclusive_min: true
         max: 20
+        inclusive_max: true
         grade: 超深孔
         level: 3
         risk: 冷却不足，断刀风险高
         process_stage: 强制采用枪钻或循环深孔钻
         clamping: 需专用高压冷却装夹；必须换刀，采用枪钻或专用深孔钻系统
       - min: 20
+        exclusive_min: true
         grade: 极限深孔
-        level: 4
+        level: 3
         risk: 常规设备刀具无法满足
         process_stage: 需定制设备或特种加工（如EDM）
         clamping: 非标装夹方案；需换刀，且必须使用特制加长刀具

@@ -1,7 +1,7 @@
 """孔工艺链生成（文档1模块二 Step1~9 + 文档2速查表）。
 
 输出有序工序列表，每项 {"process": str, "cycle": str|None}。
-遵循"由粗到精、由简到繁、风险前置"：点钻 → 主钻削/镗削 → 修底 → 精加工 → 螺纹 → 倒角。
+遵循冻结顺序：点钻 → 基础钻孔/镗削 → 精加工 → 螺纹 → 修底 → 倒角。
 """
 from ...common.rule_loader import load_rules
 from .models import HoleSpec
@@ -19,7 +19,7 @@ def _thread_nominal_d(thread: dict, fallback: float) -> float:
 
 def generate_chain(hole: HoleSpec, material: str, tolerance_it: int, roughness_ra=None) -> list:
     rules = load_rules("hole/process_chain.yaml")
-    d, hd, ld = hole.diameter_mm, hole.h_over_d, hole.h_over_d
+    d, hd = hole.diameter_mm, hole.h_over_d
     chain = []
 
     # ── 超大孔（D>80）：不可钻，走 粗镗→半精镗→精镗 专属路径 ──
@@ -44,23 +44,31 @@ def generate_chain(hole: HoleSpec, material: str, tolerance_it: int, roughness_r
     ):
         chain.append({"process": "spot_drill", "cycle": None})
 
-    # ── Step1/3/4 主钻削：H/D>10 枪钻；H/D>5 深孔钻(G83)；D>30 U钻；否则普通钻 ──
+    # ── 基础钻孔：每个孔只选一道主工序；微孔与极限深孔替代常规钻削 ──
     deep = rules["deep_hole"]
-    drill_cycle = rules["drill_cycle"]
-    if hd > deep["gun_drill_min_hd"]:
+    primary = rules["primary_drill"]
+    if d < primary["micro_hole_max_d"]:
+        chain.append({
+            "process": "micro_hole",
+            "cycle": None,
+            "name": "微孔 EDM / 超高速钻削",
+        })
+    elif hd > deep["gun_drill_max_hd"]:
+        chain.append({
+            "process": "special_hole",
+            "cycle": None,
+            "name": "特种加工 / EDM",
+        })
+    elif hd > deep["gun_drill_min_hd"]:
         chain.append({"process": "gun_drill", "cycle": "枪钻循环"})
     else:
-        cycle = "G81" if ld <= drill_cycle["g81_max_ld"] else "G83"
-        if d > rules["primary_drill"]["u_drill_min_d"] and hd <= deep["g83_min_hd"]:
+        cycle = "G83" if hd >= deep["g83_min_hd"] else "G81"
+        if d > primary["u_drill_min_d"] and hd < deep["g83_min_hd"]:
             chain.append({"process": "u_drill", "cycle": cycle})
         else:
             chain.append({"process": "drill", "cycle": cycle})
 
-    # ── Step8 孔底形状：盲孔平底 → 立铣刀修底 ──
-    if hole.hole_type == "blind" and hole.bottom_shape == "flat" and rules["bottom"]["flat_requires_mill"]:
-        chain.append({"process": "flat_bottom_mill", "cycle": None})
-
-    # ── Step5 高精度精加工 + Step6 粗糙度专项 ──
+    # ── 精加工：高精度加工 + 粗糙度专项 ──
     fin = rules["finishing"]
     finishing = []  # 依序追加，去重
     if tolerance_it <= fin["bore_max_it"] and d >= fin["bore_min_d"]:
@@ -85,7 +93,7 @@ def generate_chain(hole: HoleSpec, material: str, tolerance_it: int, roughness_r
     for proc in finishing:
         chain.append({"process": proc, "cycle": rules["cycles"].get(proc)})
 
-    # ── Step7 螺纹加工 ──
+    # ── 螺纹加工 ──
     if hole.thread:
         thread_d = _thread_nominal_d(hole.thread, d)
         thr = rules["thread"]
@@ -98,7 +106,11 @@ def generate_chain(hole: HoleSpec, material: str, tolerance_it: int, roughness_r
         else:
             chain.append({"process": "tap", "cycle": None})
 
-    # ── Step9 倒角（通孔双面，盲孔单面）──
+    # ── 修底：冻结在精加工、螺纹之后，倒角之前 ──
+    if hole.hole_type == "blind" and hole.bottom_shape == "flat" and rules["bottom"]["flat_requires_mill"]:
+        chain.append({"process": "flat_bottom_mill", "cycle": None})
+
+    # ── 倒角（通孔双面，盲孔单面）──
     if rules["chamfer_always"]:
         if hole.hole_type == "through":
             chain.append({"process": "chamfer", "cycle": None, "name": "入口倒角", "side": "entry"})

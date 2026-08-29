@@ -9,8 +9,14 @@ from ...common.rule_loader import load_rules
 from . import machinability, process_chain, tool_attrs
 from .models import HoleSpec, validate_tolerance_it
 
-# 无刀具/参数映射的特殊阶段（磨削：文档4未提供砂轮参数库）
-_NO_TOOL_PROCESSES = {"grind"}
+# 本期无刀具/参数映射的特殊阶段；不得回退成普通钻削。
+_NO_TOOL_PROCESS_NOTES = {
+    "grind": "磨削阶段（Ra≤0.4 放弃切削）：需砂轮与磨削夹具，超出本期刀具库/参数库范围",
+    "micro_hole": "微孔主工序：采用微孔 EDM 或超高速钻削中心，超出本期刀具库/参数库范围",
+    "special_hole": "极限深孔主工序：采用特种加工或 EDM，禁止回退为枪钻",
+}
+_NO_TOOL_PROCESSES = set(_NO_TOOL_PROCESS_NOTES)
+_FINISH_WITHOUT_TOOL = {"grind"}
 
 
 def _thread_diameter(thread, fallback):
@@ -42,6 +48,29 @@ def _machine_adjust(params: dict, machine_profile: dict) -> dict:
             "strategies": adjusted}
 
 
+def _blocking_conditions(payload: dict, feature: dict, hole: HoleSpec) -> list:
+    """本批次仅冻结两项 NA；未提供设备能力时不得推定不可加工。"""
+    blockers = []
+    machine_max_z = payload.get("machine_max_z")
+    if machine_max_z is not None and hole.depth_mm > float(machine_max_z):
+        blockers.append({
+            "code": "Z_OVERTRAVEL",
+            "message": f"孔深 {hole.depth_mm:g}mm 超过机床 Z 行程 {float(machine_max_z):g}mm",
+        })
+
+    machine_axes = payload.get("machine_axes")
+    if (
+        feature.get("position_type") == "侧向"
+        and machine_axes is not None
+        and int(machine_axes) < 4
+    ):
+        blockers.append({
+            "code": "THREE_AXIS_SIDE_HOLE",
+            "message": f"{int(machine_axes)} 轴机床不可加工侧向孔，至少需要 4 轴",
+        })
+    return blockers
+
+
 def run(payload: dict, conn) -> dict:
     """执行孔评估。payload 为请求体 dict；conn 为 SQLite 连接。非法输入抛 ValueError。"""
     feature = payload.get("feature") or {}
@@ -66,6 +95,7 @@ def run(payload: dict, conn) -> dict:
         raise ValueError("machine_profile 须为对象")
 
     result = machinability.evaluate(hole, material, tolerance_it)
+    blockers = _blocking_conditions(payload, feature, hole)
     evidence = material_evidence(conn, material_profile.material_code)
     case_refs = retrieve_process_cases(
         conn, material_code=material_profile.material_code, material_family=material,
@@ -74,20 +104,43 @@ def run(payload: dict, conn) -> dict:
         thread_spec=(hole.thread or {}).get("spec"),
     )
 
-    # 四级（不建议加工）：前置风控拦截，不生成工艺链
-    if result.level >= 4:
+    # 冻结口径：只允许显式设备越界阻断；R15/R22 和一般高风险不得自动 NA。
+    if blockers:
+        verdict = result.to_dict()
+        verdict.update(
+            level=4,
+            label="NA",
+            na=True,
+            risk_notes=[*verdict["risk_notes"], *(item["message"] for item in blockers)],
+            fired_rules=[*verdict["fired_rules"], *(item["code"] for item in blockers)],
+        )
         return {
-            "machinability": result.to_dict(),
+            "machinability": verdict,
             "material_profile": material_profile.to_dict(),
+            "process_chain": [],
             "tool_chain": [],
             "case_references": case_refs,
             "evidence": evidence,
-            "match_status": "不适用（四级：不建议加工，报废率极高）",
+            "hole": {
+                "diameter_mm": hole.diameter_mm,
+                "depth_mm": hole.depth_mm,
+                "cut_depth_mm": hole.cut_depth_mm,
+                "h_over_d": hole.h_over_d,
+                "hole_type": hole.hole_type,
+                "surface": hole.surface,
+                "bottom_shape": hole.bottom_shape,
+                "position_type": feature.get("position_type"),
+            },
+            "is_machinable": False,
+            "blockers": blockers,
+            "warnings": [],
+            "risk_tags": [item["message"] for item in blockers],
+            "match_status": "不适用（设备能力阻断）",
         }
 
     chain = process_chain.generate_chain(hole, material, tolerance_it, roughness_ra)
     has_finishing = any(
-        step["process"] in tool_attrs.FINISH_PROCESSES or step["process"] in _NO_TOOL_PROCESSES
+        step["process"] in tool_attrs.FINISH_PROCESSES or step["process"] in _FINISH_WITHOUT_TOOL
         for step in chain
     )
 
@@ -107,7 +160,7 @@ def run(payload: dict, conn) -> dict:
                 tool_attrs=None,
                 sku_candidates=[],
                 match_status="unsupported",
-                note="磨削阶段（Ra≤0.4 放弃切削）：需砂轮与磨削夹具，超出本期刀具库/参数库范围",
+                note=_NO_TOOL_PROCESS_NOTES[proc],
                 params=None,
             )
             tool_steps.append(entry)
@@ -195,9 +248,11 @@ def run(payload: dict, conn) -> dict:
         top_warnings.append("方案包含模拟 SKU，投产前必须替换为已确认的真实库存")
     deep_rules = load_rules("hole/process_chain.yaml")["deep_hole"]
     risk_tags = []
-    if hole.h_over_d > deep_rules["gun_drill_min_hd"]:
+    if hole.h_over_d > deep_rules["gun_drill_max_hd"]:
+        risk_tags.append("极限深孔需特种加工/EDM")
+    elif hole.h_over_d > deep_rules["gun_drill_min_hd"]:
         risk_tags.append("超深孔高风险")
-    elif hole.h_over_d > deep_rules["g83_min_hd"]:
+    elif hole.h_over_d >= deep_rules["g83_min_hd"]:
         risk_tags.append("深孔高风险")
     return {
         "machinability": result.to_dict(),
@@ -216,6 +271,8 @@ def run(payload: dict, conn) -> dict:
         },
         "case_references": case_refs,
         "evidence": evidence,
+        "is_machinable": True,
+        "blockers": [],
         "warnings": top_warnings,
         "risk_tags": risk_tags,
         "match_status": "全匹配成功" if not missing else "部分匹配失败：" + "；".join(missing),

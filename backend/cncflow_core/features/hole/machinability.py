@@ -1,7 +1,7 @@
 """孔可加工性判定（文档1模块一，前置风控层）。
 
 规则数据在 rules/hole/machinability.yaml，本模块只做确定性求值：
-- bands: 数值分档（min 含 / max 不含，exclusive_min 可改为不含）
+- bands: 数值分档（min 含 / max 不含，exclusive_min / inclusive_max 可改边界）
 - cases: 枚举匹配（如材料）
 - all_of: 组合条件（全部满足才命中）
 综合结论 = 所有命中规则的最高 level（四级判定，文档1 §1.8）。
@@ -30,8 +30,12 @@ def _in_band(value: float, band: dict) -> bool:
                 return False
         elif value < min_v:
             return False
-    if max_v is not None and value >= max_v:
-        return False
+    if max_v is not None:
+        if band.get("inclusive_max"):
+            if value > max_v:
+                return False
+        elif value >= max_v:
+            return False
     return True
 
 

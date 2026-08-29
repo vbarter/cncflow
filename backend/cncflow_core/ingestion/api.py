@@ -121,12 +121,14 @@ def confirm_job(job_id):
             feature = {
                 "type": "hole", "diameter_mm": hole.get("diameter_mm"), "depth_mm": hole.get("depth_mm"),
                 "hole_type": hole.get("hole_type", "through"), "bottom_shape": hole.get("bottom_shape", "cone"),
-                "surface": hole.get("surface", "top"), "thread": hole.get("thread"),
+                "surface": hole.get("surface", "top"), "position_type": hole.get("position_type"),
+                "thread": hole.get("thread"),
             }
             plan_payload = {
                 "feature": feature, "material_code": material,
                 "tolerance_it": payload.get("tolerance_it"), "roughness_ra": payload.get("roughness_ra"),
                 "strategy": payload.get("strategy", "both"), "machine_profile": payload.get("machine_profile"),
+                "machine_axes": payload.get("machine_axes"), "machine_max_z": payload.get("machine_max_z"),
             }
             plan = hole_pipeline.run(plan_payload, conn)
             plans.append({"hole_id": hole.get("feature_id") or f"confirmed-hole-{index}", "input": feature, "plan": plan})
