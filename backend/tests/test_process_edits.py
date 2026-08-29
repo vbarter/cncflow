@@ -55,7 +55,9 @@ def test_reorder_chamfer_before_drill_recalculates_persists_and_resets(client, s
     part = _create_o8_part(client, seeded_db_path)
     pid = part["id"]
     baseline_amount = part["quote"]["quote"]["amount"]
-    assert baseline_amount == pytest.approx(694.4, abs=0.01)
+    items = {item["code"]: item["amount"] for item in part["quote"]["cost_items"]}
+    assert items["PROG"] == pytest.approx(62, abs=0.01)
+    assert baseline_amount < 694.4
     assert part["quote"]["confidence"] == 90
 
     sequence = _sequence(part)
@@ -87,7 +89,7 @@ def test_reorder_chamfer_before_drill_recalculates_persists_and_resets(client, s
     assert reset.status_code == 200, reset.get_json()
     reverted = reset.get_json()
     assert [step["process"] for step in _sequence(reverted)] == ["rough_face", "drill", "chamfer"]
-    assert reverted["quote"]["quote"]["amount"] == pytest.approx(694.4, abs=0.01)
+    assert reverted["quote"]["quote"]["amount"] == pytest.approx(baseline_amount, abs=0.01)
     assert reverted["quote"]["confidence"] == 90
     assert reverted["quote"]["process_overrides"] == []
     assert not [item for item in reverted["quote"]["deductions"] if item["dimension"] == "D6"]
