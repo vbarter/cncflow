@@ -212,6 +212,73 @@ def test_o8_material_cost_uses_full_scrap_value_without_eta(client):
     assert body["programming_cost"] == pytest.approx(62, abs=0.02)
 
 
+def test_o8_labor_trace_reconciles_live_machining_and_changeover(tmp_path):
+    from app import create_app
+    from cncflow_core.common.db import get_conn
+    from data.seed_tools import seed
+
+    db_path = tmp_path / "o8-labor.db"
+    conn = get_conn(db_path)
+    seed(conn)
+    conn.close()
+    client = create_app(db_path=str(db_path)).test_client()
+    body = _quote(
+        client,
+        [
+            {
+                "type": "hole",
+                "feature_id": "hole-0",
+                "diameter_mm": 8,
+                "depth_mm": 12,
+                "hole_type": "through",
+                "selected": True,
+            },
+            {
+                "type": "face",
+                "feature_id": "face-1",
+                "length": 80,
+                "width": 60,
+                "selected": True,
+            },
+        ],
+    )
+    labor = body["labor_cost_breakdown"]
+    groups = {group["feature_type"]: group for group in labor["groups"]}
+    hole_ops = groups["hole"]["operations"]
+    face_ops = groups["face"]["operations"]
+
+    assert body["ui_cost"]["machining"] == 1.39
+    assert body["ui_cost"]["setup"] == 210
+    assert labor["machining_total"] == 1.39
+    assert labor["operation_cost"] == 1.22
+    assert labor["air_cut_and_tool_change_cost"] == 0.17
+    assert labor["total"] == 211.39
+    assert [(group["name"], group["quantity"]) for group in labor["groups"]] == [
+        ("孔", 1),
+        ("面", 1),
+    ]
+    assert [
+        (op["name"], op["tool_sku"], op["minutes"], op["cost"])
+        for op in hole_ops
+    ] == [("钻孔", "TK-003", 0.0902, 0.18)]
+    assert [
+        (op["name"], op["tool_sku"], op["minutes"], op["cost"])
+        for op in face_ops
+    ] == [
+        ("粗铣", "TK-028", 0.2193, 0.44),
+        ("倒角", "TK-036", 0.3016, 0.60),
+    ]
+    assert labor["changeover"] == {
+        "minutes": 5.0,
+        "equipment_name": "VMC850E",
+        "hourly_rate": 120.0,
+        "labor_cost": 10.0,
+        "machine_setup_cost": 200.0,
+        "cost": 210.0,
+    }
+    assert labor["machining_total"] + labor["changeover"]["cost"] == labor["total"]
+
+
 def test_deselect_hole_recalculates_programming(client):
     body = _quote(client, [
         {"type": "hole", "feature_id": "hole-0", "selected": False},

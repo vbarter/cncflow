@@ -43,6 +43,94 @@ const uiCost = {
   scrap: 3,
 }
 
+test("点击加工工时行打开 Ø8 加工费用抽屉并与现网 labor 对账", () => {
+  const labor = {
+    machining: 1.39,
+    setup: 210,
+    total: 211.39,
+    operation_cost: 1.22,
+    air_cut_and_tool_change_cost: 0.17,
+    machining_total: 1.39,
+    groups: [
+      {
+        feature_type: "hole",
+        name: "孔",
+        quantity: 1,
+        operations: [{
+          name: "钻孔",
+          equipment_name: "VMC850E",
+          tool_sku: "TK-003",
+          minutes: 0.0902,
+          hourly_rate: 120,
+          cost: 0.18,
+        }],
+      },
+      {
+        feature_type: "face",
+        name: "面",
+        quantity: 1,
+        operations: [
+          {
+            name: "粗铣",
+            equipment_name: "VMC850E",
+            tool_sku: "TK-028",
+            minutes: 0.2193,
+            hourly_rate: 120,
+            cost: 0.44,
+          },
+          {
+            name: "倒角",
+            equipment_name: "VMC850E",
+            tool_sku: "TK-036",
+            minutes: 0.3016,
+            hourly_rate: 120,
+            cost: 0.60,
+          },
+        ],
+      },
+    ],
+    changeover: {
+      minutes: 5,
+      equipment_name: "VMC850E",
+      hourly_rate: 120,
+      labor_cost: 10,
+      machine_setup_cost: 200,
+      cost: 210,
+    },
+  }
+  render(
+    <CostBreakdown
+      quote={{ labor_cost_breakdown: labor }}
+      uiCost={{ ...uiCost, machining: 1.39, setup: 210 }}
+      quoteSummary={quoteSummary}
+    />,
+  )
+
+  const machiningRow = screen.getByRole("button", { name: /加工工时/ })
+  assert.ok(within(machiningRow).getByText("¥211.39"))
+  fireEvent.click(machiningRow)
+
+  const drawer = screen.getByRole("dialog", { name: "加工费用" })
+  const hole = within(drawer).getByRole("heading", { name: "孔 × 1" }).closest("section")!
+  const face = within(drawer).getByRole("heading", { name: "面 × 1" }).closest("section")!
+  for (const text of ["钻孔", "TK-003", "0.09", "¥0.18"]) {
+    assert.ok(within(hole).getByText(text))
+  }
+  for (const text of ["粗铣", "TK-028", "0.22", "¥0.44", "倒角", "TK-036", "0.30", "¥0.60"]) {
+    assert.ok(within(face).getByText(text))
+  }
+  assert.ok(within(drawer).getByText("含空程 / 换刀 ¥0.17"))
+  for (const text of ["5.00 min", "¥120/h", "¥210.00", "调机 ¥200.00 + 工时 ¥10.00"]) {
+    assert.ok(within(drawer).getByText(text))
+  }
+  assert.ok(within(drawer).getByText("¥211.39"))
+  assert.equal(costValue({ labor_cost_breakdown: labor }, {
+    ...uiCost,
+    machining: 1.39,
+    setup: 210,
+  }, "machining"), 211.39)
+})
+
 test("点击原材料行打开材料费用抽屉并显示 Ø8 冻结明细", () => {
   render(
     <CostBreakdown
