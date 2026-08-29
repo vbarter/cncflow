@@ -2,8 +2,8 @@
 import json
 
 from .defaults import (
-    MACHINE_SEEDS, MATERIAL_ALIASES, MATERIAL_PRICES, RATE_TABLE,
-    TOOL_SEEDS, TOOL_TYPE_CATEGORY,
+    MACHINE_SEEDS, MATERIAL_ALIASES, MATERIAL_PRICES, MATERIAL_PRICE_OVERLAY,
+    MATERIAL_PRICE_OVERLAY_VERSION, RATE_TABLE, TOOL_SEEDS, TOOL_TYPE_CATEGORY,
 )
 
 
@@ -25,7 +25,7 @@ _MACHINE_COLS = (
 )
 _MATERIAL_COLS = (
     "material_code", "price_per_kg", "scrap_price_per_kg", "density_g_cm3",
-    "family", "display_name", "recycle_rate", "warning", "enabled",
+    "family", "display_name", "warning", "enabled",
 )
 
 
@@ -75,6 +75,7 @@ def _material_extra(item: dict) -> dict:
 
 def _public_material(row) -> dict:
     item = dict(row)
+    item.pop("recycle_rate", None)
     raw = item.pop("extra_json", None)
     if raw:
         try:
@@ -126,24 +127,54 @@ def _upsert_seed_material(conn, row: dict) -> None:
     conn.execute(
         "INSERT OR IGNORE INTO factory_material_prices "
         "(material_code, price_per_kg, scrap_price_per_kg, density_g_cm3, family, "
-        "display_name, recycle_rate, warning, extra_json, enabled) "
-        "VALUES (?,?,?,?,?,?,?,?,?,1)",
+        "display_name, warning, extra_json, enabled) "
+        "VALUES (?,?,?,?,?,?,?,?,1)",
         (
             row["material_code"], row["price_per_kg"], row.get("scrap_price_per_kg", 0),
             row.get("density_g_cm3"), row.get("family"), row.get("display_name"),
-            row.get("recycle_rate"), row.get("warning"), extra,
+            row.get("warning"), extra,
         ),
     )
     conn.execute(
         "UPDATE factory_material_prices SET "
         "density_g_cm3=COALESCE(density_g_cm3, ?), family=COALESCE(family, ?), "
-        "display_name=COALESCE(display_name, ?), recycle_rate=COALESCE(recycle_rate, ?), "
-        "warning=COALESCE(warning, ?), extra_json=? "
+        "display_name=COALESCE(display_name, ?), warning=COALESCE(warning, ?), extra_json=? "
         "WHERE material_code=? AND (extra_json IS NULL OR extra_json='{}' OR extra_json NOT LIKE '%tier%')",
         (
             row.get("density_g_cm3"), row.get("family"), row.get("display_name"),
-            row.get("recycle_rate"), row.get("warning"), extra, row["material_code"],
+            row.get("warning"), extra, row["material_code"],
         ),
+    )
+
+
+def _apply_material_price_overlay(conn) -> None:
+    """对 R2/持久卷中的旧配置只覆盖一次，之后仍允许工厂页面人工调整。"""
+    settings = conn.execute(
+        "SELECT extra_json FROM factory_settings WHERE id=1"
+    ).fetchone()
+    try:
+        extra = json.loads(settings["extra_json"]) if settings and settings["extra_json"] else {}
+    except (TypeError, json.JSONDecodeError):
+        extra = {}
+    if extra.get("material_price_overlay_version") == MATERIAL_PRICE_OVERLAY_VERSION:
+        return
+    conn.execute("UPDATE factory_material_prices SET recycle_rate=NULL")
+    for material_code, frozen in MATERIAL_PRICE_OVERLAY.items():
+        conn.execute(
+            "UPDATE factory_material_prices SET "
+            "price_per_kg=?, scrap_price_per_kg=?, density_g_cm3=? "
+            "WHERE material_code=?",
+            (
+                frozen["price_per_kg"],
+                frozen["scrap_price_per_kg"],
+                frozen["density_g_cm3"],
+                material_code,
+            ),
+        )
+    extra["material_price_overlay_version"] = MATERIAL_PRICE_OVERLAY_VERSION
+    conn.execute(
+        "UPDATE factory_settings SET extra_json=? WHERE id=1",
+        (json.dumps(extra, ensure_ascii=False),),
     )
 
 
@@ -165,17 +196,16 @@ def _upsert_material_aliases(conn) -> None:
         conn.execute(
             "INSERT INTO factory_material_prices "
             "(material_code, price_per_kg, scrap_price_per_kg, density_g_cm3, family, "
-            "display_name, recycle_rate, warning, extra_json, enabled) "
-            "VALUES (?,?,?,?,?,?,?,?,?,1) "
+            "display_name, warning, extra_json, enabled) "
+            "VALUES (?,?,?,?,?,?,?,?,1) "
             "ON CONFLICT(material_code) DO UPDATE SET "
             "price_per_kg=excluded.price_per_kg, scrap_price_per_kg=excluded.scrap_price_per_kg, "
             "density_g_cm3=excluded.density_g_cm3, family=excluded.family, "
-            "display_name=excluded.display_name, recycle_rate=excluded.recycle_rate, "
-            "extra_json=excluded.extra_json",
+            "display_name=excluded.display_name, extra_json=excluded.extra_json",
             (
                 alias, src["price_per_kg"], src.get("scrap_price_per_kg", 0),
                 src.get("density_g_cm3"), src.get("family"), row["display_name"],
-                src.get("recycle_rate"), None, extra,
+                None, extra,
             ),
         )
 
@@ -229,6 +259,7 @@ def seed_factory(conn) -> None:
         _upsert_seed_machine(conn, machine)
     for row in MATERIAL_PRICES:
         _upsert_seed_material(conn, row)
+    _apply_material_price_overlay(conn)
     _upsert_material_aliases(conn)
     seed_tools_catalog(conn)
     conn.commit()
@@ -268,24 +299,25 @@ def get_config(conn) -> dict:
 def put_config(conn, payload: dict) -> dict:
     if not isinstance(payload, dict):
         raise ValueError("请求体须为 JSON 对象")
-    settings = payload.get("settings") or {}
-    extra = settings.get("extra") if isinstance(settings.get("extra"), dict) else {}
-    conn.execute(
-        "INSERT INTO factory_settings (id, profit_pct, floor_charge, inspect_fee, "
-        "ignore_available_machines, batch_size, blank_type, extra_json) VALUES (1,?,?,?,?,?,?,?) "
-        "ON CONFLICT(id) DO UPDATE SET profit_pct=excluded.profit_pct, floor_charge=excluded.floor_charge, "
-        "inspect_fee=excluded.inspect_fee, ignore_available_machines=excluded.ignore_available_machines, "
-        "batch_size=excluded.batch_size, blank_type=excluded.blank_type, extra_json=excluded.extra_json",
-        (
-            float(settings.get("profit_pct", 15)),
-            float(settings.get("floor_charge", 0)),
-            float(settings.get("inspect_fee", 60)),
-            1 if settings.get("ignore_available_machines") else 0,
-            int(settings.get("batch_size", 1)),
-            settings.get("blank_type") or "板料",
-            json.dumps(extra, ensure_ascii=False),
-        ),
-    )
+    if "settings" in payload:
+        settings = payload.get("settings") or {}
+        extra = settings.get("extra") if isinstance(settings.get("extra"), dict) else {}
+        conn.execute(
+            "INSERT INTO factory_settings (id, profit_pct, floor_charge, inspect_fee, "
+            "ignore_available_machines, batch_size, blank_type, extra_json) VALUES (1,?,?,?,?,?,?,?) "
+            "ON CONFLICT(id) DO UPDATE SET profit_pct=excluded.profit_pct, floor_charge=excluded.floor_charge, "
+            "inspect_fee=excluded.inspect_fee, ignore_available_machines=excluded.ignore_available_machines, "
+            "batch_size=excluded.batch_size, blank_type=excluded.blank_type, extra_json=excluded.extra_json",
+            (
+                float(settings.get("profit_pct", 15)),
+                float(settings.get("floor_charge", 0)),
+                float(settings.get("inspect_fee", 60)),
+                1 if settings.get("ignore_available_machines") else 0,
+                int(settings.get("batch_size", 1)),
+                settings.get("blank_type") or "板料",
+                json.dumps(extra, ensure_ascii=False),
+            ),
+        )
     if "machines" in payload:
         if not isinstance(payload["machines"], list):
             raise ValueError("machines 须为数组")
@@ -351,15 +383,14 @@ def put_config(conn, payload: dict) -> dict:
             conn.execute(
                 "INSERT INTO factory_material_prices "
                 "(material_code, price_per_kg, scrap_price_per_kg, density_g_cm3, family, "
-                "display_name, recycle_rate, warning, extra_json, enabled) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?)",
+                "display_name, warning, extra_json, enabled) "
+                "VALUES (?,?,?,?,?,?,?,?,?)",
                 (
                     item["material_code"], float(item["price_per_kg"]),
                     float(item.get("scrap_price_per_kg", 0)),
                     _opt_float(item.get("density_g_cm3")),
                     item.get("family") or None,
                     item.get("display_name") or None,
-                    _opt_float(item.get("recycle_rate")),
                     item.get("warning") or None,
                     extra,
                     1 if item.get("enabled", True) else 0,

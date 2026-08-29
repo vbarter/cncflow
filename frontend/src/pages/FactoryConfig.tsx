@@ -109,7 +109,7 @@ function emptyMaterial(tier: string) {
   return {
     material_code: "", display_name: "", family: "",
     density_g_cm3: 2.7, price_per_kg: 0, scrap_price_per_kg: 0,
-    recycle_rate: 0.85, tier, warning: tier === "extended" ? "报价前确认" : "",
+    tier, warning: tier === "extended" ? "报价前确认" : "",
     enabled: 1,
   }
 }
@@ -263,9 +263,9 @@ export function FactoryConfig() {
             const rows = materials.map((m: any, i: number) => ({ m, i })).filter(({ m }: any) => materialTierOf(m) === g.tier)
             return <CatalogBlock key={g.tier} title={g.title} count={rows.length} onAdd={() => setCfg({ ...cfg, material_prices: [...materials, emptyMaterial(g.tier)] })}>
               {g.warn && <div className="mb-2 text-xs text-amber-700">扩展材料单价波动大，报价前确认。</div>}
-              <table className="w-full min-w-[860px] text-left text-sm">
+              <table className="w-full min-w-[760px] text-left text-sm">
                 <thead><tr className="border-b border-[#e2e8f0] text-xs text-slate-500">
-                  <th className="py-2">编号</th><th>名称</th><th>密度</th><th>单价</th><th>回收价</th><th>回收率</th><th>操作</th>
+                  <th className="py-2">编号</th><th>名称</th><th>密度 g/cm³</th><th>单价 ¥/kg</th><th>回收价 ¥/kg</th><th>操作</th>
                 </tr></thead>
                 <tbody>
                   {rows.map(({ m, i }: any) => (
@@ -275,11 +275,10 @@ export function FactoryConfig() {
                       <td className="pr-2"><Input type="number" step="0.01" value={m.density_g_cm3 ?? ""} onChange={e => setCfg({ ...cfg, material_prices: patchAt(materials, i, { density_g_cm3: Number(e.target.value) }) })} /></td>
                       <td className="pr-2"><Input type="number" value={m.price_per_kg} onChange={e => setCfg({ ...cfg, material_prices: patchAt(materials, i, { price_per_kg: Number(e.target.value) }) })} /></td>
                       <td className="pr-2"><Input type="number" value={m.scrap_price_per_kg} onChange={e => setCfg({ ...cfg, material_prices: patchAt(materials, i, { scrap_price_per_kg: Number(e.target.value) }) })} /></td>
-                      <td className="pr-2"><Input type="number" step="0.01" value={m.recycle_rate ?? ""} onChange={e => setCfg({ ...cfg, material_prices: patchAt(materials, i, { recycle_rate: Number(e.target.value) }) })} /></td>
                       <td><button type="button" className="text-xs text-slate-400 hover:text-red-500" onClick={() => setCfg({ ...cfg, material_prices: materials.filter((_: any, idx: number) => idx !== i) })}>删除</button></td>
                     </tr>
                   ))}
-                  {!rows.length && <tr><td colSpan={7} className="py-6 text-center text-slate-400">此类暂无材料</td></tr>}
+                  {!rows.length && <tr><td colSpan={6} className="py-6 text-center text-slate-400">此类暂无材料</td></tr>}
                 </tbody>
               </table>
             </CatalogBlock>

@@ -169,10 +169,31 @@ def test_it6_requires_aluminum_fixture_without_changing_programming(client):
     assert fixture["angled_feature_count"] == 0
     assert fixture["surface_type"] == "平面"
     assert fixture["fixture_orientation_count"] == 1
-    # AL-01: 120*100*42 mm³ * 2.70 g/cm³ / 1e6 * ¥22/kg = ¥29.9376。
-    assert fixture["fixture_material_cost"] == pytest.approx(29.94, abs=0.01)
+    # AL-01: 120*100*42 mm³ * 2.70 g/cm³ / 1e6 * ¥30/kg = ¥40.824。
+    assert fixture["fixture_material_cost"] == pytest.approx(40.82, abs=0.01)
     assert fixture["fixture_processing_cost"] == 0
-    assert items["FIX"] == pytest.approx(29.94, abs=0.01)
+    assert items["FIX"] == pytest.approx(40.82, abs=0.01)
+    assert body["programming_time"] == 93
+    assert body["programming_cost"] == pytest.approx(62, abs=0.02)
+
+
+def test_o8_material_cost_uses_full_scrap_value_without_eta(client):
+    body = _quote(
+        client,
+        [
+            {"type": "hole", "feature_id": "hole-0", "selected": True},
+            {"type": "face", "feature_id": "face-1", "selected": True},
+        ],
+        # 现网 Ø8 样本的 CAD 体积字段；保持现有询价数据路径和单位行为不变。
+        v_part_cad=50,
+    )
+    items = {item["code"]: item["amount"] for item in body["cost_items"]}
+
+    # 0.2322 kg×¥30/kg − 0.2321 kg×¥16/kg = ¥3.2524 → ¥3.25。
+    assert body["volume"]["blank_weight_kg"] == 0.2322
+    assert body["volume"]["scrap_weight_kg"] == 0.2321
+    assert items["MAT"] == pytest.approx(3.25, abs=0.01)
+    assert body["ui_cost"]["material"] == pytest.approx(3.25, abs=0.01)
     assert body["programming_time"] == 93
     assert body["programming_cost"] == pytest.approx(62, abs=0.02)
 

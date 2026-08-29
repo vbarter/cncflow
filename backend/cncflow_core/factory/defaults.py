@@ -48,26 +48,40 @@ MACHINE_SEEDS = [
     {"id": "CTX1250", "type": "车削中心CNC车", "axes": 2, "max_rpm": 5000, "power_kw": 20, "hourly_rate": 100, "setup_fee": 150, "enabled": 1, "extra": {"swing_d": 660, "turn_len": 1250, "turret": 12, "c_axis": "有Y轴", "ref_price": 55}},
 ]
 
-# 《材料单价配置表0815》常用 10 + 扩展 8。旧牌号走 MATERIAL_ALIASES，现网报价不断。
+# CNC业务Leader 2026-08-29 冻结价。版本用于把 R2 恢复的旧工厂配置一次性覆盖到新价。
+MATERIAL_PRICE_OVERLAY_VERSION = "2026-08-29"
+MATERIAL_PRICE_OVERLAY = {
+    "AL-01": {"density_g_cm3": 2.70, "price_per_kg": 30, "scrap_price_per_kg": 16},
+    "AL-02": {"density_g_cm3": 2.70, "price_per_kg": 30, "scrap_price_per_kg": 16},
+    "AL-03": {"density_g_cm3": 2.70, "price_per_kg": 30, "scrap_price_per_kg": 16},
+    "ST-01": {"density_g_cm3": 7.90, "price_per_kg": 6, "scrap_price_per_kg": 1.8},
+    "SS-01": {"density_g_cm3": 7.90, "price_per_kg": 24, "scrap_price_per_kg": 7},
+    "SS-02": {"density_g_cm3": 7.90, "price_per_kg": 36, "scrap_price_per_kg": 13},
+    "CU-01": {"density_g_cm3": 8.90, "price_per_kg": 120, "scrap_price_per_kg": 75},
+    "CU-02": {"density_g_cm3": 8.90, "price_per_kg": 75, "scrap_price_per_kg": 48},
+}
+
+# 《材料单价配置表0815》常用 10 + 扩展 8，并叠加 2026-08-29 冻结价。
+# 旧牌号走 MATERIAL_ALIASES，现网报价不断。
 MATERIAL_PRICES = [
-    {"material_code": "AL-01", "display_name": "6061-T6铝合金", "family": "铝合金", "density_g_cm3": 2.70, "price_per_kg": 22, "scrap_price_per_kg": 8, "recycle_rate": 0.85, "tier": "common"},
-    {"material_code": "AL-02", "display_name": "7075-T6铝合金", "family": "铝合金", "density_g_cm3": 2.81, "price_per_kg": 28, "scrap_price_per_kg": 10, "recycle_rate": 0.82, "tier": "common"},
-    {"material_code": "ST-01", "display_name": "45#钢(调质)", "family": "普通碳钢", "density_g_cm3": 7.85, "price_per_kg": 5.5, "scrap_price_per_kg": 1.8, "recycle_rate": 0.90, "tier": "common"},
-    {"material_code": "ST-02", "display_name": "40Cr合金钢", "family": "合金钢", "density_g_cm3": 7.85, "price_per_kg": 7.0, "scrap_price_per_kg": 2.2, "recycle_rate": 0.88, "tier": "common"},
-    {"material_code": "SS-01", "display_name": "304不锈钢", "family": "不锈钢", "density_g_cm3": 7.93, "price_per_kg": 18, "scrap_price_per_kg": 3.5, "recycle_rate": 0.82, "tier": "common"},
-    {"material_code": "SS-02", "display_name": "316L不锈钢", "family": "不锈钢", "density_g_cm3": 7.98, "price_per_kg": 26, "scrap_price_per_kg": 4.5, "recycle_rate": 0.80, "tier": "common"},
-    {"material_code": "TI-01", "display_name": "TC4钛合金", "family": "钛合金", "density_g_cm3": 4.43, "price_per_kg": 380, "scrap_price_per_kg": 95, "recycle_rate": 0.70, "tier": "common"},
-    {"material_code": "CU-01", "display_name": "T2紫铜", "family": "铜合金", "density_g_cm3": 8.96, "price_per_kg": 62, "scrap_price_per_kg": 48, "recycle_rate": 0.90, "tier": "common"},
-    {"material_code": "CU-02", "display_name": "H62黄铜", "family": "铜合金", "density_g_cm3": 8.43, "price_per_kg": 42, "scrap_price_per_kg": 28, "recycle_rate": 0.88, "tier": "common"},
-    {"material_code": "FE-01", "display_name": "HT250灰铸铁", "family": "铸铁", "density_g_cm3": 7.20, "price_per_kg": 4.5, "scrap_price_per_kg": 1.2, "recycle_rate": 0.70, "tier": "common"},
-    {"material_code": "AL-03", "display_name": "2024-T4铝", "family": "铝合金", "density_g_cm3": 2.78, "price_per_kg": 32, "scrap_price_per_kg": 11, "recycle_rate": None, "tier": "extended", "warning": "报价前确认"},
-    {"material_code": "SS-03", "display_name": "17-4PH不锈钢", "family": "不锈钢", "density_g_cm3": 7.78, "price_per_kg": 45, "scrap_price_per_kg": 10, "recycle_rate": None, "tier": "extended", "warning": "报价前确认"},
-    {"material_code": "TI-02", "display_name": "TA2纯钛", "family": "钛合金", "density_g_cm3": 4.51, "price_per_kg": 280, "scrap_price_per_kg": 80, "recycle_rate": None, "tier": "extended", "warning": "报价前确认"},
-    {"material_code": "CU-03", "display_name": "铍铜C17200", "family": "铜合金", "density_g_cm3": 8.25, "price_per_kg": 520, "scrap_price_per_kg": 180, "recycle_rate": None, "tier": "extended", "warning": "报价前确认"},
-    {"material_code": "W-01", "display_name": "硬质合金YG8", "family": "硬质合金", "density_g_cm3": 14.6, "price_per_kg": 320, "scrap_price_per_kg": 120, "recycle_rate": None, "tier": "extended", "warning": "报价前确认"},
-    {"material_code": "PL-01", "display_name": "ABS塑料", "family": "工程塑料", "density_g_cm3": 1.05, "price_per_kg": 15, "scrap_price_per_kg": 0.5, "recycle_rate": None, "tier": "extended", "warning": "报价前确认"},
-    {"material_code": "PL-02", "display_name": "PEEK", "family": "工程塑料", "density_g_cm3": 1.30, "price_per_kg": 580, "scrap_price_per_kg": 50, "recycle_rate": None, "tier": "extended", "warning": "报价前确认"},
-    {"material_code": "MD-01", "display_name": "Cr12MoV模具钢", "family": "合金钢", "density_g_cm3": 7.85, "price_per_kg": 18, "scrap_price_per_kg": 5.0, "recycle_rate": None, "tier": "extended", "warning": "报价前确认"},
+    {"material_code": "AL-01", "display_name": "6061-T6铝合金", "family": "铝合金", **MATERIAL_PRICE_OVERLAY["AL-01"], "tier": "common"},
+    {"material_code": "AL-02", "display_name": "7075-T6铝合金", "family": "铝合金", **MATERIAL_PRICE_OVERLAY["AL-02"], "tier": "common"},
+    {"material_code": "ST-01", "display_name": "45#钢(调质)", "family": "普通碳钢", **MATERIAL_PRICE_OVERLAY["ST-01"], "tier": "common"},
+    {"material_code": "ST-02", "display_name": "40Cr合金钢", "family": "合金钢", "density_g_cm3": 7.85, "price_per_kg": 7.0, "scrap_price_per_kg": 2.2, "tier": "common"},
+    {"material_code": "SS-01", "display_name": "304不锈钢", "family": "不锈钢", **MATERIAL_PRICE_OVERLAY["SS-01"], "tier": "common"},
+    {"material_code": "SS-02", "display_name": "316L不锈钢", "family": "不锈钢", **MATERIAL_PRICE_OVERLAY["SS-02"], "tier": "common"},
+    {"material_code": "TI-01", "display_name": "TC4钛合金", "family": "钛合金", "density_g_cm3": 4.43, "price_per_kg": 380, "scrap_price_per_kg": 95, "tier": "common"},
+    {"material_code": "CU-01", "display_name": "T2紫铜", "family": "铜合金", **MATERIAL_PRICE_OVERLAY["CU-01"], "tier": "common"},
+    {"material_code": "CU-02", "display_name": "H62黄铜", "family": "铜合金", **MATERIAL_PRICE_OVERLAY["CU-02"], "tier": "common"},
+    {"material_code": "FE-01", "display_name": "HT250灰铸铁", "family": "铸铁", "density_g_cm3": 7.20, "price_per_kg": 4.5, "scrap_price_per_kg": 1.2, "tier": "common"},
+    {"material_code": "AL-03", "display_name": "2024-T4铝", "family": "铝合金", **MATERIAL_PRICE_OVERLAY["AL-03"], "tier": "extended", "warning": "报价前确认"},
+    {"material_code": "SS-03", "display_name": "17-4PH不锈钢", "family": "不锈钢", "density_g_cm3": 7.78, "price_per_kg": 45, "scrap_price_per_kg": 10, "tier": "extended", "warning": "报价前确认"},
+    {"material_code": "TI-02", "display_name": "TA2纯钛", "family": "钛合金", "density_g_cm3": 4.51, "price_per_kg": 280, "scrap_price_per_kg": 80, "tier": "extended", "warning": "报价前确认"},
+    {"material_code": "CU-03", "display_name": "铍铜C17200", "family": "铜合金", "density_g_cm3": 8.25, "price_per_kg": 520, "scrap_price_per_kg": 180, "tier": "extended", "warning": "报价前确认"},
+    {"material_code": "W-01", "display_name": "硬质合金YG8", "family": "硬质合金", "density_g_cm3": 14.6, "price_per_kg": 320, "scrap_price_per_kg": 120, "tier": "extended", "warning": "报价前确认"},
+    {"material_code": "PL-01", "display_name": "ABS塑料", "family": "工程塑料", "density_g_cm3": 1.05, "price_per_kg": 15, "scrap_price_per_kg": 0.5, "tier": "extended", "warning": "报价前确认"},
+    {"material_code": "PL-02", "display_name": "PEEK", "family": "工程塑料", "density_g_cm3": 1.30, "price_per_kg": 580, "scrap_price_per_kg": 50, "tier": "extended", "warning": "报价前确认"},
+    {"material_code": "MD-01", "display_name": "Cr12MoV模具钢", "family": "合金钢", "density_g_cm3": 7.85, "price_per_kg": 18, "scrap_price_per_kg": 5.0, "tier": "extended", "warning": "报价前确认"},
 ]
 
 # 现网零件仍写「钢」「铝合金」等旧牌号，指向 0815 编号，报价不断。

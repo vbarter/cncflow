@@ -214,14 +214,12 @@ def _density(material: str, factory: dict, payload: dict | None = None) -> float
 
 def _price(material: str, factory: dict, payload: dict):
     if payload.get("price_per_kg") is not None:
-        eta = payload.get("recycle_rate")
-        return float(payload["price_per_kg"]), float(payload.get("scrap_price_per_kg") or 0), float(eta) if eta is not None else 1.0
+        return float(payload["price_per_kg"]), float(payload.get("scrap_price_per_kg") or 0)
     row = _material_row(material, factory, payload)
     if row:
-        eta = row.get("recycle_rate")
-        return float(row["price_per_kg"]), float(row.get("scrap_price_per_kg") or 0), float(eta) if eta is not None else 1.0
+        return float(row["price_per_kg"]), float(row.get("scrap_price_per_kg") or 0)
     defaults = {"铝合金": 25, "钢": 8, "普通碳钢": 8, "不锈钢": 30, "钛合金": 200, "淬硬钢": 15, "铸铁": 6, "铜合金": 50}
-    return float(defaults.get(material, 25)), 0.0, 1.0
+    return float(defaults.get(material, 25)), 0.0
 
 
 def _feature_minutes(result: dict, ftype: str) -> tuple[float, object, bool]:
@@ -257,8 +255,8 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
     H = _dimension(payload, "height", "H", default=0.0 if is_bar else 1.0)
     dens = _density(material, factory, payload)
     vol = volume.compute(stock, L, D, H, density=dens, v_part_cad=payload.get("v_part_cad"))
-    price, scrap_price, recycle_rate = _price(material, factory, payload)
-    mat_cost = vol["blank_weight_kg"] * price - vol["scrap_weight_kg"] * scrap_price * recycle_rate
+    price, scrap_price = _price(material, factory, payload)
+    mat_cost = vol["blank_weight_kg"] * price - vol["scrap_weight_kg"] * scrap_price
 
     features = dedup.absorb_holes(features)
     picked = equipment.select(factory, payload, features, L, D, H)

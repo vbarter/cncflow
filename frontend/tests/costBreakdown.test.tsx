@@ -88,13 +88,13 @@ test("IT6 装夹行和抽屉只使用夹具材料、加工费用", () => {
     fixture_block_L: 120,
     fixture_block_W: 100,
     fixture_block_H: 42,
-    fixture_material_cost: 29.94,
+    fixture_material_cost: 40.82,
     fixture_processing_cost: 0,
   }
   const quote = { fixture }
 
-  assert.equal(fixtureCost(fixture), 29.94)
-  assert.equal(costValue(quote, uiCost, "fixture"), 29.94)
+  assert.equal(fixtureCost(fixture), 40.82)
+  assert.equal(costValue(quote, uiCost, "fixture"), 40.82)
   assert.equal(costValue(quote, uiCost, "machining"), 25)
 
   render(
@@ -106,7 +106,7 @@ test("IT6 装夹行和抽屉只使用夹具材料、加工费用", () => {
   )
 
   const fixtureRow = screen.getByRole("button", { name: /装夹/ })
-  assert.ok(within(fixtureRow).getByText("¥29.94"))
+  assert.ok(within(fixtureRow).getByText("¥40.82"))
   fireEvent.click(fixtureRow)
 
   const drawer = screen.getByRole("dialog", { name: "夹具1" })
@@ -114,7 +114,7 @@ test("IT6 装夹行和抽屉只使用夹具材料、加工费用", () => {
     "1 套",
     "铝合金",
     "120×100×42 mm（504000 mm³）",
-    "29.94",
+    "40.82",
     "0.00",
   ]) {
     assert.ok(within(drawer).getByText(text))
