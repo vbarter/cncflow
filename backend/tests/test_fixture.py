@@ -84,7 +84,7 @@ def test_repeat_order_zero_fixture_cost(client):
     assert body["fixture_cost_per_piece"] == 0
 
 
-def test_selected_convex_surface_requires_aluminum_fixture(client):
+def test_four_axis_quote_uses_same_frozen_fixture_processing_as_plan(client):
     resp = client.post("/api/v1/quotes", json={
         "material": "铝合金",
         "stock_type": "板材",
@@ -92,6 +92,7 @@ def test_selected_convex_surface_requires_aluminum_fixture(client):
         "width": 63.5,
         "height": 17,
         "batch_size": 1,
+        "slider": "激进",
         "features": [{
             "type": "surface",
             "feature_id": "surface-0",
@@ -104,7 +105,24 @@ def test_selected_convex_surface_requires_aluminum_fixture(client):
     quote = resp.get_json()
     body = quote["fixture"]
     items = {item["code"]: item["amount"] for item in quote["cost_items"]}
+    plan = post(client, {
+        "feature": {
+            "type": "fixture",
+            "length": 63.5,
+            "width": 63.5,
+            "depth": 17,
+            "features": [{
+                "type": "surface",
+                "selected": True,
+                "surface_type": "凸面",
+                "curvature_radius": 20,
+            }],
+        },
+        "material": "铝合金",
+    }).get_json()
 
+    assert quote["equipment"]["axes"] == 4
+    assert quote["equipment"]["hourly_rate"] == 150
     assert body["is_fixture_needed"] is True
     assert body["fixture_material"] == "铝合金"
     assert body["fixture_count"] == 1
@@ -114,8 +132,9 @@ def test_selected_convex_surface_requires_aluminum_fixture(client):
         body["fixture_block_H"],
     ) == pytest.approx((103.5, 103.5, 47), abs=0.05)
     assert body["fixture_material_cost"] == pytest.approx(40.78, abs=0.02)
-    assert body["fixture_processing_cost"] == pytest.approx(1.72, abs=0.08)
-    assert items["FIX"] == pytest.approx(42.50, abs=0.08)
+    assert body["fixture_processing_cost"] == pytest.approx(1.72, abs=0.01)
+    assert body["fixture_processing_cost"] == plan["fixture_processing_cost"]
+    assert items["FIX"] == pytest.approx(42.50, abs=0.01)
     assert items["FIX"] < 210
 
 

@@ -210,7 +210,7 @@ def _material_row(factory: dict, material: str) -> dict | None:
     )
 
 
-def _fixture_hourly_rate(payload: dict, factory: dict) -> float:
+def _fixture_hourly_rate(factory: dict) -> float:
     candidates = [
         row.get("hourly_rate")
         for row in factory.get("rate_table") or []
@@ -221,7 +221,6 @@ def _fixture_hourly_rate(payload: dict, factory: dict) -> float:
         for row in factory.get("machines") or []
         if row.get("enabled", 1) and int(row.get("axes") or 0) == 3
     )
-    candidates.append(payload.get("hourly_rate"))
     for candidate in candidates:
         try:
             rate = float(candidate)
@@ -264,7 +263,7 @@ def _fixture_processing(
         "thread_length": min(block_h, 4 * 8),
     }
     process_slide = slider.resolve(
-        payload.get("slider") or "标准",
+        "标准",
         material,
         [face, hole, thread],
     )
@@ -295,7 +294,7 @@ def _fixture_processing(
         + step_minutes(hole_timed, "drill") * (2 * fixture_count)
         + step_minutes(thread_timed, "tap") * (2 * fixture_count)
     )
-    cost = minutes / 60 * _fixture_hourly_rate(payload, factory)
+    cost = minutes / 60 * _fixture_hourly_rate(factory)
     return round(minutes, 4), round(cost, 2)
 
 

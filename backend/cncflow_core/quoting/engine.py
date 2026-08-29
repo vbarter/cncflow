@@ -471,11 +471,13 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
         "width": payload.get("width") or D, "depth": H or D,
         "features": features,
     }
-    fixture = fixture_pipeline.run({
+    fixture_payload = {
         **payload, "feature": fixture_feat, "material": material,
-        "batch_size": batch, "is_repeat_order": repeat, "hourly_rate": hourly,
+        "batch_size": batch, "is_repeat_order": repeat,
         "ignore_available_machines": settings.get("ignore_available_machines"),
-    }, conn)
+    }
+    fixture_payload.pop("hourly_rate", None)
+    fixture = fixture_pipeline.run(fixture_payload, conn)
     if not fixture.get("is_machinable"):
         tags.append("设备不匹配")
     if not picked["matched"]:
