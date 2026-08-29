@@ -107,14 +107,19 @@ test("Ø8 刀具损耗显示两位小数且其他冻结成本行不回归", () =
   assert.ok(costRow("刀具损耗").getByText("¥0.15"))
 })
 
-test("387101 夹具样例刀具损耗显示 0.24 且夹具、加工成本不变", () => {
+test("387101 显示夹具材料加加工费用且刀具损耗保持 0.24", () => {
   render(
     <CostBreakdown
       quote={{
         fixture: {
           is_fixture_needed: true,
+          fixture_material: "铝合金",
+          fixture_count: 1,
+          fixture_block_L: 103.5,
+          fixture_block_W: 103.5,
+          fixture_block_H: 47,
           fixture_material_cost: 40.78,
-          fixture_processing_cost: 0,
+          fixture_processing_cost: 1.72,
         },
       }}
       uiCost={{
@@ -128,8 +133,13 @@ test("387101 夹具样例刀具损耗显示 0.24 且夹具、加工成本不变"
   )
 
   assert.ok(costRow("加工工时").getByText("¥311.40"))
-  assert.ok(costRow("装夹").getByText("¥40.78"))
+  const fixtureRow = screen.getByRole("button", { name: /装夹/ })
+  assert.ok(within(fixtureRow).getByText("¥42.50"))
   assert.ok(costRow("刀具损耗").getByText("¥0.24"))
+  fireEvent.click(fixtureRow)
+  assert.ok(
+    within(screen.getByRole("dialog", { name: "夹具1" })).getByText("1.72"),
+  )
 })
 
 test("零刀具损耗与零材料费一致显示两位小数", () => {

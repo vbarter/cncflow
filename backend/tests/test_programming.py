@@ -171,8 +171,11 @@ def test_it6_requires_aluminum_fixture_without_changing_programming(client):
     assert fixture["fixture_orientation_count"] == 1
     # AL-01: 120*100*42 mm³ * 2.70 g/cm³ / 1e6 * ¥30/kg = ¥40.824。
     assert fixture["fixture_material_cost"] == pytest.approx(40.82, abs=0.01)
-    assert fixture["fixture_processing_cost"] == 0
-    assert items["FIX"] == pytest.approx(40.82, abs=0.01)
+    assert fixture["fixture_processing_cost"] == pytest.approx(1.78, abs=0.08)
+    assert items["FIX"] == pytest.approx(
+        fixture["fixture_material_cost"] + fixture["fixture_processing_cost"],
+        abs=0.01,
+    )
     assert body["programming_time"] == 93
     assert body["programming_cost"] == pytest.approx(62, abs=0.02)
 

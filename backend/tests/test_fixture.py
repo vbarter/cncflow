@@ -88,8 +88,8 @@ def test_selected_convex_surface_requires_aluminum_fixture(client):
     resp = client.post("/api/v1/quotes", json={
         "material": "铝合金",
         "stock_type": "板材",
-        "length": 63.47,
-        "width": 63.47,
+        "length": 63.5,
+        "width": 63.5,
         "height": 17,
         "batch_size": 1,
         "features": [{
@@ -113,9 +113,10 @@ def test_selected_convex_surface_requires_aluminum_fixture(client):
         body["fixture_block_W"],
         body["fixture_block_H"],
     ) == pytest.approx((103.5, 103.5, 47), abs=0.05)
-    assert body["fixture_material_cost"] == pytest.approx(40.76, abs=0.02)
-    assert body["fixture_processing_cost"] == 0
-    assert items["FIX"] == pytest.approx(40.76, abs=0.02)
+    assert body["fixture_material_cost"] == pytest.approx(40.78, abs=0.02)
+    assert body["fixture_processing_cost"] == pytest.approx(1.72, abs=0.08)
+    assert items["FIX"] == pytest.approx(42.50, abs=0.08)
+    assert items["FIX"] < 210
 
 
 @pytest.mark.parametrize(
@@ -160,6 +161,7 @@ def test_pinned_vise_samples_keep_zero_fixture_cost(client, sample, features):
     assert body["is_fixture_needed"] is False, sample
     assert body["fixture_material_cost"] == 0, sample
     assert body["fixture_processing_cost"] == 0, sample
+    assert body["fixture_cost_per_piece"] == 0, sample
 
 
 def test_missing_clamping_face_still_defaults_to_present(client):
