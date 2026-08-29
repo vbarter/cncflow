@@ -1,7 +1,6 @@
 """孔可加工性判定测试（文档1模块一）。边界值全部取自 YAML 定死的区间。"""
 from cncflow_core.features.hole.machinability import evaluate
 from cncflow_core.features.hole.models import HoleSpec
-from cncflow_core.features.hole.pipeline import run
 
 
 def hole(d, h, **kw):
@@ -88,53 +87,53 @@ def _pipeline_payload(**overrides):
     return payload
 
 
+def _post_pipeline(client, **overrides):
+    response = client.post("/api/v1/process-plan", json=_pipeline_payload(**overrides))
+    assert response.status_code == 200, response.get_json()
+    return response.get_json()
+
+
 class TestFrozenNaGuards:
-    def test_z_overtravel_is_na_and_has_no_process_chain(self, seeded_conn):
-        result = run(_pipeline_payload(machine_max_z=19), seeded_conn)
+    def test_z_overtravel_is_na_and_has_no_process_chain(self, client):
+        result = _post_pipeline(client, machine_max_z=19)
         assert result["machinability"]["label"] == "NA"
         assert result["process_chain"] == []
         assert result["tool_chain"] == []
         assert [item["code"] for item in result["blockers"]] == ["Z_OVERTRAVEL"]
 
-    def test_three_axis_side_hole_is_na(self, seeded_conn):
-        result = run(
-            _pipeline_payload(
-                feature={"position_type": "侧向", "surface": "side"},
-                machine_axes=3,
-            ),
-            seeded_conn,
+    def test_three_axis_side_hole_is_na(self, client):
+        result = _post_pipeline(
+            client,
+            feature={"position_type": "侧向", "surface": "side"},
+            machine_axes=3,
         )
         assert result["machinability"]["label"] == "NA"
         assert result["process_chain"] == []
         assert [item["code"] for item in result["blockers"]] == ["THREE_AXIS_SIDE_HOLE"]
 
-    def test_side_hole_without_machine_axes_is_not_na(self, seeded_conn):
-        result = run(
-            _pipeline_payload(feature={"position_type": "侧向", "surface": "side"}),
-            seeded_conn,
+    def test_side_hole_without_machine_axes_is_not_na(self, client):
+        result = _post_pipeline(
+            client,
+            feature={"position_type": "侧向", "surface": "side"},
         )
         assert result["is_machinable"] is True
         assert result["process_chain"]
         assert result["blockers"] == []
 
-    def test_r15_deep_cavity_interference_does_not_auto_na(self, seeded_conn):
-        result = run(
-            _pipeline_payload(
-                feature={"deep_cavity_interference": True},
-                rule_hits=["R15"],
-            ),
-            seeded_conn,
+    def test_r15_deep_cavity_interference_does_not_auto_na(self, client):
+        result = _post_pipeline(
+            client,
+            feature={"deep_cavity_interference": True},
+            rule_hits=["R15"],
         )
         assert result["is_machinable"] is True
         assert result["process_chain"]
 
-    def test_r22_missing_nonstandard_tool_channel_does_not_auto_na(self, seeded_conn):
-        result = run(
-            _pipeline_payload(
-                feature={"diameter_mm": 9.7, "nonstandard_tool_channel": False},
-                rule_hits=["R22"],
-            ),
-            seeded_conn,
+    def test_r22_missing_nonstandard_tool_channel_does_not_auto_na(self, client):
+        result = _post_pipeline(
+            client,
+            feature={"diameter_mm": 9.7, "nonstandard_tool_channel": False},
+            rule_hits=["R22"],
         )
         assert result["is_machinable"] is True
         assert result["process_chain"]
