@@ -52,6 +52,29 @@ def test_repeat_order_zeros_prog_and_fixture(client):
     items = {i["code"]: i["amount"] for i in body["cost_items"]}
     assert items["PROG"] == 0
     assert items["FIX"] == 0
+    assert body["fixture"]["is_fixture_needed"] is False
+    assert body["fixture"]["fixture_count"] == 0
+    assert body["fixture"]["fixture_material_cost"] == 0
+    assert body["fixture"]["fixture_processing_cost"] == 0
+
+
+def test_empty_features_take_vise_short_circuit(client):
+    body = quote(client, {
+        "material": "铝合金",
+        "stock_type": "板材",
+        "length": 80,
+        "width": 60,
+        "height": 12,
+        "features": [],
+    }).get_json()
+    items = {i["code"]: i["amount"] for i in body["cost_items"]}
+
+    assert body["fixture"]["method"] == "平口钳"
+    assert body["fixture"]["is_fixture_needed"] is False
+    assert body["fixture"]["fixture_count"] == 0
+    assert body["fixture"]["fixture_material_cost"] == 0
+    assert body["fixture"]["fixture_processing_cost"] == 0
+    assert items["FIX"] == 0
 
 
 def test_slider_changes_machining(client):
