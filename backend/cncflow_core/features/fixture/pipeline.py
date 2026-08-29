@@ -32,8 +32,19 @@ def _dims(feature: dict):
     return vals  # d1 <= d2 <= d3
 
 
+def _selected_features(feature: dict) -> list[dict]:
+    features = feature.get("features")
+    if not isinstance(features, list):
+        return []
+    return [
+        item
+        for item in features
+        if isinstance(item, dict) and item.get("selected") is not False
+    ]
+
+
 def _shape(feature, d1, d2, d3) -> str:
-    features = feature.get("features") or []
+    features = _selected_features(feature)
     has_rev = any((f.get("surface_type") == "回转面") for f in features)
     has_free = any((f.get("surface_type") == "自由曲面") for f in features)
     if has_rev and d1 > 0 and d2 / d1 <= 1.5 and d3 / d1 >= 3:
@@ -47,7 +58,7 @@ def _shape(feature, d1, d2, d3) -> str:
 
 def _directions(feature) -> tuple[set, bool, bool]:
     dset, a_flag, overhang = set(), False, False
-    for item in feature.get("features") or []:
+    for item in _selected_features(feature):
         pos = item.get("position_type") or item.get("face_position") or ""
         if item.get("position_type") == "曲面" or item.get("surface_type") == "自由曲面":
             overhang = True
@@ -136,6 +147,53 @@ def _it_number(payload: dict, feature: dict) -> int:
         return 11
 
 
+def _feature_value(feature: dict, key: str):
+    value = feature.get(key)
+    if value not in (None, ""):
+        return value
+    dimensions = feature.get("dimensions")
+    if isinstance(dimensions, dict):
+        return dimensions.get(key)
+    return None
+
+
+def _fixture_surface_type(payload: dict, feature: dict) -> str:
+    for item in _selected_features(feature):
+        surface_type = _feature_value(item, "surface_type")
+        if item.get("type") == "surface":
+            return str(surface_type or "曲面")
+        if surface_type not in (None, "", "平面"):
+            return str(surface_type)
+        position = (
+            item.get("position_type")
+            or item.get("face_position")
+            or item.get("position")
+            or ""
+        )
+        if "曲面" in str(position):
+            return "曲面"
+    return str(_field(payload, feature, "surface_type", "平面"))
+
+
+def _fixture_angled_count(payload: dict, feature: dict) -> int:
+    explicit = _field(payload, feature, "angled_feature_count", None)
+    if explicit not in (None, ""):
+        try:
+            return int(float(explicit))
+        except (TypeError, ValueError):
+            return 0
+    return sum(
+        "倾斜"
+        in str(
+            item.get("position_type")
+            or item.get("face_position")
+            or item.get("position")
+            or ""
+        )
+        for item in _selected_features(feature)
+    )
+
+
 def _material_row(factory: dict, material: str) -> dict | None:
     code = resolve_material_code(material)
     return next(
@@ -163,8 +221,8 @@ def _fixture_spec(
     repeat = bool(payload.get("is_repeat_order"))
     has_clamp_face = bool(_field(payload, feature, "has_clamp_face", True))
     wall = _number(payload, feature, "wall_thickness", 3)
-    angled = int(_number(payload, feature, "angled_feature_count", 0))
-    surface = str(_field(payload, feature, "surface_type", "平面"))
+    angled = _fixture_angled_count(payload, feature)
+    surface = _fixture_surface_type(payload, feature)
     it = _it_number(payload, feature)
     orientation = int(_number(payload, feature, "orientation_count", 1))
 
