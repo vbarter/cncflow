@@ -290,13 +290,13 @@ export function FactoryConfig() {
           <div className="mb-3 text-sm font-medium">机时费率</div>
           <div className="factory-table-scroll max-w-full">
           <table className="w-full text-left text-sm">
-            <thead><tr className="border-b border-[#e2e8f0] text-xs text-slate-500"><th className="py-2">设备类型</th><th>机时</th><th>调机</th><th>编程</th></tr></thead>
+            <thead><tr className="border-b border-[#e2e8f0] text-xs text-slate-500"><th className="py-2">设备类型</th><th>机时</th><th>调机</th><th>编程时薪</th></tr></thead>
             <tbody>{rates.map((r: any, i: number) => (
               <tr key={r.equipment_type} className="border-b border-slate-100">
                 <td className="py-2">{r.equipment_type}</td>
                 <td className="pr-2"><Input type="number" value={r.hourly_rate} onChange={e => { const list = [...rates]; list[i] = { ...r, hourly_rate: Number(e.target.value) }; setCfg({ ...cfg, rate_table: list }) }} /></td>
                 <td className="pr-2"><Input type="number" value={r.setup_fee} onChange={e => { const list = [...rates]; list[i] = { ...r, setup_fee: Number(e.target.value) }; setCfg({ ...cfg, rate_table: list }) }} /></td>
-                <td><Input type="number" value={r.programming_fee_new} onChange={e => { const list = [...rates]; list[i] = { ...r, programming_fee_new: Number(e.target.value) }; setCfg({ ...cfg, rate_table: list }) }} /></td>
+                <td><Input type="number" value={r.programming_hourly_rate ?? ""} onChange={e => { const list = [...rates]; list[i] = { ...r, programming_hourly_rate: Number(e.target.value) }; setCfg({ ...cfg, rate_table: list }) }} /></td>
               </tr>
             ))}</tbody>
           </table>

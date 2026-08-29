@@ -226,7 +226,7 @@ CREATE TABLE IF NOT EXISTS rate_table (
   equipment_type TEXT PRIMARY KEY,
   hourly_rate REAL NOT NULL,
   setup_fee REAL NOT NULL DEFAULT 0,
-  programming_fee_new REAL NOT NULL DEFAULT 300
+  programming_hourly_rate REAL
 );
 
 
@@ -303,6 +303,7 @@ def init_schema(conn: sqlite3.Connection) -> None:
     _ensure_column(conn, "factory_material_prices", "warning", "TEXT")
     _ensure_column(conn, "factory_material_prices", "extra_json", "TEXT")
     _ensure_column(conn, "machines", "extra_json", "TEXT")
+    _ensure_column(conn, "rate_table", "programming_hourly_rate", "REAL")
     _ensure_column(conn, "parts", "thread_specs_json", "TEXT")
     _ensure_column(conn, "parts", "pdf_backfill_status", "TEXT")
     _ensure_column(conn, "parts", "pdf_backfill_warning", "TEXT")

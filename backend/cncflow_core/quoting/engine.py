@@ -9,7 +9,10 @@ from ..features.pocket import pipeline as pocket_pipeline
 from ..features.step import pipeline as step_pipeline
 from ..features.surface import pipeline as surface_pipeline
 from ..features.thread import pipeline as thread_pipeline
-from . import confidence, dedup, equipment, hole_time, mill_time, process_edits, risk_dimensions, sequence, slider, volume
+from . import (
+    confidence, dedup, equipment, hole_time, mill_time, process_edits, programming,
+    risk_dimensions, sequence, slider, volume,
+)
 
 PIPELINES = {
     "hole": hole_pipeline.run,
@@ -221,14 +224,6 @@ def _price(material: str, factory: dict, payload: dict):
     return float(defaults.get(material, 25)), 0.0, 1.0
 
 
-def _rate(factory: dict, payload: dict) -> dict:
-    eq = payload.get("equipment_type") or "3轴立式加工中心"
-    for row in factory.get("rate_table") or []:
-        if row["equipment_type"] == eq:
-            return row
-    return {"equipment_type": eq, "hourly_rate": 120, "setup_fee": 200, "programming_fee_new": 300}
-
-
 def _feature_minutes(result: dict, ftype: str) -> tuple[float, object, bool]:
     if ftype == "surface":
         level = (result.get("difficulty") or {}).get("level") or "D1"
@@ -411,7 +406,19 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
         setup_amort = setup_fee / batch * 1.2
     else:
         setup_amort = setup_fee / batch * 1.5
-    prog = 0 if repeat else float(rate.get("programming_fee_new") or 300)
+    programming_time = programming.calculate_time(
+        features,
+        fixture.get("setup_count"),
+        picked.get("axes"),
+    )
+    programming_cost = programming.calculate_cost(
+        programming_time["programming_time"],
+        machine_axes=picked.get("axes"),
+        rate_row=rate,
+        batch_size=batch,
+        is_repeat_order=repeat,
+    )
+    prog = programming_cost["programming_cost_per_piece"]
     cut_fee = cut_hours * hourly * factor
     toolchg_fee = (toolchg_min / 60) * hourly
     setup_fee_time = (setup_min / 60) * hourly
@@ -479,6 +486,7 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
     equipment_info = {
         "model": picked.get("model"),
         "type": picked.get("type"),
+        "axes": picked.get("axes"),
         "hourly_rate": picked.get("hourly_rate"),
     }
     deductions = risk_dimensions.collect(
@@ -534,6 +542,17 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
             "floor_applied": floor_applied,
         },
         "hours": hours,
+        "programming_time": programming_time["programming_time"],
+        "t_programming": programming_time["t_programming"],
+        "program_count": programming_time["program_count"],
+        "programming_time_detail": programming_time["programming_time_detail"],
+        "programming_cost": programming_cost["programming_cost"],
+        "programming_cost_per_piece": programming_cost["programming_cost_per_piece"],
+        "programming_cost_detail": programming_cost["programming_cost_detail"],
+        "formula_trace": {
+            "programming_time": programming_time["formula_trace"],
+            "programming_cost": programming_cost["formula_trace"],
+        },
         "suggested_days": suggested_days,
         "confidence": confidence_value,
         "deductions": deductions,
@@ -554,6 +573,11 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
             "inspect": round(inspect, 2),
             "toolwear": round(toolwear, 2),
             "scrap": round(scrap_fee, 2),
+        },
+        "labor_cost_breakdown": {
+            "machining": round(machining_sub, 2),
+            "setup": round(setup_ui, 2),
+            "total": round(machining_sub + setup_ui, 2),
         },
         "validation": _validation(seq),
         "volume": vol,

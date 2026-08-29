@@ -147,9 +147,14 @@ def _rate_row(factory: dict, equipment_type: str) -> dict:
                 "equipment_type": equipment_type,
                 "hourly_rate": float(row["hourly_rate"]),
                 "setup_fee": float(row.get("setup_fee") or 0),
-                "programming_fee_new": float(row.get("programming_fee_new") or 300),
+                "programming_hourly_rate": row.get("programming_hourly_rate"),
             }
-    return {"equipment_type": equipment_type, "hourly_rate": None, "setup_fee": 200, "programming_fee_new": 300}
+    return {
+        "equipment_type": equipment_type,
+        "hourly_rate": None,
+        "setup_fee": 200,
+        "programming_hourly_rate": None,
+    }
 
 
 def select(factory: dict, payload: dict, features: list, L: float, W: float, H: float) -> dict:
@@ -177,6 +182,7 @@ def select(factory: dict, payload: dict, features: list, L: float, W: float, H: 
             "matched": True,
             "model": m.get("id"),
             "type": mtype,
+            "axes": m.get("axes"),
             "hourly_rate": rate["hourly_rate"],
             "rate": rate,
             "envelope": env,
@@ -185,10 +191,14 @@ def select(factory: dict, payload: dict, features: list, L: float, W: float, H: 
     rate = _rate_row(factory, fallback_type)
     if rate["hourly_rate"] is None:
         rate["hourly_rate"] = 120
+    fallback_axes = payload.get("machine_axes")
+    if fallback_axes is None:
+        fallback_axes = 5 if "5轴" in fallback_type else 4 if "4轴" in fallback_type else 3
     return {
         "matched": False,
         "model": None,
         "type": fallback_type,
+        "axes": fallback_axes,
         "hourly_rate": rate["hourly_rate"],
         "rate": rate,
         "envelope": env,

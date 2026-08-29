@@ -9,7 +9,8 @@ def test_get_seeds_rate_table(client):
     assert body["settings"]["ignore_available_machines"] is False
     types = {row["equipment_type"]: row for row in body["rate_table"]}
     assert types["3轴立式加工中心"]["hourly_rate"] == 120
-    assert types["5轴联动加工中心"]["programming_fee_new"] == 800
+    assert types["3轴立式加工中心"]["programming_hourly_rate"] == 40
+    assert types["5轴联动加工中心"]["programming_hourly_rate"] == 100
 
 
 def test_put_roundtrip(client):
@@ -18,7 +19,12 @@ def test_put_roundtrip(client):
         "settings": {"profit_pct": 18, "ignore_available_machines": True, "inspect_fee": 80},
         "machines": [{"id": "vm850", "type": "3轴立式加工中心", "axes": 3, "enabled": True}],
         "material_prices": [{"material_code": "AL-6061", "price_per_kg": 28, "scrap_price_per_kg": 8}],
-        "rate_table": [{"equipment_type": "3轴立式加工中心", "hourly_rate": 130, "setup_fee": 200, "programming_fee_new": 300}],
+        "rate_table": [{
+            "equipment_type": "3轴立式加工中心",
+            "hourly_rate": 130,
+            "setup_fee": 200,
+            "programming_hourly_rate": 45,
+        }],
     }
     try:
         resp = client.put("/api/v1/factory-config", json=payload)
@@ -30,6 +36,7 @@ def test_put_roundtrip(client):
         assert any(m["id"] == "VMC850E" for m in body["machines"])
         rates = {r["equipment_type"]: r for r in body["rate_table"]}
         assert rates["3轴立式加工中心"]["hourly_rate"] == 130
+        assert rates["3轴立式加工中心"]["programming_hourly_rate"] == 45
         again = client.get("/api/v1/factory-config").get_json()
         assert again["settings"]["ignore_available_machines"] is True
         skus = [t["sku"] for t in again["tools"]]
