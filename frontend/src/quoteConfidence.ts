@@ -63,6 +63,12 @@ export function formatDeduction(deduction: number) {
   return `−${deduction}`
 }
 
+export function liveConfidenceValue(value: unknown) {
+  if (value == null || value === "") return null
+  const confidence = Number(value)
+  return Number.isFinite(confidence) ? confidence : null
+}
+
 export function confidenceColumns(rawDeductions: unknown): ConfidenceColumn[] {
   const grouped = new Map<CategoryKey, ConfidenceDeduction[]>()
   for (const category of CATEGORY_DEFINITIONS) grouped.set(category.key, [])

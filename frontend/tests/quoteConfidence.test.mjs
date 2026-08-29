@@ -18,6 +18,7 @@ const {
   DIMENSION_LABEL,
   EMPTY_DEDUCTION_TEXT,
   formatDeduction,
+  liveConfidenceValue,
 } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`)
 
 function item(dimension, deduction = 5, reason = `${dimension} 原因`) {
@@ -53,9 +54,14 @@ test("D1–D9 按冻结映射进入四个可信度列", () => {
     { key: "factory", label: "工厂资源匹配", score: 99, dimensions: ["D4"] },
     { key: "cost", label: "成本数据完整性", score: 97, dimensions: ["D3", "D7", "D8"] },
   ])
+  assert.equal(
+    columns.flatMap((column) => column.deductions)
+      .every(({ deduction }) => /^−\d+(?:\.\d+)?$/.test(formatDeduction(deduction))),
+    true,
+  )
 })
 
-test("Ø8 的两条 D1 各扣 5，工艺列为 90 且每行显示数值", () => {
+test("Ø8 的两条 D1 各扣 5，工艺列与现有总置信度均为 90", () => {
   const columns = confidenceColumns([
     item("D1", 5, "工步 1 rough_face 工时低于下限"),
     item("D1", 5, "工步 2 drill 工时低于下限"),
@@ -65,6 +71,7 @@ test("Ø8 的两条 D1 各扣 5，工艺列为 90 且每行显示数值", () => 
   assert.equal(process.score, 90)
   assert.equal(process.deductions.length, 2)
   assert.deepEqual(process.deductions.map(({ deduction }) => formatDeduction(deduction)), ["−5", "−5"])
+  assert.equal(liveConfidenceValue(90), 90)
   assert.deepEqual(
     columns.filter((column) => column.key !== "process").map(({ score, deductions }) => ({
       score,

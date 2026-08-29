@@ -4,7 +4,13 @@ import { FeatureReview } from "../components/FeatureReview"
 import { ProcessSequenceEditor } from "../components/ProcessSequenceEditor"
 import { json } from "../api"
 import { hoursLabel, quoteHours } from "../quoteHours"
-import { confidenceColumns, DIMENSION_LABEL, EMPTY_DEDUCTION_TEXT, formatDeduction } from "../quoteConfidence"
+import {
+  confidenceColumns,
+  DIMENSION_LABEL,
+  EMPTY_DEDUCTION_TEXT,
+  formatDeduction,
+  liveConfidenceValue,
+} from "../quoteConfidence"
 import { quoteSuggestedDays, suggestedDaysLabel } from "../suggestedDays"
 
 const COST_LABEL: Record<string, string> = {
@@ -76,8 +82,7 @@ export function PartDetail({ id, go }: { id: string; go: (h: string) => void }) 
     ...f, feature_id: featId(f, i),
   }))
   const confidenceBreakdown = confidenceColumns(deductions)
-  const confidenceValue = q.confidence == null || q.confidence === "" ? null : Number(q.confidence)
-  const overallConfidence = confidenceValue != null && Number.isFinite(confidenceValue) ? confidenceValue : null
+  const overallConfidence = liveConfidenceValue(q.confidence)
   const meshAvailable = Boolean(part.mesh?.available)
 
   function toggleFeat(fid: string, checked: boolean) {
