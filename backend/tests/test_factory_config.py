@@ -1,4 +1,5 @@
 """工厂配置 GET/PUT 与费率缺省。"""
+import json
 
 
 def test_get_seeds_rate_table(client):
@@ -62,11 +63,29 @@ def test_get_seeds_machines_and_material_prices(client, seeded_db_path):
     ids = {m["id"] for m in body["machines"]}
     assert "VMC850E" in ids
     assert "VM-3AX" not in ids
-    prices = {r["material_code"]: r["price_per_kg"] for r in body["material_prices"]}
-    assert prices["AL-01"] == 22
-    assert prices["ST-01"] == 5.5
-    assert prices["铝合金"] == 22
-    assert prices["钢"] == 5.5
+    prices = {
+        r["material_code"]: (
+            r["price_per_kg"],
+            r["scrap_price_per_kg"],
+            r["density_g_cm3"],
+        )
+        for r in body["material_prices"]
+    }
+    assert prices["AL-01"] == (30, 16, 2.7)
+    assert prices["AL-02"] == (30, 16, 2.7)
+    assert prices["AL-03"] == (30, 16, 2.7)
+    assert prices["ST-01"] == (6, 1.8, 7.9)
+    assert prices["SS-01"] == (24, 7, 7.9)
+    assert prices["SS-02"] == (36, 13, 7.9)
+    assert prices["CU-01"] == (120, 75, 8.9)
+    assert prices["CU-02"] == (75, 48, 8.9)
+    assert prices["铝合金"] == prices["AL-01"]
+    assert prices["钢"] == prices["ST-01"]
+    assert prices["ST-02"] == (7, 2.2, 7.85)
+    assert prices["TI-01"] == (380, 95, 4.43)
+    assert prices["FE-01"] == (4.5, 1.2, 7.2)
+    assert prices["SS-03"] == (45, 10, 7.78)
+    assert prices["CU-03"] == (520, 180, 8.25)
     assert {p["material_code"] for p in body["material_prices"] if p.get("tier") == "common"} >= {
         "AL-01", "AL-02", "ST-01", "ST-02", "SS-01", "SS-02", "TI-01", "CU-01", "CU-02", "FE-01"
     }
@@ -109,15 +128,52 @@ def test_get_tools_from_tools_catalog(client):
 def test_put_material_density_roundtrip(client):
     resp = client.put("/api/v1/factory-config", json={
         "material_prices": [
-            {"material_code": "AL-01", "display_name": "6061-T6铝合金", "price_per_kg": 28, "scrap_price_per_kg": 8, "density_g_cm3": 2.71, "recycle_rate": 0.8, "enabled": 1},
+            {"material_code": "CUSTOM-01", "display_name": "自定义材料", "price_per_kg": 28, "scrap_price_per_kg": 8, "density_g_cm3": 2.71, "recycle_rate": 0.8, "enabled": 1},
         ],
     })
     assert resp.status_code == 200
     again = client.get("/api/v1/factory-config").get_json()
-    got = next(p for p in again["material_prices"] if p["material_code"] == "AL-01")
+    got = next(p for p in again["material_prices"] if p["material_code"] == "CUSTOM-01")
     assert got["density_g_cm3"] == 2.71
-    assert got["recycle_rate"] == 0.8
-    assert got["display_name"] == "6061-T6铝合金"
+    assert "recycle_rate" not in got
+    assert got["display_name"] == "自定义材料"
+
+
+def test_existing_factory_config_gets_versioned_frozen_price_overlay(client, seeded_db_path):
+    from cncflow_core.common.db import get_conn
+    from cncflow_core.factory.defaults import MATERIAL_PRICE_OVERLAY_VERSION
+
+    conn = get_conn(seeded_db_path)
+    settings = conn.execute(
+        "SELECT extra_json FROM factory_settings WHERE id=1"
+    ).fetchone()
+    extra = json.loads(settings["extra_json"] or "{}")
+    extra.pop("material_price_overlay_version", None)
+    conn.execute(
+        "UPDATE factory_settings SET extra_json=? WHERE id=1",
+        (json.dumps(extra, ensure_ascii=False),),
+    )
+    conn.execute(
+        "UPDATE factory_material_prices "
+        "SET price_per_kg=28, scrap_price_per_kg=10, density_g_cm3=2.81 "
+        "WHERE material_code='AL-02'"
+    )
+    conn.commit()
+    conn.close()
+
+    body = client.get("/api/v1/factory-config").get_json()
+    al7075 = next(
+        row for row in body["material_prices"] if row["material_code"] == "AL-02"
+    )
+    assert (
+        al7075["price_per_kg"],
+        al7075["scrap_price_per_kg"],
+        al7075["density_g_cm3"],
+    ) == (30, 16, 2.7)
+    assert (
+        body["settings"]["extra"]["material_price_overlay_version"]
+        == MATERIAL_PRICE_OVERLAY_VERSION
+    )
 
 
 def test_put_add_tool_and_delete_machine_persists(client):
@@ -196,7 +252,6 @@ def test_steel_alias_resolves_to_st01_price(client):
     assert resolve_material_code("钢") == "ST-01"
     assert resolve_material_code("铝合金") == "AL-01"
     body = client.get("/api/v1/factory-config").get_json()
-    price, scrap, eta = _price("钢", body, {"material_code": "钢"})
-    assert price == 5.5
+    price, scrap = _price("钢", body, {"material_code": "钢"})
+    assert price == 6
     assert scrap == 1.8
-    assert eta == 0.90
