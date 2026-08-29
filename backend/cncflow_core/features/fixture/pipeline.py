@@ -2,6 +2,10 @@
 
 from ...common.rule_loader import load_rules
 from ...factory.store import get_config, resolve_material_code
+from ...quoting import hole_time, mill_time, slider
+from ..face import pipeline as face_pipeline
+from ..hole import pipeline as hole_pipeline
+from ..thread import pipeline as thread_pipeline
 
 TIMES = {
     ("F1", "平口钳"): (0, 3, 8),
@@ -206,6 +210,95 @@ def _material_row(factory: dict, material: str) -> dict | None:
     )
 
 
+def _fixture_hourly_rate(payload: dict, factory: dict) -> float:
+    candidates = [payload.get("hourly_rate")]
+    candidates.extend(
+        row.get("hourly_rate")
+        for row in factory.get("rate_table") or []
+        if row.get("equipment_type") == "3轴立式加工中心"
+    )
+    candidates.extend(
+        row.get("hourly_rate")
+        for row in factory.get("machines") or []
+        if row.get("enabled", 1) and int(row.get("axes") or 0) == 3
+    )
+    for candidate in candidates:
+        try:
+            rate = float(candidate)
+        except (TypeError, ValueError):
+            continue
+        if rate > 0:
+            return rate
+    raise ValueError("工厂配置缺少夹具加工所需的 3 轴设备费率")
+
+
+def _fixture_processing(
+    payload: dict,
+    conn,
+    factory: dict,
+    *,
+    material: str,
+    block_l: float,
+    block_w: float,
+    block_h: float,
+    fixture_count: int,
+) -> tuple[float, float]:
+    """把 0824 冻结夹具特征送入现有工序链和工时引擎，仅汇总指定工序。"""
+    face = {
+        "type": "face",
+        "length": block_l,
+        "width": block_w,
+        "depth": 1,
+    }
+    hole = {
+        "type": "hole",
+        "diameter_mm": 8,
+        "depth_mm": block_h,
+        "hole_type": "through",
+    }
+    thread = {
+        "type": "thread",
+        "nominal_d": 8,
+        "pitch": 1.25,
+        # 0824 只冻结 M8；4D 有效牙深保持现有工序链选择库存 M8 丝锥。
+        "thread_length": min(block_h, 4 * 8),
+    }
+    process_slide = slider.resolve(
+        payload.get("slider") or "标准",
+        material,
+        [face, hole, thread],
+    )
+    common = {"material": material, "tolerance_it": 11}
+
+    face_plan = face_pipeline.run({**common, "feature": face}, conn)
+    face_timed = mill_time.compute(
+        "face", face, face_plan, factory, material, process_slide,
+    )
+    hole_plan = hole_pipeline.run({**common, "feature": hole}, conn)
+    hole_timed = hole_time.compute(
+        hole_plan, factory, material, process_slide,
+    )
+    thread_plan = thread_pipeline.run({**common, "feature": thread}, conn)
+    thread_timed = mill_time.compute(
+        "thread", thread, thread_plan, factory, material, process_slide,
+    )
+
+    def step_minutes(timed: dict, process: str) -> float:
+        return sum(
+            float(step.get("t_step") or 0)
+            for step in timed.get("steps") or []
+            if step.get("process") == process
+        )
+
+    minutes = (
+        step_minutes(face_timed, "rough_face") * fixture_count
+        + step_minutes(hole_timed, "drill") * (2 * fixture_count)
+        + step_minutes(thread_timed, "tap") * (2 * fixture_count)
+    )
+    cost = minutes / 60 * _fixture_hourly_rate(payload, factory)
+    return round(minutes, 4), round(cost, 2)
+
+
 def _fixture_spec(
     payload: dict,
     feature: dict,
@@ -254,6 +347,7 @@ def _fixture_spec(
             "fixture_material_cost": 0,
             "fixture_processing_cost": 0,
             "fixture_cost_per_piece": 0,
+            "fixture_machining_time": 0,
         }
 
     factory = get_config(conn)
@@ -288,7 +382,16 @@ def _fixture_spec(
     density = float(fixture_row["density_g_cm3"])
     unit_price = float(fixture_row["price_per_kg"])
     material_cost = block_l * block_w * block_h * density / 1e6 * unit_price * count
-    processing_cost = 0  # 缺少《夹具加工工序规则》，本切片不虚构加工工时。
+    machining_time, processing_cost = _fixture_processing(
+        payload,
+        conn,
+        factory,
+        material=catalog_material,
+        block_l=block_l,
+        block_w=block_w,
+        block_h=block_h,
+        fixture_count=count,
+    )
     fixture_orientation = 2 if angled >= 1 else 1
 
     return {
@@ -309,6 +412,7 @@ def _fixture_spec(
         "fixture_material_cost": round(material_cost, 2),
         "fixture_processing_cost": processing_cost,
         "fixture_cost_per_piece": round(material_cost + processing_cost, 2),
+        "fixture_machining_time": machining_time,
     }
 
 
@@ -373,7 +477,6 @@ def run(payload: dict, conn) -> dict:
         "setup_time_total": round(setup_time, 3),
         "prep_per_piece": round(prep, 3),
         **fixture_spec,
-        "fixture_machining_time": 0,
         "is_machinable": machinable,
         "weight_kg": round(weight, 3),
         "risk_tags": risks if machinable else risks + ["不可装夹仍出价，标高风险"],
