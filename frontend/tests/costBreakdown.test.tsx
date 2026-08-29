@@ -44,6 +44,12 @@ const uiCost = {
   scrap: 3,
 }
 
+function costRow(label: string) {
+  const row = screen.getByText(label).parentElement
+  assert.ok(row)
+  return within(row)
+}
+
 function programmingQuote(programmingTime: number, programmingCost: number) {
   return {
     program_count: 1,
@@ -70,6 +76,74 @@ function programmingQuote(programmingTime: number, programmingCost: number) {
     },
   }
 }
+
+test("Ø8 刀具损耗显示两位小数且其他冻结成本行不回归", () => {
+  render(
+    <CostBreakdown
+      quote={{
+        ...programmingQuote(93, 62),
+        fixture: {
+          is_fixture_needed: false,
+          fixture_material_cost: 0,
+          fixture_processing_cost: 0,
+        },
+      }}
+      uiCost={{
+        ...uiCost,
+        material: 3.25,
+        machining: 1.39,
+        setup: 210,
+        programming: 62,
+        toolwear: 0.15,
+      }}
+      quoteSummary={quoteSummary}
+    />,
+  )
+
+  assert.ok(costRow("原材料").getByText("¥3.25"))
+  assert.ok(costRow("加工工时").getByText("¥211.39"))
+  assert.ok(costRow("装夹").getByText("¥0.00"))
+  assert.ok(costRow("编程").getByText("¥62"))
+  assert.ok(costRow("刀具损耗").getByText("¥0.15"))
+})
+
+test("387101 夹具样例刀具损耗显示 0.24 且夹具、加工成本不变", () => {
+  render(
+    <CostBreakdown
+      quote={{
+        fixture: {
+          is_fixture_needed: true,
+          fixture_material_cost: 40.78,
+          fixture_processing_cost: 0,
+        },
+      }}
+      uiCost={{
+        ...uiCost,
+        machining: 101.4,
+        setup: 210,
+        toolwear: 0.24,
+      }}
+      quoteSummary={quoteSummary}
+    />,
+  )
+
+  assert.ok(costRow("加工工时").getByText("¥311.40"))
+  assert.ok(costRow("装夹").getByText("¥40.78"))
+  assert.ok(costRow("刀具损耗").getByText("¥0.24"))
+})
+
+test("零刀具损耗与零材料费一致显示两位小数", () => {
+  render(
+    <CostBreakdown
+      quote={{}}
+      uiCost={{ ...uiCost, material: 0, toolwear: 0 }}
+      quoteSummary={quoteSummary}
+    />,
+  )
+
+  assert.ok(costRow("原材料").getByText("¥0.00"))
+  assert.ok(costRow("刀具损耗").getByText("¥0.00"))
+})
 
 test("点击编程行打开 Ø8 编程费用抽屉并按冻结顺序显示现网字段", () => {
   const quote = programmingQuote(93, 62)

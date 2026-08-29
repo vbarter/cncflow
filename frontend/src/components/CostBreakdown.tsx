@@ -462,7 +462,10 @@ export function CostBreakdown({
               />
             </div>
             <div className="text-right">
-              ¥{key === "fixture" || key === "material" || key === "machining"
+              ¥{key === "fixture"
+                || key === "material"
+                || key === "machining"
+                || key === "toolwear"
                 ? value.toFixed(2)
                 : yen(value)}
             </div>
