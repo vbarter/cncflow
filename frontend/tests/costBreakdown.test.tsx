@@ -6,6 +6,7 @@ import {
   CostBreakdown,
   costValue,
   fixtureCost,
+  millTimeRows,
   programmingDrawerValues,
 } from "../src/components/CostBreakdown"
 
@@ -290,6 +291,88 @@ test("翻单仍显示 93 min，编程行、总费用和单件分摊均为 0", ()
   assert.equal(within(drawer).getAllByText("¥0").length, 2)
 })
 
+function millStep(partial: Record<string, unknown>) {
+  const time = (partial.time || {}) as Record<string, unknown>
+  return {
+    name: partial.name,
+    process: partial.process,
+    sku: partial.sku,
+    formula: partial.formula,
+    n: partial.n,
+    f: partial.f,
+    cut: partial.cut,
+    passes: partial.passes,
+    time: {
+      formula: time.formula ?? partial.formula,
+      n: time.n ?? partial.n,
+      f: time.f ?? partial.f,
+      cut: time.cut ?? partial.cut,
+      passes: time.passes ?? partial.passes,
+      t_cut: time.t_cut,
+    },
+  }
+}
+
+function operationFields(section: HTMLElement, needle: string) {
+  const card = Array.from(section.querySelectorAll("dl")).find((dl) =>
+    Array.from(dl.querySelectorAll("dd"), dd => dd.textContent).includes(needle),
+  )
+  assert.ok(card, needle)
+  return Object.fromEntries(
+    Array.from(card.querySelectorAll("div"), (row) => [
+      row.querySelector("dt")?.textContent,
+      row.querySelector("dd")?.textContent,
+    ]),
+  )
+}
+
+function assertMillTime(
+  fields: Record<string, string | undefined>,
+  expected: Record<string, string>,
+) {
+  for (const [key, value] of Object.entries(expected)) {
+    assert.equal(fields[key], value, key)
+  }
+}
+
+test("millTimeRows 只读 time.t_cut，倒角缺 n/f 则省略", () => {
+  assert.deepEqual(
+    millTimeRows(millStep({
+      formula: "t=cut*passes/f",
+      n: 7957.7,
+      f: 2864.78,
+      cut: 14.4,
+      passes: 1,
+      time: { t_cut: 0.005 },
+    })),
+    [
+      ["formula", "t=cut*passes/f"],
+      ["n", "7957.7"],
+      ["f", "2864.78"],
+      ["cut", "14.4"],
+      ["passes", "1"],
+      ["t", "0.005"],
+    ],
+  )
+  assert.deepEqual(
+    millTimeRows({
+      formula: "t=cut*passes/f",
+      n: null,
+      f: null,
+      cut: 56,
+      passes: 1,
+      t_cut: 9.99,
+      time: { t_cut: 0.2182 },
+    }),
+    [
+      ["formula", "t=cut*passes/f"],
+      ["cut", "56"],
+      ["passes", "1"],
+      ["t", "0.2182"],
+    ],
+  )
+})
+
 test("点击加工工时行打开 Ø8 加工费用抽屉并与现网 labor 对账", () => {
   const labor = {
     machining: 1.39,
@@ -345,9 +428,44 @@ test("点击加工工时行打开 Ø8 加工费用抽屉并与现网 labor 对�
       cost: 210,
     },
   }
+  const process_sequence = [
+    millStep({
+      name: "粗铣",
+      process: "rough_face",
+      sku: "TK-028",
+      formula: "t=cut*passes/f",
+      n: 3183.1,
+      f: 1145.91,
+      cut: 85.714,
+      passes: 1,
+      time: { t_cut: 0.1364 },
+    }),
+    millStep({
+      name: "钻孔",
+      process: "drill",
+      sku: "TK-003",
+      formula: "t=cut*passes/f",
+      n: 7957.7,
+      f: 2864.78,
+      cut: 14.4,
+      passes: 1,
+      time: { t_cut: 0.005 },
+    }),
+    millStep({
+      name: "倒角",
+      process: "chamfer",
+      sku: "TK-036",
+      formula: "t=cut*passes/f",
+      n: null,
+      f: null,
+      cut: 56,
+      passes: 1,
+      time: { t_cut: 0.2182 },
+    }),
+  ]
   render(
     <CostBreakdown
-      quote={{ labor_cost_breakdown: labor }}
+      quote={{ labor_cost_breakdown: labor, process_sequence }}
       uiCost={{ ...uiCost, machining: 1.39, setup: 210 }}
       quoteSummary={quoteSummary}
     />,
@@ -373,6 +491,31 @@ test("点击加工工时行打开 Ø8 加工费用抽屉并与现网 labor 对�
   for (const text of ["粗铣", "TK-028", "0.22", "¥0.44", "倒角", "TK-036", "0.30", "¥0.60"]) {
     assert.ok(within(face).getByText(text))
   }
+  assertMillTime(operationFields(hole, "钻孔"), {
+    formula: "t=cut*passes/f",
+    n: "7957.7",
+    f: "2864.78",
+    cut: "14.4",
+    passes: "1",
+    t: "0.005",
+  })
+  assertMillTime(operationFields(face, "粗铣"), {
+    formula: "t=cut*passes/f",
+    n: "3183.1",
+    f: "1145.91",
+    cut: "85.714",
+    passes: "1",
+    t: "0.1364",
+  })
+  const chamfer = operationFields(face, "倒角")
+  assertMillTime(chamfer, {
+    formula: "t=cut*passes/f",
+    cut: "56",
+    passes: "1",
+    t: "0.2182",
+  })
+  assert.equal(chamfer.n, undefined)
+  assert.equal(chamfer.f, undefined)
   assert.ok(within(drawer).getByText("含空程 / 换刀 ¥0.17"))
   for (const text of ["5.00 min", "¥120/h", "¥210.00", "调机 ¥200.00 + 工时 ¥10.00"]) {
     assert.ok(within(drawer).getByText(text))
@@ -383,6 +526,195 @@ test("点击加工工时行打开 Ø8 加工费用抽屉并与现网 labor 对�
     machining: 1.39,
     setup: 210,
   }, "machining"), 211.39)
+  assert.equal(labor.machining, 1.39)
+})
+
+test("加工费用抽屉显示开口槽粗铣 TK-022 中间量且加工工时保持 211.59", () => {
+  const slotLabor = {
+    machining: 1.59,
+    setup: 210,
+    total: 211.59,
+    machining_total: 1.59,
+    air_cut_and_tool_change_cost: 0.17,
+    groups: [
+      {
+        feature_type: "slot",
+        name: "槽",
+        quantity: 1,
+        operations: [{
+          name: "粗铣",
+          equipment_name: "VMC850E",
+          tool_sku: "TK-022",
+          minutes: 0.2681,
+          hourly_rate: 120,
+          cost: 0.54,
+        }],
+      },
+      {
+        feature_type: "face",
+        name: "面",
+        quantity: 1,
+        operations: [
+          {
+            name: "粗铣",
+            equipment_name: "VMC850E",
+            tool_sku: "TK-028",
+            minutes: 0.2193,
+            hourly_rate: 120,
+            cost: 0.44,
+          },
+          {
+            name: "倒角",
+            equipment_name: "VMC850E",
+            tool_sku: "TK-036",
+            minutes: 0.3016,
+            hourly_rate: 120,
+            cost: 0.60,
+          },
+        ],
+      },
+    ],
+    changeover: { minutes: 5, equipment_name: "VMC850E", hourly_rate: 120, cost: 210 },
+  }
+  render(
+    <CostBreakdown
+      quote={{
+        labor_cost_breakdown: slotLabor,
+        process_sequence: [
+          millStep({
+            name: "粗铣",
+            process: "rough_pocket",
+            sku: "TK-022",
+            formula: "t=cut*passes/f",
+            n: 6366.2,
+            f: 2291.83,
+            cut: 95.238,
+            passes: 8,
+            time: { t_cut: 0.1847 },
+          }),
+          millStep({
+            name: "粗铣",
+            process: "rough_face",
+            sku: "TK-028",
+            formula: "t=cut*passes/f",
+            n: 3183.1,
+            f: 1145.91,
+            cut: 85.714,
+            passes: 1,
+            time: { t_cut: 0.1364 },
+          }),
+          millStep({
+            name: "倒角",
+            process: "chamfer",
+            sku: "TK-036",
+            formula: "t=cut*passes/f",
+            n: null,
+            f: null,
+            cut: 56,
+            passes: 1,
+            time: { t_cut: 0.2182 },
+          }),
+        ],
+      }}
+      uiCost={{ ...uiCost, machining: 1.59, setup: 210 }}
+      quoteSummary={quoteSummary}
+    />,
+  )
+
+  assert.ok(costRow("加工工时").getByText("¥211.59"))
+  fireEvent.click(screen.getByRole("button", { name: /加工工时/ }))
+  const slotDrawer = screen.getByRole("dialog", { name: "加工费用" })
+  const slot = within(slotDrawer).getByRole("heading", { name: "槽 × 1" }).closest("section")!
+  assertMillTime(operationFields(slot, "TK-022"), {
+    formula: "t=cut*passes/f",
+    n: "6366.2",
+    f: "2291.83",
+    cut: "95.238",
+    passes: "8",
+    t: "0.1847",
+  })
+  assert.equal(slotLabor.machining, 1.59)
+})
+
+test("加工费用抽屉显示 M8 攻牙 TK-033 中间量且加工工时保持 211.19", () => {
+  const tapLabor = {
+    machining: 1.19,
+    setup: 210,
+    total: 211.19,
+    machining_total: 1.19,
+    air_cut_and_tool_change_cost: 0.17,
+    groups: [
+      {
+        feature_type: "thread",
+        name: "螺纹",
+        quantity: 1,
+        operations: [{
+          name: "攻牙",
+          equipment_name: "VMC850E",
+          tool_sku: "TK-033",
+          minutes: 0.093,
+          hourly_rate: 120,
+          cost: 0.19,
+        }],
+      },
+    ],
+    changeover: { minutes: 5, equipment_name: "VMC850E", hourly_rate: 120, cost: 210 },
+  }
+  render(
+    <CostBreakdown
+      quote={{
+        labor_cost_breakdown: tapLabor,
+        process_sequence: [
+          millStep({
+            name: "攻牙",
+            process: "tap",
+            sku: "TK-033",
+            formula: "t=cut/(n*P)",
+            n: 1000,
+            f: 180,
+            cut: 12,
+            passes: 1,
+            time: { t_cut: 0.0096 },
+          }),
+        ],
+      }}
+      uiCost={{ ...uiCost, machining: 1.19, setup: 210 }}
+      quoteSummary={quoteSummary}
+    />,
+  )
+  assert.ok(costRow("加工工时").getByText("¥211.19"))
+  fireEvent.click(screen.getByRole("button", { name: /加工工时/ }))
+  const tapDrawer = screen.getByRole("dialog", { name: "加工费用" })
+  const thread = within(tapDrawer).getByRole("heading", { name: "螺纹 × 1" }).closest("section")!
+  assertMillTime(operationFields(thread, "攻牙"), {
+    formula: "t=cut/(n*P)",
+    n: "1000",
+    f: "180",
+    cut: "12",
+    passes: "1",
+    t: "0.0096",
+  })
+  assert.equal(tapLabor.machining, 1.19)
+})
+
+test("加工工时行冻结金额不因抽屉中间量回归", () => {
+  for (const [sample, total] of [
+    ["Ø8", 211.39],
+    ["开口槽", 211.59],
+    ["M8", 211.19],
+    ["NUC", 54.23],
+    ["台阶", 214.18],
+  ] as const) {
+    const view = render(
+      <CostBreakdown
+        quote={{}}
+        uiCost={{ ...uiCost, machining: total, setup: 0 }}
+        quoteSummary={quoteSummary}
+      />,
+    )
+    assert.ok(costRow("加工工时").getByText(`¥${total.toFixed(2)}`), sample)
+    view.unmount()
+  }
 })
 
 test("点击原材料行打开材料费用抽屉并显示 Ø8 冻结明细", () => {
