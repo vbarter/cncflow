@@ -351,13 +351,12 @@ def test_step_plus_hole_keeps_hole_and_step():
     ]
     assert len(steps) == 1, steps
     assert steps[0]["selected"] is True
-    stolen_slots = [
+    slots = [
         feature
         for feature in result["features"]
         if feature.get("subtype") == "recognized_slot"
-        and abs((feature.get("corner_radius") or 0) - 4) < 0.6
     ]
-    assert stolen_slots == []
+    assert slots == []
     hole_surfaces = [
         feature
         for feature in result["features"]
@@ -365,6 +364,39 @@ def test_step_plus_hole_keeps_hole_and_step():
         and abs((feature.get("curvature_radius") or 0) - 4) < 0.6
     ]
     assert hole_surfaces == []
+
+
+def test_pocket_floor_hole_circle_is_not_corner_radius():
+    cadquery = pytest.importorskip("cadquery")
+    stock = cadquery.Workplane("XY").box(80, 50, 20)
+    top = cadquery.Workplane("XY", origin=(0, 0, 10))
+    part = stock.cut(top.rect(40, 20).extrude(-8)).cut(
+        top.center(12, 0).circle(4).extrude(-20),
+    )
+    path = _export_step(part)
+    try:
+        slots = run_slot(path)
+        result = parse_step_file(path)
+    finally:
+        os.unlink(path)
+
+    assert len(slots) == 1, slots
+    assert slots[0]["pocket_type"] == "封闭"
+    assert slots[0]["corner_radius"] != pytest.approx(4, abs=0.6)
+    holes = [
+        feature
+        for feature in result["features"]
+        if feature.get("subtype") == "recognized_hole"
+    ]
+    assert len(holes) == 1, holes
+    assert holes[0]["diameter_mm"] == pytest.approx(8, abs=0.2)
+    assert holes[0]["selected"] is True
+    assert not [
+        feature
+        for feature in result["features"]
+        if feature.get("subtype") == "recognized_surface"
+        and abs((feature.get("curvature_radius") or 0) - 4) < 0.6
+    ]
 
 
 def test_d8_hole_fixture_five_fields_hold():
