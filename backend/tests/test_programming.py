@@ -148,10 +148,28 @@ def test_pinned_live_sample_numbers(client, sample_id, features, expected_time, 
         (
             "Ø8",
             [
-                {"type": "hole", "feature_id": "hole-0", "selected": True},
-                {"type": "face", "feature_id": "face-1", "selected": True},
+                {
+                    "type": "hole",
+                    "feature_id": "hole-0",
+                    "selected": True,
+                    "diameter_mm": 8,
+                    "depth_mm": 12,
+                    "cut_depth_mm": 14.4,
+                    "hole_type": "through",
+                    "surface": "top",
+                    "position_type": "垂直",
+                    "bottom_shape": "cone",
+                },
+                {
+                    "type": "face",
+                    "feature_id": "face-1",
+                    "selected": True,
+                    "length": 80,
+                    "width": 60,
+                    "face_position": "水平",
+                },
             ],
-            {},
+            {"v_part_cad": 56.996814},
             "标准",
             0.05,
             16.84,
@@ -159,10 +177,26 @@ def test_pinned_live_sample_numbers(client, sample_id, features, expected_time, 
         (
             "开口槽",
             [
-                {"type": "slot", "feature_id": "slot-0", "selected": True},
-                {"type": "face", "feature_id": "face-0", "selected": True},
+                {
+                    "type": "pocket",
+                    "feature_id": "slot-0",
+                    "selected": True,
+                    "pocket_type": "开放",
+                    "length": 40,
+                    "width": 10,
+                    "depth": 8,
+                    "corner_radius": 3,
+                },
+                {
+                    "type": "face",
+                    "feature_id": "face-0",
+                    "selected": True,
+                    "length": 80,
+                    "width": 60,
+                    "face_position": "水平",
+                },
             ],
-            {},
+            {"v_part_cad": 54.430702},
             "标准",
             0.05,
             17.18,
@@ -170,10 +204,30 @@ def test_pinned_live_sample_numbers(client, sample_id, features, expected_time, 
         (
             "M8",
             [
-                {"type": "thread", "feature_id": "thread-0", "selected": True},
-                {"type": "face", "feature_id": "face-2", "selected": True},
+                {
+                    "type": "thread",
+                    "feature_id": "thread-0",
+                    "selected": True,
+                    "diameter_mm": 8,
+                    "nominal_d": 8,
+                    "pitch": 1.25,
+                    "thread_length": 12,
+                },
+                {
+                    "type": "face",
+                    "feature_id": "face-2",
+                    "selected": True,
+                    "length": 40,
+                    "width": 40,
+                    "face_position": "水平",
+                },
             ],
-            {},
+            {
+                "length": 40,
+                "width": 40,
+                "height": 12,
+                "v_part_cad": 18.757003,
+            },
             "标准",
             0.05,
             16.72,
@@ -186,6 +240,7 @@ def test_pinned_live_sample_numbers(client, sample_id, features, expected_time, 
                 "selected": True,
                 "surface_type": "凸面",
                 "curvature_radius": 20,
+                "manual_hours": 0.1607,
             }],
             {"length": 63.5, "width": 63.5, "height": 17, "slider": "激进"},
             "激进",
@@ -219,6 +274,10 @@ def test_scrap_cost_breakdown_pins(
     if sample == "Ø8":
         assert breakdown["base"] == pytest.approx(336.79, abs=0.02)
         assert body["ui_cost"]["inspect"] == 60
+    if sample == "387101":
+        assert body["fixture"]["fixture_processing_cost"] == pytest.approx(1.72, abs=0.01)
+        assert body["fixture"]["fixture_material_cost"] == pytest.approx(40.78, abs=0.02)
+        assert items["FIX"] == pytest.approx(42.50, abs=0.01)
 
 
 def test_it6_requires_aluminum_fixture_without_changing_programming(client):
