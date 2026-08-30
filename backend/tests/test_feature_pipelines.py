@@ -1,5 +1,7 @@
 """face / pocket / thread / surface 管道。"""
 
+import pytest
+
 
 def post(client, payload):
     return client.post("/api/v1/process-plan", json=payload)
@@ -26,6 +28,89 @@ def test_pocket_deep_is_d3_not_na(client):
     assert resp.status_code == 200
     body = resp.get_json()
     assert body["difficulty"]["level"] == "D3"
+
+
+@pytest.mark.parametrize(
+    ("pocket_type", "expected_level", "expected_risk"),
+    [
+        ("开放", "D1", None),
+        ("封闭", "D2", "封闭型腔排屑差，需螺旋下刀"),
+        ("键槽", "D2", "键槽需键槽刀"),
+        ("T型", "D3", "T型槽高风险，需T型刀/燕尾刀"),
+    ],
+)
+def test_pocket_type_drives_difficulty_and_risk(
+    client,
+    pocket_type,
+    expected_level,
+    expected_risk,
+):
+    body = post(client, {
+        "feature": {
+            "type": "pocket",
+            "length": 24,
+            "width": 12,
+            "depth": 6,
+            "corner_radius": 3,
+            "pocket_type": pocket_type,
+        },
+        "material": "铝合金",
+        "tolerance_it": 10,
+        "roughness_ra": 3.2,
+    }).get_json()
+
+    assert body["difficulty"]["level"] == expected_level
+    assert body["difficulty"]["na"] is False
+    assert {
+        "id": "POCKET-TYPE",
+        "name": "槽腔类型",
+        "level": expected_level,
+        "value": pocket_type,
+    } in body["difficulty"]["fired_rules"]
+    if expected_risk:
+        assert any(expected_risk in tag for tag in body["risk_tags"])
+    assert [step["process"] for step in body["process_chain"]] == [
+        "rough_pocket",
+        "chamfer",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("pocket_type", "expected_risk"),
+    [
+        ("封闭", "封闭型腔排屑差，需螺旋下刀"),
+        ("键槽", "键槽需键槽刀"),
+        ("T型", "T型槽高风险，需T型刀/燕尾刀"),
+    ],
+)
+def test_pocket_type_risk_reaches_quote_without_inventing_tool_sku(
+    client,
+    pocket_type,
+    expected_risk,
+):
+    body = client.post("/api/v1/quotes", json={
+        "material": "铝合金",
+        "stock_type": "板材",
+        "length": 80,
+        "width": 60,
+        "height": 12,
+        "features": [{
+            "type": "pocket",
+            "feature_id": "slot-0",
+            "length": 40,
+            "width": 10,
+            "depth": 8,
+            "corner_radius": 3,
+            "pocket_type": pocket_type,
+        }],
+    }).get_json()
+
+    rough = next(
+        step for step in body["process_sequence"]
+        if step["process"] == "rough_pocket"
+    )
+    assert rough["sku"] == "TK-022"
+    assert any(expected_risk in tag for tag in body["risk"]["tags"])
 
 
 def test_face_area_bands(client):

@@ -63,7 +63,7 @@ def test_run_slot_rectangular_pocket_min_fields():
         os.unlink(path)
 
 
-def test_run_slot_closed_triangular_wall_ring_is_one_closed_pocket():
+def test_run_slot_closed_triangular_wall_ring_is_one_closed_pocket(client):
     cadquery = pytest.importorskip("cadquery")
     part = (
         cadquery.Workplane("XY")
@@ -101,6 +101,18 @@ def test_run_slot_closed_triangular_wall_ring_is_one_closed_pocket():
     ]
     assert len(quoted_pockets) == 1
     assert quoted_pockets[0]["pocket_type"] == "封闭"
+    plan = client.post("/api/v1/process-plan", json={
+        "feature": quoted_pockets[0],
+        "material": "铝合金",
+    }).get_json()
+    assert plan["difficulty"]["level"] == "D2"
+    assert {
+        "id": "POCKET-TYPE",
+        "name": "槽腔类型",
+        "level": "D2",
+        "value": "封闭",
+    } in plan["difficulty"]["fired_rules"]
+    assert "封闭型腔排屑差，需螺旋下刀" in plan["risk_tags"]
 
 
 def test_pocket_chain_rough_clear_chamfer(client):
