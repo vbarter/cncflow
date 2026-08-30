@@ -1,6 +1,7 @@
 """工步透明契约 + 九维风险冻结 MVP。"""
 
 KEYS = ("formula", "n", "f", "cut", "passes", "t_min", "t_max", "status")
+LABOR_KEYS = ("formula", "n", "f", "cut", "passes", "t")
 
 
 def _o8():
@@ -57,6 +58,21 @@ def _assert_step_params(step):
     assert step["status"] in {"ok", "低于下限", "需人工复核"}
     if step["status"] != "ok":
         assert step["t_min"] is not None and step["t_max"] is not None
+
+
+def _assert_labor_operation(body, process, sku):
+    step = next(s for s in body["process_sequence"] if s["process"] == process)
+    operation = next(
+        operation
+        for group in body["labor_cost_breakdown"]["groups"]
+        for operation in group["operations"]
+        if operation["tool_sku"] == sku
+    )
+    assert set(LABOR_KEYS) <= operation.keys()
+    for key in LABOR_KEYS[:-1]:
+        assert operation[key] == step[key]
+    assert operation["t"] == step["time"]["t_cut"]
+    return operation
 
 
 def _assert_costs_split(body):
@@ -141,6 +157,8 @@ def test_o8_plate_emits_step_params(client):
     assert drill["status"] == "低于下限"
     assert chamfer["status"] == "ok"
     assert chamfer["t_min"] is None and chamfer["t_max"] is None
+    assert _assert_labor_operation(body, "rough_face", "TK-028")["name"] == "面粗"
+    assert _assert_labor_operation(body, "drill", "TK-003")["name"] == "钻孔"
     assert body["validation"]["ok"] is False
     assert {i["process"] for i in body["validation"]["items"]} >= {"rough_face", "drill"}
 
@@ -156,6 +174,7 @@ def test_open_slot_emits_step_params(client):
     assert abs(slot["cut"] - 95.238) < 0.3
     assert slot["t_min"] == 2.0 and slot["t_max"] == 180.0
     assert slot["status"] == "低于下限"
+    assert _assert_labor_operation(body, "rough_pocket", "TK-022")["name"] == "槽粗"
 
 
 def test_m8_thread_emits_step_params(client):
@@ -169,6 +188,9 @@ def test_m8_thread_emits_step_params(client):
     assert tap["t_min"] == 0.1 and tap["t_max"] == 5.0
     assert tap["status"] == "低于下限"
     assert abs(tap["time"]["t_cut"] - 0.0096) < 0.001
+    operation = _assert_labor_operation(body, "tap", "TK-033")
+    assert operation["name"] == "攻牙"
+    assert operation["formula"] == "t=cut/(n*P)"
 
 
 def test_missing_key_fields_still_quote_with_d9_deductions(client):

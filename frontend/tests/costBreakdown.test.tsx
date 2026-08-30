@@ -385,6 +385,117 @@ test("点击加工工时行打开 Ø8 加工费用抽屉并与现网 labor 对�
   }, "machining"), 211.39)
 })
 
+for (const [sample, featureType, groupName, operation] of [
+  ["Ø8 面粗", "face", "面", {
+    name: "面粗",
+    equipment_name: "VMC850E",
+    tool_sku: "TK-028",
+    minutes: 0.2193,
+    hourly_rate: 120,
+    cost: 0.44,
+    formula: "t=cut*passes/f",
+    n: 2984,
+    f: 1568.1,
+    cut: 85.714,
+    passes: 1,
+    t: 0.0547,
+  }],
+  ["Ø8 钻孔", "hole", "孔", {
+    name: "钻孔",
+    equipment_name: "VMC850E",
+    tool_sku: "TK-003",
+    minutes: 0.0902,
+    hourly_rate: 120,
+    cost: 0.18,
+    formula: "t=cut*passes/f",
+    n: 2984,
+    f: 477.44,
+    cut: 14.4,
+    passes: 1,
+    t: 0.0302,
+  }],
+  ["开口槽 槽粗", "slot", "槽", {
+    name: "槽粗",
+    equipment_name: "VMC850E",
+    tool_sku: "TK-022",
+    minutes: 0.8194,
+    hourly_rate: 120,
+    cost: 1.64,
+    formula: "t=cut*passes/f",
+    n: 2984,
+    f: 1568.1,
+    cut: 95.238,
+    passes: 8,
+    t: 0.4859,
+  }],
+  ["M8 攻牙", "thread", "螺纹", {
+    name: "攻牙",
+    equipment_name: "VMC850E",
+    tool_sku: "TK-033",
+    minutes: 0.0288,
+    hourly_rate: 120,
+    cost: 0.06,
+    formula: "t=cut/(n*P)",
+    n: 1000,
+    f: 1250,
+    cut: 12,
+    passes: 1,
+    t: 0.0096,
+  }],
+] as const) {
+  test(`${sample} 加工抽屉显示公式与 n/f/cut/passes/t`, () => {
+    render(
+      <CostBreakdown
+        quote={{
+          labor_cost_breakdown: {
+            groups: [{
+              feature_type: featureType,
+              name: groupName,
+              quantity: 1,
+              operations: [operation],
+            }],
+          },
+        }}
+        uiCost={uiCost}
+        quoteSummary={quoteSummary}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: /加工工时/ }))
+    const drawer = screen.getByRole("dialog", { name: "加工费用" })
+    const operationCard = within(drawer)
+      .getByText(operation.tool_sku)
+      .closest("dl")!
+    assert.deepEqual(
+      Array.from(operationCard.querySelectorAll("dt"), element => element.textContent),
+      [
+        "工序名称",
+        "设备名称",
+        "刀具 SKU",
+        "加工时长 (min)",
+        "设备费率 (¥/h)",
+        "工序费用",
+        "formula",
+        "n",
+        "f",
+        "cut",
+        "passes",
+        "t",
+      ],
+    )
+    for (const value of [
+      operation.formula,
+      String(operation.n),
+      String(operation.f),
+      String(operation.cut),
+      String(operation.passes),
+      String(operation.t),
+    ]) {
+      assert.ok(within(operationCard).getByText(value))
+    }
+  })
+}
+
 test("点击原材料行打开材料费用抽屉并显示 Ø8 冻结明细", () => {
   render(
     <CostBreakdown
