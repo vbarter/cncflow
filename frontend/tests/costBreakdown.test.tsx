@@ -39,7 +39,7 @@ const uiCost = {
   setup: 5,
   fixture: 999,
   programming: 62,
-  inspect: 1,
+  inspect: 60,
   toolwear: 2,
   scrap: 3,
 }
@@ -104,7 +104,32 @@ test("Ø8 刀具损耗显示两位小数且其他冻结成本行不回归", () =
   assert.ok(costRow("加工工时").getByText("¥211.39"))
   assert.ok(costRow("装夹").getByText("¥0.00"))
   assert.ok(costRow("编程").getByText("¥62"))
+  assert.ok(costRow("检测").getByText("¥60.00"))
   assert.ok(costRow("刀具损耗").getByText("¥0.15"))
+})
+
+test("点击检测行打开 Ø8 检测费用抽屉并按单件计费", () => {
+  render(
+    <CostBreakdown
+      quote={programmingQuote(93, 62)}
+      uiCost={uiCost}
+      quoteSummary={quoteSummary}
+    />,
+  )
+
+  const inspectRow = screen.getByRole("button", { name: /检测/ })
+  assert.ok(within(inspectRow).getByText("¥60.00"))
+  fireEvent.click(inspectRow)
+
+  const drawer = screen.getByRole("dialog", { name: "检测费用" })
+  assert.deepEqual(
+    Array.from(drawer.querySelectorAll("dt"), element => element.textContent),
+    ["单价", "计费", "费用"],
+  )
+  assert.deepEqual(
+    Array.from(drawer.querySelectorAll("dd"), element => element.textContent),
+    ["60 ¥/件", "1 件", "60.00"],
+  )
 })
 
 test("387101 显示夹具材料加加工费用且刀具损耗保持 0.24", () => {

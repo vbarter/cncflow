@@ -111,6 +111,14 @@ export function programmingDrawerValues(quote: any) {
   }
 }
 
+export function inspectDrawerValues(inspectFee: unknown) {
+  return {
+    unitPrice: `${decimal(inspectFee, 2)} ¥/件`,
+    billedQuantity: "1 件",
+    fee: number(inspectFee).toFixed(2),
+  }
+}
+
 function MaterialDrawer({ material, onClose }: { material: any; onClose: () => void }) {
   const values = materialDrawerValues(material)
 
@@ -370,6 +378,66 @@ function ProgrammingDrawer({ quote, onClose }: { quote: any; onClose: () => void
   </>
 }
 
+function InspectDrawer({
+  inspectFee,
+  onClose,
+}: {
+  inspectFee: unknown
+  onClose: () => void
+}) {
+  const values = inspectDrawerValues(inspectFee)
+
+  useEffect(() => {
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") onClose()
+    }
+    window.addEventListener("keydown", closeOnEscape)
+    return () => window.removeEventListener("keydown", closeOnEscape)
+  }, [onClose])
+
+  const rows = [
+    ["单价", values.unitPrice],
+    ["计费", values.billedQuantity],
+    ["费用", values.fee],
+  ]
+
+  return <>
+    <button
+      type="button"
+      className="fixed inset-0 z-40 cursor-default bg-slate-950/30"
+      aria-label="关闭检测费用明细"
+      onClick={onClose}
+    />
+    <aside
+      id="inspect-cost-drawer"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="inspect-cost-drawer-title"
+      className="fixed inset-y-0 right-0 z-50 w-full max-w-md overflow-y-auto bg-white shadow-2xl"
+    >
+      <div className="flex items-center justify-between border-b border-slate-200 px-6 py-5">
+        <h2 id="inspect-cost-drawer-title" className="text-lg font-semibold">检测费用</h2>
+        <button
+          type="button"
+          className="flex size-10 items-center justify-center rounded text-2xl text-slate-500 hover:bg-slate-100"
+          aria-label="关闭"
+          onClick={onClose}
+        >
+          ×
+        </button>
+      </div>
+      <dl className="divide-y divide-slate-100 px-6 py-6 text-sm">
+        {rows.map(([label, value]) => (
+          <div className="flex items-center justify-between gap-4 py-3 first:pt-0 last:pb-0" key={label}>
+            <dt className="text-slate-500">{label}</dt>
+            <dd className="font-mono text-right text-slate-900">{value}</dd>
+          </div>
+        ))}
+      </dl>
+    </aside>
+  </>
+}
+
 function FixtureDrawer({ fixture, onClose }: { fixture: any; onClose: () => void }) {
   const values = fixtureDrawerValues(fixture)
 
@@ -442,7 +510,7 @@ export function CostBreakdown({
   quoteSummary: any
 }) {
   const [openDrawer, setOpenDrawer] = useState<
-    "material" | "machining" | "fixture" | "programming" | null
+    "material" | "machining" | "fixture" | "programming" | "inspect" | null
   >(null)
   const maxCost = Math.max(1, ...COST_ROWS.map(([key]) => costValue(quote, uiCost, key)))
 
@@ -465,6 +533,7 @@ export function CostBreakdown({
               ¥{key === "fixture"
                 || key === "material"
                 || key === "machining"
+                || key === "inspect"
                 || key === "toolwear"
                 ? value.toFixed(2)
                 : yen(value)}
@@ -474,7 +543,8 @@ export function CostBreakdown({
           return key === "fixture"
             || key === "material"
             || key === "machining"
-            || key === "programming" ? (
+            || key === "programming"
+            || key === "inspect" ? (
             <button
               key={key}
               type="button"
@@ -518,6 +588,12 @@ export function CostBreakdown({
     )}
     {openDrawer === "programming" && (
       <ProgrammingDrawer quote={quote} onClose={() => setOpenDrawer(null)} />
+    )}
+    {openDrawer === "inspect" && (
+      <InspectDrawer
+        inspectFee={uiCost?.inspect}
+        onClose={() => setOpenDrawer(null)}
+      />
     )}
   </>
 }
