@@ -306,13 +306,13 @@ function MachiningDrawer({ labor, onClose }: { labor: any; onClose: () => void }
           </div>
         </section>
         <section aria-labelledby="machining-changeover">
-          <h3 id="machining-changeover" className="mb-3 font-medium text-slate-900">换夹</h3>
+          <h3 id="machining-changeover" className="mb-3 font-medium text-slate-900">装夹工时</h3>
           <dl className="divide-y divide-slate-100 rounded border border-slate-200">
             {[
-              ["夹具换夹时长", `${number(changeover.minutes).toFixed(2)} min`],
+              ["装夹时长", `${number(changeover.minutes).toFixed(2)} min`],
               ["加工设备", changeover.equipment_name || "—"],
               ["设备费率", `¥${number(changeover.hourly_rate).toFixed(0)}/h`],
-              ["夹具换夹费用", `¥${number(changeover.cost).toFixed(2)}`],
+              ["装夹工时费", `¥${number(changeover.cost).toFixed(2)}`],
             ].map(([label, value]) => (
               <div className="flex items-center justify-between gap-4 px-4 py-3" key={label}>
                 <dt className="text-slate-500">{label}</dt>
