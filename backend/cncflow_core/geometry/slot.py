@@ -238,9 +238,9 @@ def _cavity_ok(solids, bottom, walls, depth):
     return True
 
 
-def _opens_to_side(bottom, walls, bbox, pairs):
-    if len(walls) < 4:
-        return True
+def _opens_to_side(bottom, walls, bbox, _pairs):
+    # b123d-recognisers prismatic-pocket rule: a closed planar wall ring may
+    # have only three walls. Openness comes from reaching the stock boundary.
     fb = bottom["fb"]
     axes = (
         (fb.xmin, bbox.xmin, fb.xmax, bbox.xmax),
@@ -252,6 +252,13 @@ def _opens_to_side(bottom, walls, bbox, pairs):
         if abs(fmax - fmin) < 0.8 * span and (abs(fmin - smin) < 1.2 or abs(fmax - smax) < 1.2):
             return True
     return False
+
+
+def _within_slot_cutting_range(width, depth, max_tool_width=12.0):
+    """宽浅间隙按外轮廓/面铣处理，不产出槽腔。"""
+    # Industrial CAM slot rule: width must fit the available cutter range,
+    # unless sufficient depth makes it a genuine pocket rather than a window.
+    return width <= max(max_tool_width, 4.0 * depth) + 1e-6
 
 
 def _pocket_type(length, width, n_walls, t_slot, opens):
@@ -370,6 +377,8 @@ def detect_slots(path: str) -> list:
             continue
         length, width, depth, t_slot, pairs = _measure(bottom, walls)
         if min(length, width, depth) < 0.8:
+            continue
+        if not _within_slot_cutting_range(width, depth):
             continue
         if not _cavity_ok(solids, bottom, walls, depth):
             continue
