@@ -25,23 +25,22 @@ deep_hole:
 drill_cycle:
   g83_peck_depth_mm: "5~10"      # G83 每次啄深
 
-# 精加工工序判定（位于基础钻孔之后、螺纹之前）
+# F01–F09 精加工单选（位于基础钻孔之后、螺纹之前）
 finishing:
-  bore_min_d: 20                 # D≥20 + IT≤7 → 镗孔路径（半精镗→精镗），替代铰孔
+  default_ra: 3.2                 # 未提供 Ra 按 3.2；默认孔不被强制精加工
+  micro_hole_max_d: 1             # F01: D<1 → 主工序已含 EDM，禁用镗/铰
+  deep_grind_min_hd: 10           # F02: H/D>10 且 IT≤6 → 磨削/珩磨
+  deep_grind_max_it: 6
+  grind_max_ra: 0.4               # F03: Ra≤0.4 → 磨削
+  bore_min_d: 20                   # F04: D≥20 且 IT≤7 → 半精镗→精镗
   bore_max_it: 7
-  ream_max_it: 7                 # IT≤7（中小孔径）→ 铰孔
+  fine_bore_max_it: 7             # F05: D<20、IT≤7、Ra≤0.8 → 精镗
+  fine_bore_max_ra: 0.8
+  ream_min_ra: 0.8                # F06: D<20、IT≤7、0.8<Ra≤1.6 → 铰孔
   ream_max_ra: 1.6
-  semi_bore_max_it: 8            # IT≤8 → 增加半精镗修正孔形
-
-# 粗糙度专项工艺判定（仍属于精加工阶段）
-roughness:
-  - max_ra: 0.4                  # Ra≤0.4 放弃切削采用磨削
-    action: grind
-  - max_ra: 0.8                  # Ra≤0.8 强制精镗
-    action: fine_bore
-  - max_ra: 1.6                  # Ra≤1.6 强制铰孔
-    action: ream
-  # Ra>1.6（如3.2）钻孔阶段即可，无额外动作
+  semi_bore_it: 8                 # F07: IT=8 → 仅半精镗
+  no_finish_min_it: 8             # F08: IT>8 且 Ra≥3.2 → 无精加工
+  no_finish_min_ra: 3.2
 
 # 螺纹加工工艺判定（位于精加工之后、修底之前）
 thread:
@@ -63,7 +62,8 @@ cycles:
   semi_bore: G86
   fine_bore: G76
 
-# 超大孔（D>80，文档1 §1.2.3）：常规立加不可钻，走 粗镗→半精镗→精镗 路径
+# 超大孔（D>80，文档1 §1.2.3）：常规立加不可钻，以粗镗替代基础钻孔
+# 后续半精镗/精镗仍由 F01–F09 决定，避免 IT>8 绕过 F08。
 large_hole:
   min_d: 80                      # exclusive
-  chain: [rough_bore, semi_bore, fine_bore]
+  primary: rough_bore
