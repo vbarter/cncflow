@@ -212,6 +212,7 @@ def test_nuc_windows_do_not_steal_mounting_hole_radius():
         if feature.get("subtype") == "recognized_hole"
     ]
     assert len(holes) == 18, [feature.get("diameter_mm") for feature in holes]
+    assert all(feature["selected"] is True for feature in holes)
     assert all(
         feature["diameter_mm"] == pytest.approx(2.5, abs=0.15)
         for feature in holes
