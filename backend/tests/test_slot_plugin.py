@@ -77,12 +77,30 @@ def test_run_slot_closed_triangular_wall_ring_is_one_closed_pocket():
     path = _export_step(part)
     try:
         slots = run_slot(path)
+        result = parse_step_file(path)
     finally:
         os.unlink(path)
 
     assert len(slots) == 1
     assert slots[0]["pocket_type"] == "封闭"
     assert slots[0]["depth"] == pytest.approx(5, abs=0.5)
+    recognized = [
+        feature
+        for feature in result["features"]
+        if feature.get("subtype") == "recognized_slot"
+    ]
+    assert len(recognized) == 1
+    assert recognized[0]["feature_id"] == "slot-0"
+    assert recognized[0]["pocket_type"] == "封闭"
+    assert recognized[0]["selected"] is True
+    _review, quoted = _review_and_quote_features(
+        result["features"], None, 80, 60,
+    )
+    quoted_pockets = [
+        feature for feature in quoted if feature.get("type") == "pocket"
+    ]
+    assert len(quoted_pockets) == 1
+    assert quoted_pockets[0]["pocket_type"] == "封闭"
 
 
 def test_pocket_chain_rough_clear_chamfer(client):
@@ -238,6 +256,11 @@ def test_nuc_windows_are_not_slots_and_keep_mounting_holes():
         for feature in result["features"]
         if feature.get("subtype") == "recognized_slot"
     ]
+    assert not [
+        feature
+        for feature in result["features"]
+        if feature.get("type") in {"slot", "pocket"}
+    ]
     holes = [
         feature
         for feature in result["features"]
@@ -249,6 +272,19 @@ def test_nuc_windows_are_not_slots_and_keep_mounting_holes():
         feature["diameter_mm"] == pytest.approx(2.5, abs=0.15)
         for feature in holes
     )
+    _review, quoted = _review_and_quote_features(
+        result["features"], None, 285, 128,
+    )
+    assert not [
+        feature
+        for feature in quoted
+        if feature.get("type") in {"slot", "pocket"}
+    ]
+    assert len([
+        feature
+        for feature in quoted
+        if feature.get("type") == "hole"
+    ]) == 18
 
 
 def test_d8_hole_fixture_five_fields_hold():
