@@ -132,6 +132,39 @@ test("点击检测行打开 Ø8 检测费用抽屉并按单件计费", () => {
   )
 })
 
+test("点击不良损耗行打开 Ø8 五字段费用抽屉并与成本行对账", () => {
+  render(
+    <CostBreakdown
+      quote={{
+        ...programmingQuote(93, 62),
+        scrap_cost_breakdown: {
+          slider: "标准",
+          material_group: "易切",
+          scrap_rate: 0.05,
+          base: 336.79,
+          scrap_fee: 16.84,
+        },
+      }}
+      uiCost={{ ...uiCost, scrap: 16.84 }}
+      quoteSummary={quoteSummary}
+    />,
+  )
+
+  const scrapRow = screen.getByRole("button", { name: /不良损耗/ })
+  assert.ok(within(scrapRow).getByText("¥16.84"))
+  fireEvent.click(scrapRow)
+
+  const drawer = screen.getByRole("dialog", { name: "不良损耗费用" })
+  assert.deepEqual(
+    Array.from(drawer.querySelectorAll("dt"), element => element.textContent),
+    ["滑轴档", "材料组", "报废率", "计费基数", "不良损耗"],
+  )
+  assert.deepEqual(
+    Array.from(drawer.querySelectorAll("dd"), element => element.textContent),
+    ["标准", "易切", "5%", "336.79", "16.84"],
+  )
+})
+
 test("387101 显示夹具材料加加工费用且刀具损耗保持 0.24", () => {
   render(
     <CostBreakdown

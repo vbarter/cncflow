@@ -142,6 +142,85 @@ def test_pinned_live_sample_numbers(client, sample_id, features, expected_time, 
     )
 
 
+@pytest.mark.parametrize(
+    ("sample", "features", "overrides", "expected_slider", "expected_rate", "expected_scrap"),
+    [
+        (
+            "Ø8",
+            [
+                {"type": "hole", "feature_id": "hole-0", "selected": True},
+                {"type": "face", "feature_id": "face-1", "selected": True},
+            ],
+            {},
+            "标准",
+            0.05,
+            16.84,
+        ),
+        (
+            "开口槽",
+            [
+                {"type": "slot", "feature_id": "slot-0", "selected": True},
+                {"type": "face", "feature_id": "face-0", "selected": True},
+            ],
+            {},
+            "标准",
+            0.05,
+            17.18,
+        ),
+        (
+            "M8",
+            [
+                {"type": "thread", "feature_id": "thread-0", "selected": True},
+                {"type": "face", "feature_id": "face-2", "selected": True},
+            ],
+            {},
+            "标准",
+            0.05,
+            16.72,
+        ),
+        (
+            "387101",
+            [{
+                "type": "surface",
+                "feature_id": "surface-0",
+                "selected": True,
+                "surface_type": "凸面",
+                "curvature_radius": 20,
+            }],
+            {"length": 63.5, "width": 63.5, "height": 17, "slider": "激进"},
+            "激进",
+            0.12,
+            69.63,
+        ),
+    ],
+)
+def test_scrap_cost_breakdown_pins(
+    client,
+    sample,
+    features,
+    overrides,
+    expected_slider,
+    expected_rate,
+    expected_scrap,
+):
+    body = _quote(client, features, **overrides)
+    breakdown = body["scrap_cost_breakdown"]
+    items = {item["code"]: item["amount"] for item in body["cost_items"]}
+
+    assert breakdown["slider"] == expected_slider, sample
+    assert breakdown["material_group"] == "易切", sample
+    assert breakdown["scrap_rate"] == expected_rate, sample
+    assert breakdown["scrap_fee"] == pytest.approx(expected_scrap, abs=0.02), sample
+    assert breakdown["scrap_fee"] == body["ui_cost"]["scrap"] == items["SCRAP"], sample
+    assert breakdown["scrap_fee"] == pytest.approx(
+        breakdown["base"] * breakdown["scrap_rate"],
+        abs=0.02,
+    ), sample
+    if sample == "Ø8":
+        assert breakdown["base"] == pytest.approx(336.79, abs=0.02)
+        assert body["ui_cost"]["inspect"] == 60
+
+
 def test_it6_requires_aluminum_fixture_without_changing_programming(client):
     body = _quote(
         client,
