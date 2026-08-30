@@ -153,6 +153,7 @@ def test_factory_seeds_unchanged(client):
 FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures")
 OPEN_SLOT_STEP = os.path.join(FIXTURES, "rect_open_slot.step")
 HOLE_D8_STEP = os.path.join(FIXTURES, "plate_hole_d8.step")
+NUC_PLATE_STEP = os.path.join(FIXTURES, "nuc_plate_windows.step")
 
 
 def test_open_slot_type_beats_keyway_ratio():
@@ -196,6 +197,25 @@ def test_open_slot_not_keyway_no_fillet_holes():
     pockets = [f for f in result["features"] if f.get("subtype") == "recognized_slot"]
     assert pockets[0]["pocket_type"] == "开放"
     assert pockets[0]["length"] == pytest.approx(40, abs=1.5)
+
+
+def test_nuc_windows_do_not_steal_mounting_hole_radius():
+    pytest.importorskip("cadquery")
+    slots = run_slot(NUC_PLATE_STEP)
+    radii = [round(slot.get("corner_radius") or 0, 3) for slot in slots]
+    assert 1.25 not in radii, radii
+
+    result = parse_step_file(NUC_PLATE_STEP)
+    holes = [
+        feature
+        for feature in result["features"]
+        if feature.get("subtype") == "recognized_hole"
+    ]
+    assert len(holes) == 18, [feature.get("diameter_mm") for feature in holes]
+    assert all(
+        feature["diameter_mm"] == pytest.approx(2.5, abs=0.15)
+        for feature in holes
+    )
 
 
 def test_d8_hole_fixture_five_fields_hold():

@@ -1,12 +1,14 @@
 """Hole recognition fields vs hole pipeline (D/H, through/blind, position_type)."""
 from io import BytesIO
 import math
+import os
 
 import pytest
 
 from cncflow_core.common.db import get_conn
 from cncflow_core.features.hole.models import HoleSpec
 from cncflow_core.features.hole.process_chain import generate_chain
+from cncflow_core.geometry.service import apply_quote_default_selection
 from cncflow_core.ingestion.jobs import finish_job
 from cncflow_core.ingestion.step_parser import (
     classify_by_containment, classify_cylinder_side, classify_position,
@@ -18,6 +20,9 @@ from cncflow_core.ingestion.step_parser import (
     through_wall_depth, _hole_feature, _merge_inner,
 )
 from cncflow_core.inquiries.api import _hole_for_pipeline, _review_and_quote_features
+
+FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures")
+NUC_PLATE_STEP = os.path.join(FIXTURES, "nuc_plate_windows.step")
 
 
 MINIMAL_STEP = (
@@ -250,6 +255,92 @@ def test_nuc_shape_holes_merge_and_window_fillets_stay_internal():
     assert len([feat for feat in quoted if feat.get("type") == "hole"]) == 18
 
 
+def test_nuc_plate_fixture_parser_keeps_all_mounting_holes():
+    pytest.importorskip("cadquery")
+    from cncflow_core.ingestion.step_parser import parse_step
+
+    result = parse_step(NUC_PLATE_STEP)
+    holes = [
+        feature
+        for feature in result["features"]
+        if feature.get("type") == "hole"
+    ]
+    assert len(holes) == 18
+    assert all(feature["feature_id"].startswith("hole-") for feature in holes)
+    assert all(feature["selected"] is True for feature in holes)
+    assert all(
+        feature["diameter_mm"] == pytest.approx(2.5, abs=0.15)
+        for feature in holes
+    )
+    assert all(feature["depth_mm"] == pytest.approx(3.5, abs=0.3) for feature in holes)
+    assert all(feature["hole_type"] == "through" for feature in holes)
+    assert not any(
+        str(feature.get("feature_id") or "").startswith("cylinder-")
+        for feature in result["features"]
+        if feature.get("type") == "hole"
+    )
+
+
+def test_quote_default_selects_only_is_quote_hole():
+    features = [
+        {
+            "type": "hole", "feature_id": "hole-0",
+            "subtype": "recognized_hole", "selected": True,
+            "diameter_mm": 2.5, "depth_mm": 3.5,
+            "hole_type": "through", "axis": {"x": 0, "y": 0, "z": 1},
+        },
+        {
+            "type": "hole", "feature_id": "hole-fillet",
+            "subtype": "recognized_hole", "selected": True,
+            "diameter_mm": 5.2, "depth_mm": 3.5,
+            "hole_type": "through", "axis": {"x": 0, "y": 0, "z": 1},
+        },
+        {
+            "type": "hole", "feature_id": "cylinder-139",
+            "subtype": "cylindrical_candidate", "selected": True,
+            "diameter_mm": 8.0, "depth_mm": 3.5,
+            "hole_type": "through", "axis": {"x": 0, "y": 0, "z": 1},
+        },
+        {
+            "type": "hole", "feature_id": "hole-cavity",
+            "subtype": "recognized_hole", "selected": True,
+            "diameter_mm": 33.4, "depth_mm": 18,
+            "hole_type": "blind", "axis": {"x": 0, "y": 0, "z": 1},
+        },
+        {
+            "type": "hole", "feature_id": "hole-zn",
+            "subtype": "recognized_hole", "selected": True,
+            "diameter_mm": 3.3, "depth_mm": 26,
+            "hole_type": "through", "axis": {"x": 0, "y": 0, "z": 1},
+        },
+    ]
+    nuc = {
+        feature["feature_id"]: feature
+        for feature in apply_quote_default_selection(
+            [dict(feature) for feature in features[:4]],
+            160,
+            100,
+            3.5,
+        )
+    }
+    assert nuc["hole-0"]["selected"] is True
+    assert nuc["hole-fillet"]["selected"] is False
+    assert nuc["cylinder-139"]["selected"] is False
+    assert nuc["hole-cavity"]["selected"] is False
+
+    zn = {
+        feature["feature_id"]: feature
+        for feature in apply_quote_default_selection(
+            [dict(features[3]), dict(features[4])],
+            50,
+            50,
+            44,
+        )
+    }
+    assert zn["hole-zn"]["selected"] is True
+    assert zn["hole-cavity"]["selected"] is False
+
+
 
 def test_containment_inner_vs_outer():
     assert classify_by_containment(False, True) == "inner"
@@ -374,6 +465,14 @@ def test_quarter_cylinder_window_fillet_is_not_a_complete_hole(diameter):
     assert cylinder_group_angular_extent([fillet]) == pytest.approx(math.pi / 2)
     assert cylinder_group_coverage([fillet]) == pytest.approx(0.25)
     assert is_complete_cylinder([fillet]) is False
+
+
+@pytest.mark.parametrize("diameter", [4, 5.2, 6, 8])
+def test_window_fillet_diameters_are_not_quote_holes(diameter):
+    extents = (160, 100, 3.5)
+    axis = (0.0, 0.0, 1.0)
+    assert is_quote_hole(diameter, 3.5, "through", extents, axis) is False
+    assert is_quote_hole(2.5, 3.5, "through", extents, axis) is True
 
 
 def test_coaxial_cavity_skips_od():
