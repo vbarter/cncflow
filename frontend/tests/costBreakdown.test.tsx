@@ -358,9 +358,11 @@ test("点击加工工时行打开 Ø8 加工费用抽屉并与现网 labor 对�
   fireEvent.click(machiningRow)
 
   const drawer = screen.getByRole("dialog", { name: "加工费用" })
-  assert.ok(within(drawer).getByRole("heading", { name: "装夹工时" }))
+  const changeover = within(drawer)
+    .getByRole("heading", { name: "装夹工时" })
+    .closest("section")!
   assert.deepEqual(
-    Array.from(drawer.querySelectorAll("#machining-changeover dt"), element => element.textContent),
+    Array.from(changeover.querySelectorAll("dt"), element => element.textContent),
     ["装夹时长", "加工设备", "设备费率", "装夹工时费"],
   )
   const hole = within(drawer).getByRole("heading", { name: "孔 × 1" }).closest("section")!
