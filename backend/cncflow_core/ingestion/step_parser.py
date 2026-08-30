@@ -13,6 +13,8 @@ ALIGN_COS = math.cos(math.radians(15))
 THROUGH_SPAN = 0.88
 RECESS_MM = 2.0
 MIN_CYLINDER_COVERAGE = 0.8
+MIN_CYLINDER_ANGULAR_EXTENT = math.pi
+CYLINDER_RUN_GAP_FRACTION = 0.0125
 
 
 def _xyz(value):
@@ -50,6 +52,19 @@ def _face_radius(face):
             return float(face.radius())
         except Exception:
             return None
+
+
+def _face_u_extent(face):
+    """Trimmed cylindrical face angular span in radians."""
+    try:
+        from OCP.BRepAdaptor import BRepAdaptor_Surface
+        surface = BRepAdaptor_Surface(face.wrapped)
+        extent = abs(float(surface.LastUParameter()) - float(surface.FirstUParameter()))
+    except Exception:
+        return None
+    if not math.isfinite(extent):
+        return None
+    return min(extent, 2 * math.pi)
 
 
 def _norm(vec):
@@ -410,9 +425,9 @@ def _coaxial(a, b, tol_axis=0.05, tol_dir=0.02):
 
 
 def _merge_inner(items):
-    """Merge every connected set of same-diameter faces on one cylinder."""
+    """Group coaxial same-diameter patches into axial-contiguous runs."""
     used = [False] * len(items)
-    groups = []
+    coaxial_groups = []
     for i, item in enumerate(items):
         if used[i]:
             continue
@@ -427,8 +442,27 @@ def _merge_inner(items):
                 group.append(items[j])
                 pending.append(items[j])
                 used[j] = True
-        groups.append(group)
-    return groups
+        coaxial_groups.append(group)
+
+    runs = []
+    for group in coaxial_groups:
+        ordered = sorted(group, key=lambda rec: rec["cyl_min"])
+        run = [ordered[0]]
+        run_max = ordered[0]["cyl_max"]
+        gap_tolerance = max(
+            0.02,
+            float(ordered[0]["diameter_mm"]) * CYLINDER_RUN_GAP_FRACTION,
+        )
+        for rec in ordered[1:]:
+            if rec["cyl_min"] <= run_max + gap_tolerance:
+                run.append(rec)
+                run_max = max(run_max, rec["cyl_max"])
+            else:
+                runs.append(run)
+                run = [rec]
+                run_max = rec["cyl_max"]
+        runs.append(run)
+    return runs
 
 
 def cylinder_group_coverage(group):
@@ -446,9 +480,20 @@ def cylinder_group_coverage(group):
     return area / full_area
 
 
-def is_complete_cylinder(group, min_coverage=MIN_CYLINDER_COVERAGE):
-    """Only a near-complete cylindrical wall can become a reviewable hole."""
-    return cylinder_group_coverage(group) >= min_coverage
+def cylinder_group_angular_extent(group):
+    """Total observed circumference of one contiguous cylindrical run."""
+    extents = [
+        max(float(item.get("u_extent") or 0.0), 0.0)
+        for item in group
+    ]
+    return min(math.fsum(extents), 2 * math.pi)
+
+
+def is_complete_cylinder(group, min_angular_extent=MIN_CYLINDER_ANGULAR_EXTENT):
+    """Only a run covering at least half a turn can become a hole."""
+    # Ported from b123d-recognisers full_cylinders (Apache-2.0):
+    # https://github.com/pzfreo/b123d-recognisers
+    return cylinder_group_angular_extent(group) >= min_angular_extent
 
 
 def _hole_feature(group, bbox, all_faces, index, cavities=None):
@@ -586,6 +631,7 @@ def parse_step(path: str) -> dict:
                 "location": _point(location),
                 "helix": _has_helix(face),
                 "area": float(face.Area()),
+                "u_extent": _face_u_extent(face),
             }
             ht = classify_through_blind(cyl_min, cyl_max, solid_min, solid_max)
             lo = _axis_point(origin, axis, cyl_min - 0.4)
