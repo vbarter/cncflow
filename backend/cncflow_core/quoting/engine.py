@@ -513,7 +513,13 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
             worst = level
 
     feat_types = {p["feature_id"]: p["type"] for p in plans}
-    seq = sequence.sort_steps(seq, feat_types)
+    fixture_groups, direction_groups = sequence.feature_groups(features)
+    seq = sequence.sort_steps(
+        seq,
+        feat_types,
+        direction_groups=direction_groups,
+        fixture_groups=fixture_groups,
+    )
     seq = dedup.merge_identical_hole_steps(seq, feat_types)
     seq = dedup.merge_chamfers(seq)
     seq, process_overrides, sequence_inversions = process_edits.apply(

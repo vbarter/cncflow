@@ -127,6 +127,10 @@ def _time_signature(step: dict) -> tuple:
             return value
 
     return (
+        step.get("fixture_group"),
+        step.get("setup_group"),
+        step.get("fixture_id"),
+        step.get("setup_id"),
         step.get("process"),
         step.get("sku") or step.get("tool"),
         step.get("cycle"),
@@ -207,14 +211,11 @@ def merge_identical_hole_steps(seq: list, feat_types: dict) -> list:
     return out
 
 
-def merge_chamfers(seq: list) -> list:
-    """同装夹倒角合成一条，放最后。工时/金额相加，不改 t 公式。"""
-    if not seq:
-        return seq
-    chamfers = [s for s in seq if (s.get("process") or "") == "chamfer"]
-    others = [s for s in seq if (s.get("process") or "") != "chamfer"]
+def _merge_chamfer_group(steps: list[dict]) -> list[dict]:
+    chamfers = [step for step in steps if (step.get("process") or "") == "chamfer"]
+    others = [step for step in steps if (step.get("process") or "") != "chamfer"]
     if len(chamfers) <= 1:
-        return seq
+        return steps
     minutes = sum(float(s["minutes"]) for s in chamfers if s.get("minutes") is not None)
     amount = sum(float(s["amount"]) for s in chamfers if s.get("amount") is not None)
     sku = next((s.get("sku") for s in chamfers if s.get("sku")), None)
@@ -228,6 +229,9 @@ def merge_chamfers(seq: list) -> list:
         "merged_from": [s.get("feature_id") for s in chamfers],
         "stage": "精",
     }
+    for key in ("fixture_group", "setup_group", "fixture_id", "setup_id"):
+        if chamfers[0].get(key) not in (None, ""):
+            merged[key] = chamfers[0][key]
     if minutes:
         merged["minutes"] = round(minutes, 4)
     if amount:
@@ -275,4 +279,31 @@ def merge_chamfers(seq: list) -> list:
     out = others + [merged]
     for i, s in enumerate(out, 1):
         s["order"] = i
+    return out
+
+
+def merge_chamfers(seq: list) -> list:
+    """每个装夹内合并倒角并置末；不同装夹不得跨组合并。"""
+    if not seq:
+        return seq
+
+    grouped: dict[tuple, list[dict]] = {}
+    for step in seq:
+        group = tuple(
+            (field, str(step[field]))
+            for field in ("fixture_group", "setup_group", "fixture_id", "setup_id")
+            if step.get(field) not in (None, "")
+        ) or (("fixture_group", "default"),)
+        grouped.setdefault(group, []).append(step)
+
+    out = []
+    merged_any = False
+    for steps in grouped.values():
+        merged = _merge_chamfer_group(steps)
+        merged_any = merged_any or merged is not steps
+        out.extend(merged)
+    if not merged_any:
+        return seq
+    for index, step in enumerate(out, 1):
+        step["order"] = index
     return out

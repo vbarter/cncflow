@@ -173,6 +173,49 @@ def test_frozen_live_quote_pins(
         assert tap["sku"] == "TK-033"
 
 
+def test_two_setup_fixture_keeps_each_setup_contiguous(client):
+    body = quote(client, {
+        "material": "铝合金",
+        "stock_type": "板材",
+        "length": 80,
+        "width": 60,
+        "height": 12,
+        "machine_axes": 3,
+        "features": [
+            {
+                "type": "hole",
+                "feature_id": "setup-a-hole",
+                "fixture_group": "A",
+                "axis": "+Z",
+                "position_type": "垂直",
+                "diameter_mm": 8,
+                "depth_mm": 12,
+                "hole_type": "through",
+            },
+            {
+                "type": "hole",
+                "feature_id": "setup-b-hole",
+                "fixture_group": "B",
+                "axis": "+X",
+                "position_type": "垂直",
+                "diameter_mm": 8,
+                "depth_mm": 12,
+                "hole_type": "through",
+            },
+        ],
+    }).get_json()
+
+    sequence = body["process_sequence"]
+    assert body["fixture"]["setup_count"] == 2
+    assert [step["fixture_group"] for step in sequence] == ["A", "A", "B", "B"]
+    assert [
+        step["process"] for step in sequence if step["fixture_group"] == "A"
+    ] == ["drill", "chamfer"]
+    assert [
+        step["process"] for step in sequence if step["fixture_group"] == "B"
+    ] == ["drill", "chamfer"]
+
+
 def test_nuc_mounting_plate_groups_holes_and_uses_net_face_area(client):
     features = [
         {
