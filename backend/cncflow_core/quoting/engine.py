@@ -466,6 +466,7 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
 
     feat_types = {p["feature_id"]: p["type"] for p in plans}
     seq = sequence.sort_steps(seq, feat_types)
+    seq = dedup.merge_identical_hole_steps(seq, feat_types)
     seq = dedup.merge_chamfers(seq)
     seq, process_overrides, sequence_inversions = process_edits.apply(
         seq, payload.get("process_overrides"),

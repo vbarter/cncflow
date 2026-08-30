@@ -62,7 +62,8 @@ def test_run_face_plain_box_has_top():
     assert top["selected"] is True
     assert top["length"] == pytest.approx(80, abs=1.5)
     assert top["width"] == pytest.approx(60, abs=1.5)
-    assert set(top["dimensions"]) >= {"length", "width", "face_position"}
+    assert top["area"] == pytest.approx(80 * 60, abs=1)
+    assert set(top["dimensions"]) >= {"length", "width", "area", "face_position"}
 
 
 def test_run_face_skips_inner_pocket_bottom():
@@ -170,11 +171,35 @@ def test_face_quote_narrow_uses_027(client):
     assert "TK-036" in skus, skus
 
 
+def test_face_quote_uses_net_area_instead_of_envelope(client):
+    body = client.post("/api/v1/quotes", json={
+        "material": "铝合金",
+        "stock_type": "板料",
+        "length": 285,
+        "width": 128,
+        "height": 3.5,
+        "features": [{
+            "type": "face",
+            "length": 285,
+            "width": 128,
+            "area": 20_183,
+            "face_position": "水平",
+        }],
+    }).get_json()
+    face = next(plan["plan"] for plan in body["features"] if plan["type"] == "face")
+    rough = next(
+        step for step in body["process_sequence"] if step["process"] == "rough_face"
+    )
+    assert face["metrics"]["area"] == 20_183
+    assert rough["time"]["cut"] == pytest.approx(20_183 / (0.7 * 80), abs=0.01)
+    assert rough["time"]["cut"] != pytest.approx(285 * 128 / (0.7 * 80), abs=0.01)
+
+
 def test_review_includes_selected_face():
     review, features = _review_and_quote_features([
         {
             "type": "face", "feature_id": "face-0", "selected": True,
-            "length": 80, "width": 60, "face_position": "水平",
+            "length": 80, "width": 60, "area": 4700, "face_position": "水平",
         },
         {
             "type": "hole", "feature_id": "hole-0", "selected": False,
@@ -186,6 +211,7 @@ def test_review_includes_selected_face():
     assert features[0]["type"] == "face"
     assert features[0]["length"] == 80
     assert features[0]["width"] == 60
+    assert features[0]["area"] == 4700
     assert features[0]["face_position"] == "水平"
 
 

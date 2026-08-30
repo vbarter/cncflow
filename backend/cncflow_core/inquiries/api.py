@@ -36,6 +36,14 @@ def _bbox_lwh(part, geometry):
     return L, W, H
 
 
+def _cad_volume_mm3(geometry):
+    """Parser stores STEP volume in cm³; quoting volume inputs are mm³."""
+    value = (geometry or {}).get("volume_cm3")
+    if value in (None, ""):
+        return None
+    return float(value) * 1000
+
+
 _POS_TO_SURFACE = {
     "垂直": "top", "倾斜": "inclined", "曲面": "curved", "侧向": "side", "深腔": "top",
     "top": "top", "inclined": "inclined", "curved": "curved", "side": "side",
@@ -108,13 +116,17 @@ def _face_for_pipeline(feat, fid):
     if not length or not width:
         return None
     pos = feat.get("face_position") or dim.get("face_position") or "水平"
-    return {
+    mapped = {
         "type": "face",
         "feature_id": fid,
         "length": float(length),
         "width": float(width),
         "face_position": pos,
     }
+    area = feat.get("area") if feat.get("area") is not None else dim.get("area")
+    if area is not None and float(area) > 0:
+        mapped["area"] = float(area)
+    return mapped
 
 
 
@@ -593,7 +605,7 @@ def _quote_part(
         "slider": part.get("slider") or "标准",
         "tolerance_it": part.get("tolerance_it"),
         "roughness_ra": part.get("roughness_ra"),
-        "v_part_cad": geometry.get("volume_cm3"),
+        "v_part_cad": _cad_volume_mm3(geometry),
         "features": features,
         "process_overrides": process_overrides,
     }, conn, rules_version=rules_version)

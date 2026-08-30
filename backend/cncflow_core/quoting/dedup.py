@@ -103,6 +103,110 @@ def absorb_step_faces(features: list) -> list:
     ]
 
 
+def _timed_status(step: dict, t_cut: float) -> str:
+    t_min = step.get("t_min")
+    t_max = step.get("t_max")
+    if t_min is not None and t_cut < float(t_min):
+        return "低于下限"
+    if t_max is not None and t_cut > float(t_max):
+        return "需人工复核"
+    return "ok"
+
+
+def _time_signature(step: dict) -> tuple:
+    """Only identical operations may share one tool change."""
+    time = step.get("time") or {}
+
+    def rounded(key):
+        value = time.get(key)
+        if value is None:
+            value = step.get(key)
+        try:
+            return round(float(value), 6)
+        except (TypeError, ValueError):
+            return value
+
+    return (
+        step.get("process"),
+        step.get("sku") or step.get("tool"),
+        step.get("cycle"),
+        step.get("side"),
+        rounded("d"),
+        rounded("n_act"),
+        rounded("f"),
+        rounded("cut"),
+        rounded("passes"),
+        time.get("formula") or step.get("formula"),
+    )
+
+
+def _aggregate_identical_steps(steps: list[dict]) -> dict:
+    merged = dict(steps[0])
+    time = dict(merged.get("time") or {})
+    t_cut = sum(float((step.get("time") or {}).get("t_cut") or 0) for step in steps)
+    t_tool = float(time.get("t_tool") or 0)
+    cut = sum(float((step.get("time") or {}).get("cut") or 0) for step in steps)
+    t_step = t_cut + t_tool
+    time.update({
+        "cut": round(cut, 4),
+        "t_cut": round(t_cut, 4),
+        "t_tool": round(t_tool, 4),
+        "t_step": round(t_step, 4),
+        "quantity": len(steps),
+    })
+    status = _timed_status(merged, t_cut)
+    time["status"] = status
+    merged.update({
+        "minutes": round(t_step, 4),
+        "time": time,
+        "cut": time["cut"],
+        "status": status,
+        "quantity": len(steps),
+        "merged_from": [step.get("feature_id") for step in steps],
+    })
+    return merged
+
+
+def merge_identical_hole_steps(seq: list, feat_types: dict) -> list:
+    """同刀同工艺的相同孔合成一行：切削时间累加，换刀只收一次。"""
+    if not seq:
+        return seq
+    out = []
+    groups: dict[tuple, list[dict]] = {}
+    group_indexes: dict[tuple, list[int]] = {}
+    group_feature_ids: dict[int, set] = {}
+    for step in seq:
+        feature_id = step.get("feature_id")
+        if feat_types.get(feature_id) != "hole" or not step.get("time"):
+            out.append(step)
+            continue
+        signature = _time_signature(step)
+        target = next(
+            (
+                index
+                for index in group_indexes.get(signature, [])
+                if feature_id not in group_feature_ids[index]
+            ),
+            None,
+        )
+        if target is None:
+            target = len(out)
+            out.append(step)
+            groups[target] = [step]
+            group_indexes.setdefault(signature, []).append(target)
+            group_feature_ids[target] = {feature_id}
+        else:
+            groups[target].append(step)
+            group_feature_ids[target].add(feature_id)
+
+    for index, steps in groups.items():
+        if len(steps) > 1:
+            out[index] = _aggregate_identical_steps(steps)
+    for index, step in enumerate(out, 1):
+        step["order"] = index
+    return out
+
+
 def merge_chamfers(seq: list) -> list:
     """同装夹倒角合成一条，放最后。工时/金额相加，不改 t 公式。"""
     if not seq:
@@ -128,17 +232,33 @@ def merge_chamfers(seq: list) -> list:
         merged["minutes"] = round(minutes, 4)
     if amount:
         merged["amount"] = round(amount, 2)
-    tm = next((s.get("time") for s in chamfers if s.get("time")), None)
+    timed = [s for s in chamfers if s.get("time")]
+    tm = dict(timed[0]["time"]) if timed else None
     if tm:
+        t_cut = sum(float(s["time"].get("t_cut") or 0) for s in timed)
+        t_tool = sum(float(s["time"].get("t_tool") or 0) for s in timed)
+        cut = sum(float(s["time"].get("cut") or 0) for s in timed)
+        tm.update({
+            "cut": round(cut, 4),
+            "t_cut": round(t_cut, 4),
+            "t_tool": round(t_tool, 4),
+            "t_step": round(t_cut + t_tool, 4),
+            "quantity": sum(int(s.get("quantity") or 1) for s in chamfers),
+        })
+        tm["status"] = _timed_status(merged, t_cut)
         merged["time"] = tm
     for key in ("formula", "n", "f", "cut", "passes", "t_min", "t_max", "status"):
-        hit = next((s.get(key) for s in chamfers if s.get(key) is not None), None)
+        hit = tm.get(key) if tm and tm.get(key) is not None else None
+        if hit is None:
+            hit = next((s.get(key) for s in chamfers if s.get(key) is not None), None)
         if hit is None and tm and tm.get(key) is not None:
             hit = tm[key]
         if hit is not None:
             merged[key] = hit
         elif key == "status":
             merged.setdefault("status", "ok")
+    if timed:
+        merged["quantity"] = sum(int(s.get("quantity") or 1) for s in chamfers)
     out = others + [merged]
     for i, s in enumerate(out, 1):
         s["order"] = i

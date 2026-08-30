@@ -6,9 +6,15 @@ import pytest
 
 from cncflow_core.common.db import get_conn
 from cncflow_core.ingestion.jobs import finish_job
+from cncflow_core.inquiries.api import _cad_volume_mm3
 
 
 MINIMAL_STEP = b"ISO-10303-21;\nHEADER;\nFILE_SCHEMA(('AUTOMOTIVE_DESIGN'));\nENDSEC;\nDATA;\nENDSEC;\nEND-ISO-10303-21;"
+
+
+def test_parser_volume_cm3_converts_to_quote_mm3():
+    assert _cad_volume_mm3({"volume_cm3": 56.997}) == pytest.approx(56_997)
+    assert _cad_volume_mm3({}) is None
 
 
 
@@ -26,6 +32,7 @@ def test_inquiry_quote_confirm_readonly(client):
     part = q.get_json()["parts"][0]
     assert part["status"] == "quoted"
     assert part["quote"]["quote"]["amount"] > 0
+    assert part["quote"]["volume"]["v_part_mm3"] == 12_500
     c = client.post(f"/api/v1/parts/{part['id']}/confirm")
     assert c.status_code == 200
     assert c.get_json()["status"] == "confirmed"

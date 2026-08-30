@@ -23,6 +23,7 @@ FACE_SCHEMA = "face-v1"
 FACE_FEATURE_FIELDS = (
     "length",
     "width",
+    "area",
     "face_position",
 )
 

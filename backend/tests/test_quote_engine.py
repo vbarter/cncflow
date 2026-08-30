@@ -31,10 +31,10 @@ def quote(client, payload):
                     "width": 60,
                 },
             ],
-            56.997,
+            56_997,
             ["粗铣", "钻孔", "倒角"],
             211.39,
-            3.25,
+            5.72,
         ),
         (
             "M8",
@@ -129,6 +129,8 @@ def test_frozen_live_quote_pins(
             abs=0.01,
         ), sample
     if sample == "Ø8":
+        assert body["volume"]["v_part_mm3"] == 56_997
+        assert body["volume"]["v_blank_mm3"] == 86_016
         assert body["programming_time"] == 93
         assert body["programming_cost"] == pytest.approx(62, abs=0.01)
         assert body["confidence"] == 90
@@ -147,6 +149,64 @@ def test_frozen_live_quote_pins(
     if sample == "M8":
         tap = next(step for step in body["process_sequence"] if step["process"] == "tap")
         assert tap["sku"] == "TK-033"
+
+
+def test_nuc_mounting_plate_groups_holes_and_uses_net_face_area(client):
+    features = [
+        {
+            "type": "hole",
+            "feature_id": f"hole-{index}",
+            "diameter_mm": 2.5,
+            "depth_mm": 3.5,
+            "hole_type": "through",
+        }
+        for index in range(18)
+    ]
+    features.append({
+        "type": "face",
+        "feature_id": "face-0",
+        "length": 285,
+        "width": 128,
+        "area": 20_183,
+    })
+    body = quote(client, {
+        "material": "铝合金",
+        "stock_type": "板材",
+        "length": 285,
+        "width": 128,
+        "height": 3.5,
+        "v_part_cad": 70_641,
+        "features": features,
+    }).get_json()
+
+    assert body["volume"]["v_part_mm3"] == 70_641
+    assert body["material_cost_breakdown"]["net_material_cost"] == pytest.approx(
+        13.86,
+        abs=0.01,
+    )
+    face = next(plan["plan"] for plan in body["features"] if plan["type"] == "face")
+    assert face["metrics"]["area"] == 20_183
+    rough_face = next(
+        step for step in body["process_sequence"] if step["process"] == "rough_face"
+    )
+    assert rough_face["time"]["cut"] == pytest.approx(20_183 / (0.7 * 80), abs=0.01)
+
+    for process in ("spot_drill", "drill"):
+        steps = [
+            step for step in body["process_sequence"] if step["process"] == process
+        ]
+        assert len(steps) == 1
+        assert steps[0]["quantity"] == 18
+        assert steps[0]["time"]["t_tool"] == pytest.approx(5 / 60, abs=0.0001)
+    chamfer = next(
+        step for step in body["process_sequence"] if step["process"] == "chamfer"
+    )
+    assert chamfer["minutes"] == pytest.approx(0.25, abs=0.08)
+    assert body["labor_cost_breakdown"]["total"] == pytest.approx(54, abs=1)
+    assert body["labor_cost_breakdown"]["changeover"]["cost"] == pytest.approx(
+        48.67,
+        abs=0.01,
+    )
 
 
 @pytest.mark.parametrize(
