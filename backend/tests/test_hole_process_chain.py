@@ -1,5 +1,7 @@
 """孔工艺链生成测试（文档1模块二 + 文档2速查表）。"""
-from cncflow_core.features.hole.models import HoleSpec
+import pytest
+
+from cncflow_core.features.hole.models import DEFAULT_TOLERANCE_IT, HoleSpec
 from cncflow_core.features.hole.process_chain import generate_chain
 
 
@@ -61,43 +63,94 @@ class TestPrimaryDrillSelection:
             if proc in {"drill", "u_drill", "gun_drill", "micro_hole", "special_hole"}
         ]
         assert primary == ["micro_hole"]
-        assert "ream" in procs(chain)
+        assert not {"ream", "semi_bore", "fine_bore"} & set(procs(chain))
 
-    def test_large_hole_bore_only_path(self):
-        chain = generate_chain(hole(90, 90), "铝合金", 11)    # D>80 不可钻
-        assert procs(chain) == ["rough_bore", "semi_bore", "fine_bore", "chamfer", "chamfer"]
+    def test_large_hole_rough_bore_still_obeys_f08(self):
+        chain = generate_chain(hole(90, 90), "铝合金", 11)
+        assert procs(chain) == ["rough_bore", "chamfer", "chamfer"]
 
 
 class TestFinishing:
-    def test_ream_for_small_precise_hole(self):
-        chain = generate_chain(hole(10, 20), "铝合金", 7)     # IT7 D<20 → 铰
-        assert "ream" in procs(chain)
-        assert "fine_bore" not in procs(chain)
+    FINISHING = {"ream", "semi_bore", "fine_bore", "grind"}
 
-    def test_semi_bore_for_it8(self):
-        chain = generate_chain(hole(25, 50), "铝合金", 8)
-        assert "semi_bore" in procs(chain)
-        assert "fine_bore" not in procs(chain)
+    @pytest.mark.parametrize("roughness_ra", [None, 3.2])
+    def test_f08_default_o8_has_no_finishing(self, roughness_ra):
+        chain = generate_chain(
+            hole(8, 12),
+            "铝合金",
+            DEFAULT_TOLERANCE_IT,
+            roughness_ra=roughness_ra,
+        )
+        assert not self.FINISHING & set(procs(chain))
 
-    def test_ra16_forces_ream(self):
-        chain = generate_chain(hole(10, 20), "铝合金", 11, roughness_ra=1.6)
-        assert "ream" in procs(chain)
+    def test_it7_with_missing_ra_does_not_force_finishing(self):
+        chain = generate_chain(hole(12, 24), "铝合金", 7)
+        assert not self.FINISHING & set(procs(chain))
 
-    def test_ra04_switches_to_grind(self):
-        chain = generate_chain(hole(10, 20), "铝合金", 7, roughness_ra=0.4)
-        assert "grind" in procs(chain)
-        assert "ream" not in procs(chain)                 # 放弃切削
+    def test_f01_micro_hole_disables_bore_and_ream_even_for_it7(self):
+        chain = generate_chain(hole(0.8, 3), "铝合金", 7, roughness_ra=1.6)
+        assert not {"ream", "semi_bore", "fine_bore"} & set(procs(chain))
+
+    def test_f02_deep_it6_uses_grind(self):
+        chain = generate_chain(hole(10, 110), "铝合金", 6, roughness_ra=1.6)
+        assert self.FINISHING & set(procs(chain)) == {"grind"}
+
+    def test_f04_large_it7_uses_one_bore_path(self):
+        chain = generate_chain(hole(20, 40), "铝合金", 7, roughness_ra=1.6)
+        finishing = [proc for proc in procs(chain) if proc in self.FINISHING]
+        assert finishing == ["semi_bore", "fine_bore"]
+
+    def test_f05_ra08_uses_fine_bore_not_ream(self):
+        chain = generate_chain(hole(12, 24), "铝合金", 7, roughness_ra=0.8)
+        assert self.FINISHING & set(procs(chain)) == {"fine_bore"}
+
+    def test_f06_ra16_uses_ream_not_bore(self):
+        chain = generate_chain(hole(12, 24), "铝合金", 7, roughness_ra=1.6)
+        assert self.FINISHING & set(procs(chain)) == {"ream"}
+
+    def test_f07_it8_uses_semi_bore_only(self):
+        chain = generate_chain(hole(25, 50), "铝合金", 8, roughness_ra=1.6)
+        assert self.FINISHING & set(procs(chain)) == {"semi_bore"}
+
+    def test_f09_grind_beats_ream_at_ra04(self):
+        chain = generate_chain(hole(12, 24), "铝合金", 7, roughness_ra=0.4)
+        assert self.FINISHING & set(procs(chain)) == {"grind"}
 
 
 class TestThreadAndBottom:
-    def test_tap_for_small_thread(self):
-        chain = generate_chain(hole(12, 24, thread={"spec": "M12"}), "铝合金", 11)
-        assert "tap" in procs(chain)
+    THREADING = {"tap", "thread_mill"}
 
-    def test_thread_mill_for_stainless(self):
-        chain = generate_chain(hole(12, 24, thread={"spec": "M12"}), "不锈钢", 11)
-        assert "thread_mill" in procs(chain)
-        assert "tap" not in procs(chain)
+    def test_t01_no_thread_emits_no_thread_process(self):
+        chain = generate_chain(hole(12, 24), "铝合金", 11)
+        assert not self.THREADING & set(procs(chain))
+
+    @pytest.mark.parametrize(
+        ("diameter", "depth", "spec"),
+        [(8, 16, "M8×1.25"), (12, 24, "M12")],
+    )
+    def test_t02_ordinary_aluminum_thread_taps_only(self, diameter, depth, spec):
+        chain = generate_chain(
+            hole(diameter, depth, thread={"spec": spec}),
+            "铝合金",
+            11,
+        )
+        assert self.THREADING & set(procs(chain)) == {"tap"}
+
+    @pytest.mark.parametrize(
+        ("diameter", "depth", "spec", "material"),
+        [
+            (12, 24, "M12", "不锈钢"),
+            (20, 40, "M20", "铝合金"),
+            (8, 48, "M8", "铝合金"),
+        ],
+    )
+    def test_t03_difficult_threads_mill_only(self, diameter, depth, spec, material):
+        chain = generate_chain(
+            hole(diameter, depth, thread={"spec": spec}),
+            material,
+            11,
+        )
+        assert self.THREADING & set(procs(chain)) == {"thread_mill"}
 
     def test_flat_bottom_blind_hole(self):
         chain = generate_chain(hole(20, 40, hole_type="blind", bottom_shape="flat"), "铝合金", 11)
@@ -114,6 +167,7 @@ class TestThreadAndBottom:
             ),
             "铝合金",
             7,
+            roughness_ra=1.6,
         )
         assert procs(chain) == [
             "spot_drill",

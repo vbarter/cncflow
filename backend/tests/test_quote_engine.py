@@ -1,11 +1,139 @@
 """报价引擎：体积公式、始终出价、滑轴、翻单。"""
 import math
 
+import pytest
+
 from cncflow_core.quoting.engine import suggested_lead_time_days
 
 
 def quote(client, payload):
     return client.post("/api/v1/quotes", json=payload)
+
+
+@pytest.mark.parametrize(
+    ("sample", "dimensions", "features", "v_part_cad", "names", "machining", "material"),
+    [
+        (
+            "Ø8",
+            (80, 60, 12),
+            [
+                {
+                    "type": "hole",
+                    "feature_id": "hole-0",
+                    "diameter_mm": 8,
+                    "depth_mm": 12,
+                    "hole_type": "through",
+                },
+                {
+                    "type": "face",
+                    "feature_id": "face-1",
+                    "length": 80,
+                    "width": 60,
+                },
+            ],
+            56.997,
+            ["粗铣", "钻孔", "倒角"],
+            211.39,
+            3.25,
+        ),
+        (
+            "M8",
+            (40, 40, 12),
+            [
+                {
+                    "type": "thread",
+                    "feature_id": "thread-0",
+                    "nominal_d": 8,
+                    "pitch": 1.25,
+                    "thread_length": 12,
+                },
+                {
+                    "type": "face",
+                    "feature_id": "face-2",
+                    "length": 40,
+                    "width": 40,
+                },
+            ],
+            18.757003,
+            ["粗铣", "钻孔", "攻牙", "倒角"],
+            211.19,
+            1.17,
+        ),
+        (
+            "开口槽",
+            (80, 60, 12),
+            [
+                {
+                    "type": "slot",
+                    "feature_id": "slot-0",
+                    "length": 40,
+                    "width": 10,
+                    "depth": 8,
+                    "corner_radius": 3,
+                    "pocket_type": "开放",
+                },
+                {
+                    "type": "face",
+                    "feature_id": "face-0",
+                    "length": 80,
+                    "width": 60,
+                },
+            ],
+            54.430702,
+            ["粗铣", "粗铣", "倒角"],
+            211.59,
+            None,
+        ),
+    ],
+)
+def test_frozen_live_quote_pins(
+    client,
+    sample,
+    dimensions,
+    features,
+    v_part_cad,
+    names,
+    machining,
+    material,
+):
+    length, width, height = dimensions
+    body = quote(
+        client,
+        {
+            "material": "铝合金",
+            "stock_type": "板材",
+            "length": length,
+            "width": width,
+            "height": height,
+            "v_part_cad": v_part_cad,
+            "features": features,
+        },
+    ).get_json()
+
+    assert [step["name"] for step in body["process_sequence"]] == names, sample
+    assert body["labor_cost_breakdown"]["total"] == pytest.approx(
+        machining,
+        abs=0.01,
+    ), sample
+    assert not {"ream", "thread_mill"} & {
+        step["process"] for step in body["process_sequence"]
+    }, sample
+    if sample != "M8":
+        assert "tap" not in {
+            step["process"] for step in body["process_sequence"]
+        }, sample
+
+    if material is not None:
+        assert body["material_cost_breakdown"]["net_material_cost"] == pytest.approx(
+            material,
+            abs=0.01,
+        ), sample
+    if sample == "Ø8":
+        assert body["programming_time"] == 93
+        assert body["programming_cost"] == pytest.approx(62, abs=0.01)
+    if sample == "M8":
+        tap = next(step for step in body["process_sequence"] if step["process"] == "tap")
+        assert tap["sku"] == "TK-033"
 
 
 def test_bar_stock_volume_example(client):
