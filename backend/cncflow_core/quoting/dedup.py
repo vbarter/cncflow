@@ -1,4 +1,4 @@
-"""工序去重：倒角合并 + 螺纹吃孔。不改识别、不改三库。"""
+"""工序去重：台阶吃肩顶 + 倒角合并 + 螺纹吃孔。不改识别、不改三库。"""
 
 
 def _num(feat: dict, *keys) -> float:
@@ -62,6 +62,45 @@ def absorb_holes(features: list) -> list:
             continue
         out.append(f)
     return out
+
+
+def _footprint(feat: dict) -> tuple[float, float] | None:
+    length = _num(feat, "length")
+    width = _num(feat, "width")
+    if length <= 0 or width <= 0:
+        return None
+    return tuple(sorted((length, width), reverse=True))
+
+
+def _is_step_shoulder_top(face: dict, steps: list[dict], tol: float = 3.0) -> bool:
+    """同尺寸水平面是台阶轮廓的肩顶；整板顶面和侧面不是。"""
+    if face.get("type") != "face":
+        return False
+    position = face.get("face_position")
+    if position is None:
+        position = (face.get("dimensions") or {}).get("face_position")
+    if position not in (None, "", "水平", "top", "horizontal"):
+        return False
+    face_footprint = _footprint(face)
+    if face_footprint is None:
+        return False
+    return any(
+        (step_footprint := _footprint(step)) is not None
+        and all(abs(a - b) <= tol for a, b in zip(face_footprint, step_footprint))
+        for step in steps
+    )
+
+
+def absorb_step_faces(features: list) -> list:
+    """台阶轮廓已包含肩台顶面加工；只吸收同尺寸水平面。"""
+    steps = [feature for feature in features if feature.get("type") == "step"]
+    if not steps:
+        return list(features)
+    return [
+        feature
+        for feature in features
+        if not _is_step_shoulder_top(feature, steps)
+    ]
 
 
 def merge_chamfers(seq: list) -> list:

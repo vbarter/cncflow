@@ -416,7 +416,8 @@ def test_quote_refresh_rect_step_manual_check_shoulder(client, seeded_db_path):
     part = patched.get_json()
     assert set(_selected_ids(part)) == {"step-0", "face-0"}
     types = {f["type"] for f in (part.get("quote") or {}).get("features") or []}
-    assert types == {"step", "face"}
+    assert types == {"step"}
+    assert _skus(part) == ["TK-026", "TK-036"]
     inquiry_quote = client.post(
         f"/api/v1/inquiries/{iid}/quote",
         json={"selected_feature_ids": ["step-0", "face-0"]},
@@ -424,9 +425,12 @@ def test_quote_refresh_rect_step_manual_check_shoulder(client, seeded_db_path):
     assert inquiry_quote.status_code == 200, inquiry_quote.get_json()
     inquiry_part = next(p for p in inquiry_quote.get_json()["parts"] if p["id"] == pid)
     assert set(_selected_ids(inquiry_part)) == {"step-0", "face-0"}
+    assert _skus(inquiry_part) == ["TK-026", "TK-036"]
     quoted = client.post(
         f"/api/v1/parts/{pid}/quote",
         json={"selected_feature_ids": ["step-0", "face-0"]},
     )
     assert quoted.status_code == 200, quoted.get_json()
-    assert set(_selected_ids(quoted.get_json())) == {"step-0", "face-0"}
+    part = quoted.get_json()
+    assert set(_selected_ids(part)) == {"step-0", "face-0"}
+    assert _skus(part) == ["TK-026", "TK-036"]
