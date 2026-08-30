@@ -136,7 +136,7 @@ def test_frozen_live_quote_pins(
         assert all(
             tag == "低于下限"
             or "刀径非全等" in tag
-            or "TK-003" in tag
+            or ("库存无 Ø8mm 全等刀具" in tag and "需工艺确认" in tag)
             for tag in tags
         )
         assert not any(
