@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import { Button, Card, Input, Select } from "../components/ui"
 import { CostBreakdown } from "../components/CostBreakdown"
-import { FeatureReview } from "../components/FeatureReview"
+import { FeatureReview, isReviewTreeFeature } from "../components/FeatureReview"
 import { PartQuoteDecision } from "../components/PartQuoteDecision"
 import { ProcessSequenceEditor } from "../components/ProcessSequenceEditor"
 import { json } from "../api"
@@ -65,9 +65,11 @@ export function PartDetail({ id, go }: { id: string; go: (h: string) => void }) 
   const riskCount = deductions.length || risk.tags?.length || 0
   const locked = part.status === "confirmed"
   const recommend = risk.customer_forbidden ? "建议暂缓" : (risk.level === "high" ? "建议暂缓" : "建议接单")
-  const reviewFeats = (q.review_features || q.features || part.parsed_features || []).map((f: any, i: number) => ({
-    ...f, feature_id: featId(f, i),
-  }))
+  const reviewFeats = (q.review_features || q.features || part.parsed_features || [])
+    .filter(isReviewTreeFeature)
+    .map((f: any, i: number) => ({
+      ...f, feature_id: featId(f, i),
+    }))
   const confidenceBreakdown = confidenceColumns(deductions)
   const overallConfidence = liveConfidenceValue(q.confidence)
   const meshAvailable = Boolean(part.mesh?.available)
