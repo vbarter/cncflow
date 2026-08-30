@@ -189,7 +189,7 @@ export function FactoryConfig() {
         {tab === 0 && <Card className="grid gap-3 p-5 md:grid-cols-3">
           <label className="text-xs text-slate-500">利润 %<Input className="mt-1" type="number" value={s.profit_pct ?? 15} onChange={e => setCfg({ ...cfg, settings: { ...s, profit_pct: Number(e.target.value) } })} /></label>
           <label className="text-xs text-slate-500">最低收费<Input className="mt-1" type="number" value={s.floor_charge ?? 0} onChange={e => setCfg({ ...cfg, settings: { ...s, floor_charge: Number(e.target.value) } })} /></label>
-          <label className="text-xs text-slate-500">检测费<Input className="mt-1" type="number" value={s.inspect_fee ?? 60} onChange={e => setCfg({ ...cfg, settings: { ...s, inspect_fee: Number(e.target.value) } })} /></label>
+          <label className="text-xs text-slate-500">检测费（自动报价暂不计，待知识库 Word）<Input className="mt-1" type="number" value={s.inspect_fee ?? 0} onChange={e => setCfg({ ...cfg, settings: { ...s, inspect_fee: Number(e.target.value) } })} /></label>
           <label className="text-xs text-slate-500">默认批量<Input className="mt-1" type="number" value={s.batch_size ?? 1} onChange={e => setCfg({ ...cfg, settings: { ...s, batch_size: Number(e.target.value) } })} /></label>
           <label className="text-xs text-slate-500">默认毛坯<Input className="mt-1" value={s.blank_type || "板料"} onChange={e => setCfg({ ...cfg, settings: { ...s, blank_type: e.target.value } })} /></label>
           <label className="flex items-end gap-2 text-sm text-slate-700"><input type="checkbox" checked={!!s.ignore_available_machines} onChange={e => setCfg({ ...cfg, settings: { ...s, ignore_available_machines: e.target.checked } })} />忽略可用设备</label>

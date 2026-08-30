@@ -6,6 +6,7 @@ import {
   CostBreakdown,
   costValue,
   fixtureCost,
+  HANDBOOK_PENDING_NOTE,
   millTimeRows,
   programmingDrawerValues,
 } from "../src/components/CostBreakdown"
@@ -40,9 +41,9 @@ const uiCost = {
   setup: 5,
   fixture: 999,
   programming: 62,
-  inspect: 60,
-  toolwear: 2,
-  scrap: 3,
+  inspect: 0,
+  toolwear: 0,
+  scrap: 0,
 }
 
 function costRow(label: string) {
@@ -95,7 +96,9 @@ test("Ø8 刀具损耗显示两位小数且其他冻结成本行不回归", () =
         machining: 1.39,
         setup: 210,
         programming: 62,
+        inspect: 60,
         toolwear: 0.15,
+        scrap: 16.84,
       }}
       quoteSummary={quoteSummary}
     />,
@@ -105,21 +108,24 @@ test("Ø8 刀具损耗显示两位小数且其他冻结成本行不回归", () =
   assert.ok(costRow("加工工时").getByText("¥211.39"))
   assert.ok(costRow("装夹").getByText("¥0.00"))
   assert.ok(costRow("编程").getByText("¥62"))
-  assert.ok(costRow("检测").getByText("¥60.00"))
-  assert.ok(costRow("刀具损耗").getByText("¥0.15"))
+  assert.equal(screen.queryByText("¥60.00"), null)
+  assert.ok(costRow("检测").getByText("¥0.00"))
+  assert.ok(costRow("刀具损耗").getByText("¥0.00"))
+  assert.ok(costRow("不良损耗").getByText("¥0.00"))
+  assert.equal(screen.getAllByText(HANDBOOK_PENDING_NOTE).length, 3)
 })
 
-test("点击检测行打开 Ø8 检测费用抽屉并按单件计费", () => {
+test("点击检测行打开费用抽屉并标明知识库暂无规则", () => {
   render(
     <CostBreakdown
       quote={programmingQuote(93, 62)}
-      uiCost={uiCost}
+      uiCost={{ ...uiCost, inspect: 60 }}
       quoteSummary={quoteSummary}
     />,
   )
 
   const inspectRow = screen.getByRole("button", { name: /检测/ })
-  assert.ok(within(inspectRow).getByText("¥60.00"))
+  assert.ok(within(inspectRow).getByText("¥0.00"))
   fireEvent.click(inspectRow)
 
   const drawer = screen.getByRole("dialog", { name: "检测费用" })
@@ -129,11 +135,12 @@ test("点击检测行打开 Ø8 检测费用抽屉并按单件计费", () => {
   )
   assert.deepEqual(
     Array.from(drawer.querySelectorAll("dd"), element => element.textContent),
-    ["60 ¥/件", "1 件", "60.00"],
+    ["0 ¥/件", "1 件", "0.00"],
   )
+  assert.ok(within(drawer).getByText(HANDBOOK_PENDING_NOTE))
 })
 
-test("点击不良损耗行打开 Ø8 五字段费用抽屉并与成本行对账", () => {
+test("点击不良损耗行打开费用抽屉并标明知识库暂无规则", () => {
   render(
     <CostBreakdown
       quote={{
@@ -142,8 +149,9 @@ test("点击不良损耗行打开 Ø8 五字段费用抽屉并与成本行对账
           slider: "标准",
           material_group: "易切",
           scrap_rate: 0.05,
-          base: 336.79,
+          base: 279.11,
           scrap_fee: 16.84,
+          note: HANDBOOK_PENDING_NOTE,
         },
       }}
       uiCost={{ ...uiCost, scrap: 16.84 }}
@@ -152,7 +160,7 @@ test("点击不良损耗行打开 Ø8 五字段费用抽屉并与成本行对账
   )
 
   const scrapRow = screen.getByRole("button", { name: /不良损耗/ })
-  assert.ok(within(scrapRow).getByText("¥16.84"))
+  assert.ok(within(scrapRow).getByText("¥0.00"))
   fireEvent.click(scrapRow)
 
   const drawer = screen.getByRole("dialog", { name: "不良损耗费用" })
@@ -162,11 +170,12 @@ test("点击不良损耗行打开 Ø8 五字段费用抽屉并与成本行对账
   )
   assert.deepEqual(
     Array.from(drawer.querySelectorAll("dd"), element => element.textContent),
-    ["标准", "易切", "5%", "336.79", "16.84"],
+    ["标准", "易切", "5%", "279.11", "0.00"],
   )
+  assert.ok(within(drawer).getByText(HANDBOOK_PENDING_NOTE))
 })
 
-test("387101 显示夹具材料加加工费用且刀具损耗保持 0.24", () => {
+test("387101 显示夹具材料加加工费用且刀耗不良检测为 0", () => {
   render(
     <CostBreakdown
       quote={{
@@ -185,7 +194,9 @@ test("387101 显示夹具材料加加工费用且刀具损耗保持 0.24", () =>
         ...uiCost,
         machining: 101.4,
         setup: 210,
+        inspect: 60,
         toolwear: 0.24,
+        scrap: 69.63,
       }}
       quoteSummary={quoteSummary}
     />,
@@ -194,11 +205,50 @@ test("387101 显示夹具材料加加工费用且刀具损耗保持 0.24", () =>
   assert.ok(costRow("加工工时").getByText("¥311.40"))
   const fixtureRow = screen.getByRole("button", { name: /装夹/ })
   assert.ok(within(fixtureRow).getByText("¥42.50"))
-  assert.ok(costRow("刀具损耗").getByText("¥0.24"))
+  assert.ok(costRow("检测").getByText("¥0.00"))
+  assert.ok(costRow("刀具损耗").getByText("¥0.00"))
+  assert.ok(costRow("不良损耗").getByText("¥0.00"))
   fireEvent.click(fixtureRow)
   assert.ok(
     within(screen.getByRole("dialog", { name: "夹具1" })).getByText("1.72"),
   )
+})
+
+test("NUC 截图三行检测刀耗不良必须显示 0.00", () => {
+  render(
+    <CostBreakdown
+      quote={{
+        ...programmingQuote(36, 24),
+        fixture: {
+          is_fixture_needed: false,
+          fixture_material_cost: 0,
+          fixture_processing_cost: 0,
+        },
+      }}
+      uiCost={{
+        ...uiCost,
+        material: 13.86,
+        machining: 54.23,
+        setup: 0,
+        programming: 24,
+        inspect: 60,
+        toolwear: 0.28,
+        scrap: 7.60,
+      }}
+      quoteSummary={{ amount: 105.90, cost: 92.09 }}
+    />,
+  )
+
+  assert.ok(costRow("原材料").getByText("¥13.86"))
+  assert.ok(costRow("加工工时").getByText("¥54.23"))
+  assert.ok(costRow("装夹").getByText("¥0.00"))
+  assert.ok(costRow("编程").getByText("¥24"))
+  assert.ok(costRow("检测").getByText("¥0.00"))
+  assert.ok(costRow("刀具损耗").getByText("¥0.00"))
+  assert.ok(costRow("不良损耗").getByText("¥0.00"))
+  assert.equal(screen.queryByText("¥60.00"), null)
+  assert.equal(screen.queryByText("¥0.28"), null)
+  assert.equal(screen.queryByText("¥7.60"), null)
 })
 
 test("零刀具损耗与零材料费一致显示两位小数", () => {

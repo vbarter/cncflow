@@ -26,6 +26,9 @@ PIPELINES = {
 
 DIFF_MIN = {"D1": 2.0, "D2": 6.0, "D3": 15.0, "D4": 25.0, "NA": 20.0, 1: 2.0, 2: 6.0, 3: 15.0, 4: 25.0}
 DIFF_FACTOR = {"D3": 1.3, "D4": 1.8, 3: 1.3, 4: 1.8}
+# 检测 / 刀耗 / 不良：知识库无独立 Word，自动报价一律 0。不读 inspect_fee，也不套 cut_hours*15 / base*scrap_rate。
+HANDBOOK_PENDING_NOTE = "知识库暂无规则，待独立 Word 后再计"
+HANDBOOK_PENDING_COST = 0.0
 STEP_PARAMS = ("formula", "n", "f", "cut", "passes", "t_min", "t_max", "status")
 DIAMETER_MISMATCH_RISK = "刀径非全等，需工艺确认"
 FACE_NET_AREA_RATIO_RANGE = (1.2, 4.0)
@@ -403,7 +406,7 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
     repeat = bool(payload.get("is_repeat_order"))
     profit_pct = float(payload.get("profit_pct") if payload.get("profit_pct") is not None else settings.get("profit_pct") or 15)
     floor = float(payload.get("floor_charge") if payload.get("floor_charge") is not None else settings.get("floor_charge") or 0)
-    inspect = float(settings.get("inspect_fee") or 60)
+    inspect = HANDBOOK_PENDING_COST
 
     ops, plans, seq, tags = [], [], [], []
     worst = "D1"
@@ -588,11 +591,11 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
             float(fixture.get("fixture_material_cost") or 0)
             + float(fixture.get("fixture_processing_cost") or 0)
         )
-    toolwear = cut_hours * 15
+    toolwear = HANDBOOK_PENDING_COST
     machining_sub = cut_fee + toolchg_fee + rapid_fee
     setup_ui = setup_fee_time + setup_amort
-    base = mat_cost + machining_sub + setup_ui + fix_fee + prog + inspect + toolwear
-    scrap_fee = base * float(slide["scrap_rate"])
+    base = mat_cost + machining_sub + setup_ui + fix_fee + prog
+    scrap_fee = HANDBOOK_PENDING_COST
     cost = base + scrap_fee
     amount = max(cost * (1 + profit_pct / 100), floor)
     floor_applied = amount > cost * (1 + profit_pct / 100) - 1e-9 and amount == floor or amount >= floor and floor > cost * (1 + profit_pct / 100)
@@ -757,6 +760,12 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
             "scrap_rate": float(slide["scrap_rate"]),
             "base": round(base, 2),
             "scrap_fee": round(scrap_fee, 2),
+            "note": HANDBOOK_PENDING_NOTE,
+        },
+        "handbook_pending": {
+            "inspect": HANDBOOK_PENDING_NOTE,
+            "toolwear": HANDBOOK_PENDING_NOTE,
+            "scrap": HANDBOOK_PENDING_NOTE,
         },
         "labor_cost_breakdown": {
             "machining": round(machining_sub, 2),
