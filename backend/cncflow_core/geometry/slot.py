@@ -261,16 +261,14 @@ def _within_slot_cutting_range(width, depth, max_tool_width=12.0):
     return width <= max(max_tool_width, 4.0 * depth) + 1e-6
 
 
-def _pocket_type(length, width, n_walls, t_slot, opens):
+def _pocket_type(length, width, _n_walls, t_slot, opens):
     if t_slot:
         return "T型"
     if opens:
         return "开放"
     if length / max(width, 1e-6) >= 3 and width <= 12.0001:
         return "键槽"
-    if n_walls >= 4:
-        return "封闭"
-    return "开放"
+    return "封闭"
 
 
 def _is_t_slot(pairs):
