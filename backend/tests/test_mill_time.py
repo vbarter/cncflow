@@ -12,7 +12,7 @@ def test_o8_face_cut_and_hole_unchanged(client):
         ],
     }).get_json()
     names = [s["name"] for s in body["process_sequence"]]
-    assert names == ["粗铣", "钻孔", "倒角"], names
+    assert names == ["面粗", "钻孔", "倒角"], names
     face = next(s for s in body["process_sequence"] if s["process"] == "rough_face")
     assert face["sku"] == "TK-028"
     assert abs(face["time"]["cut"] - 85.714) < 0.2
@@ -34,7 +34,7 @@ def test_open_slot_rough_cut_passes(client):
             {"type": "face", "feature_id": "face-0", "length": 80, "width": 60},
         ],
     }).get_json()
-    assert [s["name"] for s in body["process_sequence"]] == ["粗铣", "粗铣", "倒角"]
+    assert [s["name"] for s in body["process_sequence"]] == ["槽粗", "面粗", "倒角"]
     slot = next(s for s in body["process_sequence"] if s["process"] == "rough_pocket")
     assert slot["sku"] == "TK-022"
     assert abs(slot["time"]["cut"] - 95.238) < 0.3
@@ -53,7 +53,7 @@ def test_m8_tap_seconds(client):
             {"type": "thread", "feature_id": "thread-0", "nominal_d": 8, "pitch": 1.25, "thread_length": 12},
         ],
     }).get_json()
-    assert [s["name"] for s in body["process_sequence"]] == ["粗铣", "钻孔", "攻牙", "倒角"]
+    assert [s["name"] for s in body["process_sequence"]] == ["面粗", "底孔", "攻牙", "倒角"]
     tap = next(s for s in body["process_sequence"] if s["process"] == "tap")
     assert tap["time"]["n_act"] <= 1000
     assert abs(tap["time"]["t_cut"] - 12 / (tap["time"]["n_act"] * 1.25)) < 1e-3
