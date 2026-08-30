@@ -144,7 +144,8 @@ def test_quote_step_swallows_checked_shoulder_top(client):
     body = client.post("/api/v1/quotes", json={
         "material": "铝合金",
         "stock_type": "板材",
-        "length": 80, "width": 60, "height": 12,
+        "length": 80, "width": 50, "height": 16,
+        "v_part_cad": 50,
         "features": [
             {
                 "type": "step", "feature_id": "step-0",
