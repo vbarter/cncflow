@@ -70,12 +70,22 @@ def _edge_radius(edge):
             return None
 
 
+def _edge_is_closed(edge):
+    try:
+        return bool(edge.IsClosed())
+    except Exception:
+        return False
+
+
 def _corner_radius(bottom, walls, all_faces, pocket_box):
     radii = []
     for item in walls + [bottom]:
         face = item["face"] if isinstance(item, dict) else item
         for edge in face.Edges():
             if _edge_kind(edge) not in {"CIRCLE", "ARC"}:
+                continue
+            # A closed circle is a hole's inner wire, not a pocket corner.
+            if _edge_is_closed(edge):
                 continue
             r = _edge_radius(edge)
             if r and 0.05 < r < 40:
@@ -238,9 +248,9 @@ def _cavity_ok(solids, bottom, walls, depth):
     return True
 
 
-def _opens_to_side(bottom, walls, bbox, pairs):
-    if len(walls) < 4:
-        return True
+def _opens_to_side(bottom, walls, bbox, _pairs):
+    # b123d-recognisers prismatic-pocket rule: a closed planar wall ring may
+    # have only three walls. Openness comes from reaching the stock boundary.
     fb = bottom["fb"]
     axes = (
         (fb.xmin, bbox.xmin, fb.xmax, bbox.xmax),
@@ -254,16 +264,47 @@ def _opens_to_side(bottom, walls, bbox, pairs):
     return False
 
 
-def _pocket_type(length, width, n_walls, t_slot, opens):
+def _within_slot_cutting_range(width, depth, max_tool_width=12.0):
+    """宽浅间隙按外轮廓/面铣处理，不产出槽腔。"""
+    # Industrial CAM slot rule: width must fit the available cutter range,
+    # unless sufficient depth makes it a genuine pocket rather than a window.
+    return width <= max(max_tool_width, 4.0 * depth) + 1e-6
+
+
+def _is_plate_through_window_wall(bottom, bbox, tol=0.35):
+    """薄板通窗侧壁不能冒充槽底。"""
+    extents = (bbox.xlen, bbox.ylen, bbox.zlen)
+    thin_axis = min(range(3), key=lambda axis: extents[axis])
+    transverse = [extent for axis, extent in enumerate(extents) if axis != thin_axis]
+    if extents[thin_axis] > 0.25 * min(transverse):
+        return False
+    if abs(bottom["n"][thin_axis]) >= 0.25:
+        return False
+    fb = bottom["fb"]
+    face_bounds = (
+        (fb.xmin, fb.xmax),
+        (fb.ymin, fb.ymax),
+        (fb.zmin, fb.zmax),
+    )[thin_axis]
+    stock_bounds = (
+        (bbox.xmin, bbox.xmax),
+        (bbox.ymin, bbox.ymax),
+        (bbox.zmin, bbox.zmax),
+    )[thin_axis]
+    return (
+        abs(face_bounds[0] - stock_bounds[0]) <= tol
+        and abs(face_bounds[1] - stock_bounds[1]) <= tol
+    )
+
+
+def _pocket_type(length, width, _n_walls, t_slot, opens):
     if t_slot:
         return "T型"
     if opens:
         return "开放"
     if length / max(width, 1e-6) >= 3 and width <= 12.0001:
         return "键槽"
-    if n_walls >= 4:
-        return "封闭"
-    return "开放"
+    return "封闭"
 
 
 def _is_t_slot(pairs):
@@ -369,7 +410,11 @@ def detect_slots(path: str) -> list:
         if len(walls) < 2:
             continue
         length, width, depth, t_slot, pairs = _measure(bottom, walls)
+        if _is_plate_through_window_wall(bottom, bbox):
+            continue
         if min(length, width, depth) < 0.8:
+            continue
+        if not _within_slot_cutting_range(width, depth):
             continue
         if not _cavity_ok(solids, bottom, walls, depth):
             continue

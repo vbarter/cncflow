@@ -33,14 +33,16 @@ def test_m8_sample_emits_dpl():
     if not os.path.exists(M8_STEP):
         pytest.skip("missing M8 fixture")
     threads = run_thread(M8_STEP)
-    assert threads, "expected recognized thread"
+    assert len(threads) == 1, threads
     th = threads[0]
+    assert th["feature_id"] == "thread-0"
     assert th["diameter_mm"] == pytest.approx(8, abs=0.3)
     assert th["pitch"] == pytest.approx(1.25, abs=0.05)
     assert th["thread_length"] == pytest.approx(12, abs=1.5)
     result = parse_step_file(M8_STEP)
     rec = [f for f in result["features"] if f.get("subtype") == "recognized_thread"]
-    assert rec
+    assert len(rec) == 1, rec
+    assert rec[0]["feature_id"] == "thread-0"
     assert rec[0]["selected"] is True
     holes = [f for f in result["features"] if f.get("subtype") == "recognized_hole" and f.get("selected")]
     fake = [h for h in holes if abs((h.get("diameter_mm") or 0) - 6.8) < 0.3]
