@@ -287,6 +287,86 @@ def test_nuc_windows_are_not_slots_and_keep_mounting_holes():
     ]) == 18
 
 
+def test_sharp_through_window_is_not_a_slot():
+    cadquery = pytest.importorskip("cadquery")
+    part = (
+        cadquery.Workplane("XY")
+        .box(120, 80, 3.5)
+        .faces(">Z")
+        .workplane()
+        .rect(55, 30)
+        .cutThruAll()
+    )
+    path = _export_step(part)
+    try:
+        slots = run_slot(path)
+        result = parse_step_file(path)
+    finally:
+        os.unlink(path)
+
+    assert slots == []
+    assert not [
+        feature
+        for feature in result["features"]
+        if feature.get("type") in {"slot", "pocket"}
+        or feature.get("subtype") == "recognized_slot"
+    ]
+    assert not [
+        feature
+        for feature in result["features"]
+        if feature.get("subtype") == "recognized_hole"
+    ]
+
+
+def test_step_plus_hole_keeps_hole_and_step():
+    cadquery = pytest.importorskip("cadquery")
+    plate = cadquery.Workplane("XY").box(
+        80, 60, 12, centered=(True, True, False),
+    )
+    cut = (
+        cadquery.Workplane("XY")
+        .center(-20, 0)
+        .box(40, 60, 6, centered=(True, True, False))
+        .translate((0, 0, 6))
+    )
+    part = plate.cut(cut).faces(">Z").workplane().hole(8)
+    path = _export_step(part)
+    try:
+        result = parse_step_file(path)
+    finally:
+        os.unlink(path)
+
+    holes = [
+        feature
+        for feature in result["features"]
+        if feature.get("subtype") == "recognized_hole"
+    ]
+    assert len(holes) == 1, holes
+    assert holes[0]["diameter_mm"] == pytest.approx(8, abs=0.2)
+    assert holes[0]["selected"] is True
+    steps = [
+        feature
+        for feature in result["features"]
+        if feature.get("subtype") == "recognized_step"
+    ]
+    assert len(steps) == 1, steps
+    assert steps[0]["selected"] is True
+    stolen_slots = [
+        feature
+        for feature in result["features"]
+        if feature.get("subtype") == "recognized_slot"
+        and abs((feature.get("corner_radius") or 0) - 4) < 0.6
+    ]
+    assert stolen_slots == []
+    hole_surfaces = [
+        feature
+        for feature in result["features"]
+        if feature.get("subtype") == "recognized_surface"
+        and abs((feature.get("curvature_radius") or 0) - 4) < 0.6
+    ]
+    assert hole_surfaces == []
+
+
 def test_d8_hole_fixture_five_fields_hold():
     pytest.importorskip("cadquery")
     if not os.path.exists(HOLE_D8_STEP):
