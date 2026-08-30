@@ -233,11 +233,10 @@ def test_nuc_mounting_plate_groups_holes_and_uses_net_face_area(client):
 def test_nuc_live_setup_freezes_machining_54_23(tmp_path):
     from app import create_app
     from cncflow_core.common.db import get_conn
-    from data.seed_tools import seed
 
     db_path = tmp_path / "nuc-live.db"
+    live_client = create_app(db_path=str(db_path)).test_client()
     conn = get_conn(db_path)
-    seed(conn)
     conn.execute("UPDATE machines SET setup_fee = 30 WHERE id = 'DMU65'")
     conn.execute(
         "UPDATE rate_table SET setup_fee = 30 "
@@ -245,7 +244,6 @@ def test_nuc_live_setup_freezes_machining_54_23(tmp_path):
     )
     conn.commit()
     conn.close()
-    live_client = create_app(db_path=str(db_path)).test_client()
     features = [
         {
             "type": "hole",
