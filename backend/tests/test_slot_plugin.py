@@ -63,6 +63,28 @@ def test_run_slot_rectangular_pocket_min_fields():
         os.unlink(path)
 
 
+def test_run_slot_closed_triangular_wall_ring_is_one_closed_pocket():
+    cadquery = pytest.importorskip("cadquery")
+    part = (
+        cadquery.Workplane("XY")
+        .box(80, 60, 12)
+        .faces(">Z")
+        .workplane()
+        .polyline([(-12, -8), (12, -8), (0, 12)])
+        .close()
+        .cutBlind(-5)
+    )
+    path = _export_step(part)
+    try:
+        slots = run_slot(path)
+    finally:
+        os.unlink(path)
+
+    assert len(slots) == 1
+    assert slots[0]["pocket_type"] == "封闭"
+    assert slots[0]["depth"] == pytest.approx(5, abs=0.5)
+
+
 def test_pocket_chain_rough_clear_chamfer(client):
     resp = client.post("/api/v1/process-plan", json={
         "feature": {
@@ -199,13 +221,17 @@ def test_open_slot_not_keyway_no_fillet_holes():
     assert pockets[0]["length"] == pytest.approx(40, abs=1.5)
 
 
-def test_nuc_windows_do_not_steal_mounting_hole_radius():
+def test_nuc_windows_are_not_slots_and_keep_mounting_holes():
     pytest.importorskip("cadquery")
     slots = run_slot(NUC_PLATE_STEP)
-    radii = [round(slot.get("corner_radius") or 0, 3) for slot in slots]
-    assert 1.25 not in radii, radii
+    assert slots == []
 
     result = parse_step_file(NUC_PLATE_STEP)
+    assert not [
+        feature
+        for feature in result["features"]
+        if feature.get("subtype") == "recognized_slot"
+    ]
     holes = [
         feature
         for feature in result["features"]
