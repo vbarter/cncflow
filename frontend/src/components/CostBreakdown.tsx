@@ -133,6 +133,64 @@ export function scrapDrawerValues(scrap: any) {
   }
 }
 
+export function matchMachiningStep(
+  operation: any,
+  sequence: any[],
+  used: Set<number>,
+) {
+  if (!Array.isArray(sequence) || !sequence.length) return undefined
+  const name = operation?.name
+  const sku = operation?.tool_sku
+  let fallback = -1
+  for (let index = 0; index < sequence.length; index++) {
+    if (used.has(index)) continue
+    const step = sequence[index]
+    const stepName = step?.name || step?.process
+    const stepSku = step?.sku
+    const nameHit = Boolean(name) && stepName === name
+    const skuHit = Boolean(sku) && Boolean(stepSku) && stepSku === sku
+    if (nameHit && skuHit) {
+      used.add(index)
+      return step
+    }
+    if (fallback < 0 && (skuHit || (nameHit && !sku))) fallback = index
+  }
+  if (fallback < 0) return undefined
+  used.add(fallback)
+  return sequence[fallback]
+}
+
+export function millTimeRows(source: any): [string, string][] {
+  if (!source) return []
+  const time = source.time || {}
+  const formula = source.formula ?? time.formula
+  const n = source.n ?? time.n ?? time.n_act
+  const f = source.f ?? time.f
+  const cut = source.cut ?? time.cut
+  const passes = source.passes ?? time.passes
+  const t = time.t_cut
+  const rows: [string, string][] = []
+  if (formula != null && formula !== "") rows.push(["formula", String(formula)])
+  if (n != null && n !== "") rows.push(["n", decimal(n, 4)])
+  if (f != null && f !== "") rows.push(["f", decimal(f, 4)])
+  if (cut != null && cut !== "") rows.push(["cut", decimal(cut, 4)])
+  if (passes != null && passes !== "") rows.push(["passes", decimal(passes, 0)])
+  if (t != null && t !== "") rows.push(["t切削", decimal(t, 4)])
+  return rows
+}
+
+function machiningOperationRows(operation: any, step: any) {
+  return [
+    ["工序名称", operation.name || "—"],
+    ["设备名称", operation.equipment_name || "—"],
+    ["刀具 SKU", operation.tool_sku || "—"],
+    ["加工时长 (min)", number(operation.minutes).toFixed(2)],
+    ["设备费率 (¥/h)", number(operation.hourly_rate).toFixed(0)],
+    ["工序费用", `¥${number(operation.cost).toFixed(2)}`],
+    ...millTimeRows(step || operation),
+  ]
+}
+
 function MaterialDrawer({ material, onClose }: { material: any; onClose: () => void }) {
   const values = materialDrawerValues(material)
 
@@ -223,9 +281,18 @@ function MaterialDrawer({ material, onClose }: { material: any; onClose: () => v
   </>
 }
 
-function MachiningDrawer({ labor, onClose }: { labor: any; onClose: () => void }) {
+function MachiningDrawer({
+  labor,
+  sequence,
+  onClose,
+}: {
+  labor: any
+  sequence: any[]
+  onClose: () => void
+}) {
   const groups = Array.isArray(labor?.groups) ? labor.groups : []
   const changeover = labor?.changeover || {}
+  const usedSteps = new Set<number>()
 
   useEffect(() => {
     function closeOnEscape(event: KeyboardEvent) {
@@ -275,14 +342,10 @@ function MachiningDrawer({ labor, onClose }: { labor: any; onClose: () => void }
                   className="grid grid-cols-2 gap-x-4 gap-y-3 rounded border border-slate-200 px-4 py-3"
                   key={`${operation.name}-${operation.tool_sku}-${index}`}
                 >
-                  {[
-                    ["工序名称", operation.name || "—"],
-                    ["设备名称", operation.equipment_name || "—"],
-                    ["刀具 SKU", operation.tool_sku || "—"],
-                    ["加工时长 (min)", number(operation.minutes).toFixed(2)],
-                    ["设备费率 (¥/h)", number(operation.hourly_rate).toFixed(0)],
-                    ["工序费用", `¥${number(operation.cost).toFixed(2)}`],
-                  ].map(([label, value]) => (
+                  {machiningOperationRows(
+                    operation,
+                    matchMachiningStep(operation, sequence, usedSteps),
+                  ).map(([label, value]) => (
                     <div key={label}>
                       <dt className="text-xs text-slate-500">{label}</dt>
                       <dd className="mt-1 font-mono text-slate-900">{value}</dd>
@@ -652,6 +715,7 @@ export function CostBreakdown({
     {openDrawer === "machining" && (
       <MachiningDrawer
         labor={quote?.labor_cost_breakdown}
+        sequence={quote?.process_sequence || []}
         onClose={() => setOpenDrawer(null)}
       />
     )}
