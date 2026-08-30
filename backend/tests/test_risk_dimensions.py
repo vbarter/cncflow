@@ -65,6 +65,20 @@ def test_d4_existing_equipment_mismatch_signal_deducts_once():
 
 
 @pytest.mark.parametrize(
+    "tag",
+    [
+        "需要超高速切削中心",
+        "主轴转速不足",
+        "需要刀具可达性检查",
+        "干涉风险",
+        "刚性不足",
+    ],
+)
+def test_r08_r16_risk_tags_do_not_trigger_equipment_deduction(tag):
+    assert risk_dimensions.collect_d4([tag]) == []
+
+
+@pytest.mark.parametrize(
     "step",
     [
         {"order": 1, "process": "drill", "n": 0, "f": 100},

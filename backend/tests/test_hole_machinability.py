@@ -1,4 +1,6 @@
 """孔可加工性判定测试（文档1模块一）。边界值全部取自 YAML 定死的区间。"""
+import pytest
+
 from cncflow_core.features.hole.machinability import evaluate
 from cncflow_core.features.hole.models import HoleSpec
 
@@ -128,6 +130,7 @@ class TestFrozenNaGuards:
         )
         assert result["is_machinable"] is True
         assert result["process_chain"]
+        assert "干涉风险" in result["risk_tags"]
 
     def test_r22_missing_nonstandard_tool_channel_does_not_auto_na(self, client):
         result = _post_pipeline(
@@ -137,3 +140,80 @@ class TestFrozenNaGuards:
         )
         assert result["is_machinable"] is True
         assert result["process_chain"]
+
+
+class TestFrozenR08R16RiskTags:
+    @pytest.mark.parametrize(
+        ("feature", "payload", "tag"),
+        [
+            (
+                {"diameter_mm": 0.5},
+                {"machine_max_rpm": 29_999},
+                "需要超高速切削中心",
+            ),
+            (
+                {"diameter_mm": 1},
+                {"machine_max_rpm": 19_999},
+                "主轴转速不足",
+            ),
+            (
+                {
+                    "position_type": "深腔",
+                    "hole_bottom_distance_from_opening_mm": 50.01,
+                },
+                {},
+                "需要刀具可达性检查",
+            ),
+            (
+                {"diameter_mm": 10, "depth_mm": 50, "long_overhang": True},
+                {},
+                "刚性不足",
+            ),
+        ],
+    )
+    def test_risk_only_rules_keep_machinable_chain(self, client, feature, payload, tag):
+        result = _post_pipeline(client, feature=feature, **payload)
+
+        assert tag in result["risk_tags"]
+        assert result["is_machinable"] is True
+        assert result["process_chain"]
+        assert result["blockers"] == []
+
+    def test_r10_satisfied_standard_rpm_has_no_risk_tag(self, client):
+        result = _post_pipeline(
+            client,
+            feature={"diameter_mm": 10},
+            machine_max_rpm=3_000,
+        )
+
+        assert result["is_machinable"] is True
+        assert result["process_chain"]
+        assert not any(
+            text in tag
+            for tag in result["risk_tags"]
+            for text in ("超高速", "转速不足")
+        )
+
+    def test_r14_boundary_50mm_does_not_fire(self, client):
+        result = _post_pipeline(
+            client,
+            feature={
+                "position_type": "深腔",
+                "hole_bottom_distance_from_opening_mm": 50,
+            },
+        )
+
+        assert "需要刀具可达性检查" not in result["risk_tags"]
+
+    def test_r16_requires_both_deep_hole_and_long_overhang(self, client):
+        shallow = _post_pipeline(
+            client,
+            feature={"diameter_mm": 10, "depth_mm": 49.9, "long_overhang": True},
+        )
+        no_overhang = _post_pipeline(
+            client,
+            feature={"diameter_mm": 10, "depth_mm": 50, "long_overhang": False},
+        )
+
+        assert "刚性不足" not in shallow["risk_tags"]
+        assert "刚性不足" not in no_overhang["risk_tags"]
