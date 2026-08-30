@@ -203,7 +203,7 @@ def test_missing_key_fields_still_quote_with_d9_deductions(client):
     assert {item["rule_id"] for item in d9} == {"D9-1", "D9-2", "D9-3", "D9-4"}
     assert all(item["status"] == "missing" for item in d9)
     assert all(item["deduction"] > 0 and item["reason"] for item in d9)
-    assert body["confidence"] == 100 - sum(item["deduction"] for item in deductions)
+    assert body["confidence"] == max(0, 100 - sum(item["deduction"] for item in deductions))
     assert body["risk"]["customer_forbidden"] is True
     _assert_d9_empty_route_zeros_machining_labor(body)
 
