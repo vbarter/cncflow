@@ -236,17 +236,30 @@ def merge_chamfers(seq: list) -> list:
     tm = dict(timed[0]["time"]) if timed else None
     if tm:
         t_cut = sum(float(s["time"].get("t_cut") or 0) for s in timed)
-        t_tool = sum(float(s["time"].get("t_tool") or 0) for s in timed)
+        batched = any(int(s.get("quantity") or 1) > 1 for s in timed)
+        if batched:
+            tool_changes = {}
+            for step in timed:
+                tool_key = step.get("sku") or step.get("tool") or step.get("process")
+                tool_changes.setdefault(
+                    tool_key,
+                    float(step["time"].get("t_tool") or 0),
+                )
+            t_tool = sum(tool_changes.values())
+        else:
+            t_tool = sum(float(s["time"].get("t_tool") or 0) for s in timed)
         cut = sum(float(s["time"].get("cut") or 0) for s in timed)
         tm.update({
             "cut": round(cut, 4),
             "t_cut": round(t_cut, 4),
             "t_tool": round(t_tool, 4),
-            "t_step": round(t_cut + t_tool, 4),
+            "t_step": round(t_cut + t_tool, 4) if batched else round(minutes, 4),
             "quantity": sum(int(s.get("quantity") or 1) for s in chamfers),
         })
         tm["status"] = _timed_status(merged, t_cut)
         merged["time"] = tm
+        if batched:
+            merged["minutes"] = tm["t_step"]
     for key in ("formula", "n", "f", "cut", "passes", "t_min", "t_max", "status"):
         hit = tm.get(key) if tm and tm.get(key) is not None else None
         if hit is None:

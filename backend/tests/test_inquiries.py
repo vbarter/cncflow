@@ -32,7 +32,6 @@ def test_inquiry_quote_confirm_readonly(client):
     part = q.get_json()["parts"][0]
     assert part["status"] == "quoted"
     assert part["quote"]["quote"]["amount"] > 0
-    assert part["quote"]["volume"]["v_part_mm3"] == 12_500
     c = client.post(f"/api/v1/parts/{part['id']}/confirm")
     assert c.status_code == 200
     assert c.get_json()["status"] == "confirmed"
@@ -84,6 +83,7 @@ def test_quote_uses_parse_bbox(client, seeded_db_path):
     part = q.get_json()["parts"][0]
     assert part["status"] == "quoted"
     assert part["quote"]["quote"]["amount"] > 0
+    assert part["quote"]["volume"]["v_part_mm3"] == 12_500
 
 
 def test_patch_material_and_unselect_hole_recalculates(client, seeded_db_path):
