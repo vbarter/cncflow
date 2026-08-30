@@ -269,13 +269,13 @@ def test_process_claimed_geometry_parse_event(client, seeded_db_path, monkeypatc
     def fake_parse(path):
         return {
             "parser": "geometry-service",
-            "parser_version": "hole-v3",
-            "feature_schema": "hole-v3",
+            "parser_version": "hole-v4",
+            "feature_schema": "hole-v4",
             "geometry": {"volume_cm3": 1},
             "features": [],
             "warnings": [],
             "plugins": [
-                {"id": "hole", "status": "active", "version": "hole-v3"},
+                {"id": "hole", "status": "active", "version": "hole-v4"},
                 {"id": "slot", "status": "stub", "version": None},
                 {"id": "face", "status": "stub", "version": None},
             ],
@@ -290,5 +290,5 @@ def test_process_claimed_geometry_parse_event(client, seeded_db_path, monkeypatc
     assert geo, job["events"]
     message = geo[0]["message"]
     assert "geometry-service" in message
-    assert "hole-v3" in message
+    assert "hole-v4" in message
     assert "hole" in message and "slot" in message and "face" in message

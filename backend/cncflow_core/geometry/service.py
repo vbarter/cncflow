@@ -1,4 +1,4 @@
-"""几何特征服务：询价 parse-job 进程内调用；孔字段与 hole-v3 现网一致。"""
+"""几何特征服务：询价 parse-job 进程内调用；孔字段与 hole-v4 现网一致。"""
 from . import FEATURE_SCHEMA, FACE_FEATURE_FIELDS, FACE_SCHEMA, HOLE_FEATURE_FIELDS, SERVICE_NAME, SLOT_FEATURE_FIELDS, SLOT_SCHEMA, STEP_FEATURE_FIELDS, STEP_SCHEMA, SURFACE_FEATURE_FIELDS, SURFACE_SCHEMA, THREAD_FEATURE_FIELDS, THREAD_SCHEMA
 from .plugins import list_plugins, plugin_names, run_face, run_slot, run_step, run_surface, run_thread
 
@@ -57,7 +57,7 @@ def contract():
         "plugins": list_plugins(),
         "notes": [
             "询价 parse-job 进程内调用 geometry service，Ø8/ZN-010 仍走现网 parse-jobs",
-            "Ø8 / ZN-010 hole-v3 不得回退",
+            "Ø8 / ZN-010 hole-v4 不得回退",
             "台阶本轮验收；孔五字段、槽腔、平面、螺纹不回退",
             "曲面最小集 surface_type/R/position 本轮验收；孔/槽/面/螺纹/台阶不回退",
         ],
@@ -86,7 +86,12 @@ def _is_slot_fillet_hole(hole, slots):
 
 
 def _drop_slot_fillet_holes(features):
-    slots = [f for f in features if f.get("subtype") == "recognized_slot"]
+    slots = [
+        feat
+        for feat in features
+        if feat.get("subtype") == "recognized_slot"
+        or feat.get("type") in {"pocket", "slot"}
+    ]
     if not slots:
         return features
     kept = []
@@ -233,10 +238,76 @@ def _unselect_partial_stock_tops(features, stock_l, stock_w):
     return features
 
 
-def apply_quote_default_selection(features, stock_l=0, stock_w=0):
-    """报价默认勾选：与 parse 同一套肩顶 / 整板 XY 规则。手勾不走这里。"""
+def _hole_axis(feat):
+    axis = feat.get("axis")
+    if isinstance(axis, dict):
+        return (
+            axis.get("x") or 0.0,
+            axis.get("y") or 0.0,
+            axis.get("z") or 0.0,
+        )
+    if isinstance(axis, (tuple, list)) and len(axis) >= 3:
+        return (float(axis[0]), float(axis[1]), float(axis[2]))
+    return None
+
+
+def _quote_extents(features, stock_l, stock_w, stock_h):
+    if stock_h:
+        return (float(stock_l or 0), float(stock_w or 0), float(stock_h))
+    depths = [
+        abs(_feat_num(feat, "depth_mm"))
+        for feat in features
+        if (
+            feat.get("type") == "hole"
+            or feat.get("subtype") == "recognized_hole"
+        )
+        and _feat_num(feat, "depth_mm") > 0
+    ]
+    height = min(depths) if depths else 0.0
+    return (float(stock_l or 0), float(stock_w or 0), height)
+
+
+def _is_raw_cylinder_hole(feat):
+    subtype = feat.get("subtype")
+    feature_id = str(feat.get("feature_id") or feat.get("id") or "")
+    return subtype == "cylindrical_candidate" or feature_id.startswith("cylinder-")
+
+
+def _select_quote_holes(features, stock_l=0, stock_w=0, stock_h=0):
+    """默认只勾过 is_quote_hole 的孔；圆角、外圆和原始圆柱保持未选。"""
+    from cncflow_core.ingestion.step_parser import is_quote_hole
+
+    extents = _quote_extents(features, stock_l, stock_w, stock_h)
+    if not extents[0] or not extents[1]:
+        return features
+    for feat in features:
+        if (
+            feat.get("type") != "hole"
+            and feat.get("subtype") != "recognized_hole"
+        ):
+            continue
+        if _is_raw_cylinder_hole(feat):
+            feat["selected"] = False
+            continue
+        diameter = _feat_num(feat, "diameter_mm")
+        depth = _feat_num(feat, "depth_mm")
+        hole_type = feat.get("hole_type") or "through"
+        if not is_quote_hole(
+            diameter,
+            depth,
+            hole_type,
+            extents,
+            _hole_axis(feat),
+        ):
+            feat["selected"] = False
+    return features
+
+
+def apply_quote_default_selection(features, stock_l=0, stock_w=0, stock_h=0):
+    """报价默认勾选：肩顶、整板 XY 且仅限可报价孔。手勾不走这里。"""
     features = _unselect_step_shoulder_tops(features)
-    return _unselect_partial_stock_tops(features, stock_l, stock_w)
+    features = _unselect_partial_stock_tops(features, stock_l, stock_w)
+    return _select_quote_holes(features, stock_l, stock_w, stock_h)
 
 
 def _drop_hole_as_surfaces(features):

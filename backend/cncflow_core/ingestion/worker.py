@@ -160,7 +160,7 @@ def run_forever(poll_seconds=1.0):
         conn.execute(
             "INSERT INTO parser_workers(worker_id,parser_version,heartbeat_at) VALUES(?,? ,datetime('now')) "
             "ON CONFLICT(worker_id) DO UPDATE SET parser_version=excluded.parser_version,heartbeat_at=datetime('now')",
-            (worker_id, "hole-v3"),
+            (worker_id, FEATURE_SCHEMA),
         )
         conn.commit()
         recover_stale(conn)
