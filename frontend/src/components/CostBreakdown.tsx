@@ -175,7 +175,7 @@ export function millTimeRows(source: any): [string, string][] {
   if (f != null && f !== "") rows.push(["f", decimal(f, 4)])
   if (cut != null && cut !== "") rows.push(["cut", decimal(cut, 4)])
   if (passes != null && passes !== "") rows.push(["passes", decimal(passes, 0)])
-  if (t != null && t !== "") rows.push(["t", decimal(t, 4)])
+  if (t != null && t !== "") rows.push(["t切削", decimal(t, 4)])
   return rows
 }
 

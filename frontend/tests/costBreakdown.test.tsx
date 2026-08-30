@@ -343,7 +343,7 @@ test("millTimeRows 只读 time.t_cut，倒角缺 n/f 则省略", () => {
       f: 2864.78,
       cut: 14.4,
       passes: 1,
-      time: { t_cut: 0.005 },
+      time: { t_cut: 0.0069 },
     })),
     [
       ["formula", "t=cut*passes/f"],
@@ -351,7 +351,7 @@ test("millTimeRows 只读 time.t_cut，倒角缺 n/f 则省略", () => {
       ["f", "2864.78"],
       ["cut", "14.4"],
       ["passes", "1"],
-      ["t", "0.005"],
+      ["t切削", "0.0069"],
     ],
   )
   assert.deepEqual(
@@ -368,8 +368,61 @@ test("millTimeRows 只读 time.t_cut，倒角缺 n/f 则省略", () => {
       ["formula", "t=cut*passes/f"],
       ["cut", "56"],
       ["passes", "1"],
-      ["t", "0.2182"],
+      ["t切削", "0.2182"],
     ],
+  )
+})
+
+test("四工步中间量冻结：面 TK-028 / 钻 TK-003 / 槽 TK-022 / 攻牙 TK-033", () => {
+  assert.deepEqual(
+    Object.fromEntries(millTimeRows(millStep({
+      sku: "TK-028",
+      formula: "t=cut*passes/f",
+      cut: 85.714,
+      time: { t_cut: 0.136 },
+    }))),
+    {
+      formula: "t=cut*passes/f",
+      cut: "85.714",
+      t切削: "0.136",
+    },
+  )
+  assert.deepEqual(
+    Object.fromEntries(millTimeRows(millStep({
+      sku: "TK-003",
+      cut: 14.4,
+      time: { t_cut: 0.0069 },
+    }))),
+    {
+      cut: "14.4",
+      t切削: "0.0069",
+    },
+  )
+  assert.deepEqual(
+    Object.fromEntries(millTimeRows(millStep({
+      sku: "TK-022",
+      cut: 95.238,
+      passes: 8,
+      time: { t_cut: 0.1847 },
+    }))),
+    {
+      cut: "95.238",
+      passes: "8",
+      t切削: "0.1847",
+    },
+  )
+  assert.deepEqual(
+    Object.fromEntries(millTimeRows(millStep({
+      sku: "TK-033",
+      formula: "t=cut/(n*P)",
+      n: 1000,
+      time: { t_cut: 0.0096 },
+    }))),
+    {
+      formula: "t=cut/(n*P)",
+      n: "1000",
+      t切削: "0.0096",
+    },
   )
 })
 
@@ -438,7 +491,7 @@ test("点击加工工时行打开 Ø8 加工费用抽屉并与现网 labor 对�
       f: 1145.91,
       cut: 85.714,
       passes: 1,
-      time: { t_cut: 0.1364 },
+      time: { t_cut: 0.136 },
     }),
     millStep({
       name: "钻孔",
@@ -449,7 +502,7 @@ test("点击加工工时行打开 Ø8 加工费用抽屉并与现网 labor 对�
       f: 2864.78,
       cut: 14.4,
       passes: 1,
-      time: { t_cut: 0.005 },
+      time: { t_cut: 0.0069 },
     }),
     millStep({
       name: "倒角",
@@ -497,7 +550,7 @@ test("点击加工工时行打开 Ø8 加工费用抽屉并与现网 labor 对�
     f: "2864.78",
     cut: "14.4",
     passes: "1",
-    t: "0.005",
+    t切削: "0.0069",
   })
   assertMillTime(operationFields(face, "粗铣"), {
     formula: "t=cut*passes/f",
@@ -505,14 +558,14 @@ test("点击加工工时行打开 Ø8 加工费用抽屉并与现网 labor 对�
     f: "1145.91",
     cut: "85.714",
     passes: "1",
-    t: "0.1364",
+    t切削: "0.136",
   })
   const chamfer = operationFields(face, "倒角")
   assertMillTime(chamfer, {
     formula: "t=cut*passes/f",
     cut: "56",
     passes: "1",
-    t: "0.2182",
+    t切削: "0.2182",
   })
   assert.equal(chamfer.n, undefined)
   assert.equal(chamfer.f, undefined)
@@ -631,7 +684,7 @@ test("加工费用抽屉显示开口槽粗铣 TK-022 中间量且加工工时保
     f: "2291.83",
     cut: "95.238",
     passes: "8",
-    t: "0.1847",
+    t切削: "0.1847",
   })
   assert.equal(slotLabor.machining, 1.59)
 })
@@ -692,7 +745,7 @@ test("加工费用抽屉显示 M8 攻牙 TK-033 中间量且加工工时保持 2
     f: "180",
     cut: "12",
     passes: "1",
-    t: "0.0096",
+    t切削: "0.0096",
   })
   assert.equal(tapLabor.machining, 1.19)
 })
