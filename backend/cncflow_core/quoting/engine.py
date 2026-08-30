@@ -28,7 +28,7 @@ DIFF_MIN = {"D1": 2.0, "D2": 6.0, "D3": 15.0, "D4": 25.0, "NA": 20.0, 1: 2.0, 2:
 DIFF_FACTOR = {"D3": 1.3, "D4": 1.8, 3: 1.3, 4: 1.8}
 STEP_PARAMS = ("formula", "n", "f", "cut", "passes", "t_min", "t_max", "status")
 DIAMETER_MISMATCH_RISK = "刀径非全等，需工艺确认"
-FACE_NET_AREA_RATIO = 1.2
+FACE_NET_AREA_RATIO_RANGE = (1.2, 4.0)
 FEATURE_NAME = {
     "hole": "孔",
     "face": "面",
@@ -96,13 +96,14 @@ def _face_with_quote_area(feat: dict, vol: dict, height: float) -> dict:
         envelope_area = float(feat.get("length") or dimensions.get("length")) * float(
             feat.get("width") or dimensions.get("width")
         )
-        net_area = float(vol.get("v_part_mm3") or 0) / height
+        net_area = round(float(vol.get("v_part_mm3") or 0) / height)
     except (TypeError, ValueError):
         return feat
+    envelope_ratio = envelope_area / net_area if net_area > 0 else 0
     if (
         net_area > 0
         and net_area <= envelope_area
-        and envelope_area >= net_area * FACE_NET_AREA_RATIO
+        and FACE_NET_AREA_RATIO_RANGE[0] <= envelope_ratio <= FACE_NET_AREA_RATIO_RANGE[1]
     ):
         return {**feat, "area": net_area}
     return feat
