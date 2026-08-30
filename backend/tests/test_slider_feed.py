@@ -36,7 +36,7 @@ def _m8():
 
 def test_standard_o8_n_t(client):
     body = client.post("/api/v1/quotes", json={**_o8(), "slider": "标准"}).get_json()
-    assert [s["name"] for s in body["process_sequence"]] == ["粗铣", "钻孔", "倒角"]
+    assert [s["name"] for s in body["process_sequence"]] == ["面粗", "钻孔", "倒角"]
     face = next(s for s in body["process_sequence"] if s["process"] == "rough_face")
     drill = next(s for s in body["process_sequence"] if s["process"] == "drill")
     assert abs(face["time"]["n_act"] - 875) < 8
@@ -60,7 +60,7 @@ def test_standard_slot_n_t(client):
 
 def test_standard_m8_n_t(client):
     body = client.post("/api/v1/quotes", json={**_m8(), "slider": "标准"}).get_json()
-    assert [s["name"] for s in body["process_sequence"]] == ["粗铣", "钻孔", "攻牙", "倒角"]
+    assert [s["name"] for s in body["process_sequence"]] == ["面粗", "底孔", "攻牙", "倒角"]
     face = next(s for s in body["process_sequence"] if s["process"] == "rough_face")
     tap = next(s for s in body["process_sequence"] if s["process"] == "tap")
     assert abs(face["time"]["n_act"] - 1401) < 10
@@ -81,7 +81,7 @@ def test_conservative_same_parts_n_down_t_up(client):
     assert abs(face_c["time"]["cut"] - 85.714) < 0.2
     assert abs(drill_c["time"]["n_act"] - 6764) < 20
     assert 0.50 < drill_c["time"]["t_cut"] * 60 < 0.75  # ≈0.6s
-    assert [s["name"] for s in o8c["process_sequence"]] == ["粗铣", "钻孔", "倒角"]
+    assert [s["name"] for s in o8c["process_sequence"]] == ["面粗", "钻孔", "倒角"]
 
     slot_s = client.post("/api/v1/quotes", json={**_slot(), "slider": "标准"}).get_json()
     slot_c = client.post("/api/v1/quotes", json={**_slot(), "slider": "保守"}).get_json()
@@ -92,7 +92,7 @@ def test_conservative_same_parts_n_down_t_up(client):
     assert rc["time"]["passes"] == 10
     assert 18 < rc["time"]["t_cut"] * 60 < 23  # ≈20s
     assert abs(rc["time"]["cut"] - 95.238) < 0.3
-    assert [s["name"] for s in slot_c["process_sequence"]] == ["粗铣", "粗铣", "倒角"]
+    assert [s["name"] for s in slot_c["process_sequence"]] == ["槽粗", "面粗", "倒角"]
 
     m8s = client.post("/api/v1/quotes", json={**_m8(), "slider": "标准"}).get_json()
     m8c = client.post("/api/v1/quotes", json={**_m8(), "slider": "保守"}).get_json()
@@ -103,7 +103,7 @@ def test_conservative_same_parts_n_down_t_up(client):
     assert fc["time"]["t_cut"] > fs["time"]["t_cut"]
     assert tap_c["time"]["n_act"] == 1000
     assert abs(tap_c["time"]["t_cut"] - 0.0096) < 0.001
-    assert [s["name"] for s in m8c["process_sequence"]] == ["粗铣", "钻孔", "攻牙", "倒角"]
+    assert [s["name"] for s in m8c["process_sequence"]] == ["面粗", "底孔", "攻牙", "倒角"]
     assert m8c["equipment"]["model"] == "VMC850E"
     assert m8c["equipment"]["hourly_rate"] == 120
     assert "低于下限" in (m8c["risk"]["tags"] or [])

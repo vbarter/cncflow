@@ -22,7 +22,7 @@ def test_o8_picks_vmc850e(client):
     assert eq["type"] == "3轴立式加工中心"
     assert eq["hourly_rate"] == 120
     names = [s["name"] for s in body["process_sequence"]]
-    assert names == ["粗铣", "钻孔", "倒角"]
+    assert names == ["面粗", "钻孔", "倒角"]
     drill = next(s for s in body["process_sequence"] if s["process"] == "drill")
     assert abs(drill["time"]["cut"] - 14.4) < 0.05
     assert "设备不匹配" not in (body.get("risk") or {}).get("tags", [])
@@ -37,7 +37,7 @@ def test_open_slot_picks_vmc850e(client):
     assert eq["model"] == "VMC850E"
     assert eq["type"] == "3轴立式加工中心"
     assert eq["hourly_rate"] == 120
-    assert [s["name"] for s in body["process_sequence"]] == ["粗铣", "粗铣", "倒角"]
+    assert [s["name"] for s in body["process_sequence"]] == ["槽粗", "面粗", "倒角"]
 
 
 def test_m8_picks_vmc850e(client):
@@ -54,7 +54,7 @@ def test_m8_picks_vmc850e(client):
     assert eq["model"] == "VMC850E"
     assert eq["type"] == "3轴立式加工中心"
     assert eq["hourly_rate"] == 120
-    assert [s["name"] for s in body["process_sequence"]] == ["粗铣", "钻孔", "攻牙", "倒角"]
+    assert [s["name"] for s in body["process_sequence"]] == ["面粗", "底孔", "攻牙", "倒角"]
 
 
 def test_rate_follows_table_not_hardcode(client):

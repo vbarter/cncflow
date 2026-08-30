@@ -149,7 +149,7 @@ def test_face_quote_eats_tk_facemill(client):
     skus = [s.get("sku") for s in seq if s.get("sku")]
     assert any(str(s).startswith("TK-") for s in skus), seq
     names = [s.get("name") for s in seq]
-    assert "粗铣" in names
+    assert "面粗" in names
     assert "倒角" in names
     assert "TK-028" in skus, skus
     chamfer = next(s for s in seq if s.get("name") == "倒角" or s.get("process") == "chamfer")

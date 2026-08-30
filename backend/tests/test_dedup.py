@@ -91,7 +91,7 @@ def test_quote_o8_three_steps(client):
         ],
     }).get_json()
     names = [s.get("name") for s in body["process_sequence"]]
-    assert names == ["粗铣", "钻孔", "倒角"], names
+    assert names == ["面粗", "钻孔", "倒角"], names
     drill = next(s for s in body["process_sequence"] if s["process"] == "drill")
     assert abs(drill["time"]["cut"] - 14.4) < 0.05
 
@@ -112,7 +112,7 @@ def test_quote_m8_thread_eats_hole(client):
     types = [f["type"] for f in body["features"]]
     assert "hole" not in types
     names = [s.get("name") for s in body["process_sequence"]]
-    assert names == ["粗铣", "钻孔", "攻牙", "倒角"], names
+    assert names == ["面粗", "底孔", "攻牙", "倒角"], names
     assert sum(1 for s in body["process_sequence"] if s["process"] == "drill") == 1
     skus = [s.get("sku") for s in body["process_sequence"]]
     assert "TK-033" in skus
@@ -130,7 +130,7 @@ def test_quote_open_slot_plus_face_three_steps(client):
         ],
     }).get_json()
     names = [s.get("name") for s in body["process_sequence"]]
-    assert names == ["粗铣", "粗铣", "倒角"], names
+    assert names == ["槽粗", "面粗", "倒角"], names
     assert [s["feature_id"] for s in body["process_sequence"] if s["process"] != "chamfer"] == ["slot-0", "face-0"]
     assert [s["sku"] for s in body["process_sequence"][:2]] == ["TK-022", "TK-028"]
     assert sum(s["process"] == "chamfer" for s in body["process_sequence"]) == 1

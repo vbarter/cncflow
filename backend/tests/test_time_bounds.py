@@ -17,7 +17,7 @@ def test_o8_hole_and_face_below_min(client):
     }).get_json()
     assert body["status"] == "quoted"
     assert body["quote"]["amount"] > 0
-    assert [s["name"] for s in body["process_sequence"]] == ["粗铣", "钻孔", "倒角"]
+    assert [s["name"] for s in body["process_sequence"]] == ["面粗", "钻孔", "倒角"]
     face = next(s for s in body["process_sequence"] if s["process"] == "rough_face")
     drill = next(s for s in body["process_sequence"] if s["process"] == "drill")
     chamfer = next(s for s in body["process_sequence"] if s["process"] == "chamfer")
@@ -44,7 +44,7 @@ def test_open_slot_rough_and_face_below_min(client):
         ],
     }).get_json()
     assert body["status"] == "quoted"
-    assert [s["name"] for s in body["process_sequence"]] == ["粗铣", "粗铣", "倒角"]
+    assert [s["name"] for s in body["process_sequence"]] == ["槽粗", "面粗", "倒角"]
     slot = next(s for s in body["process_sequence"] if s["process"] == "rough_pocket")
     face = next(s for s in body["process_sequence"] if s["process"] == "rough_face")
     assert abs(slot["time"]["cut"] - 95.238) < 0.3
@@ -66,7 +66,7 @@ def test_m8_tap_and_table_steps_below_min(client):
         ],
     }).get_json()
     assert body["status"] == "quoted"
-    assert [s["name"] for s in body["process_sequence"]] == ["粗铣", "钻孔", "攻牙", "倒角"]
+    assert [s["name"] for s in body["process_sequence"]] == ["面粗", "底孔", "攻牙", "倒角"]
     tap = next(s for s in body["process_sequence"] if s["process"] == "tap")
     drill = next(s for s in body["process_sequence"] if s["process"] == "drill")
     face = next(s for s in body["process_sequence"] if s["process"] == "rough_face")

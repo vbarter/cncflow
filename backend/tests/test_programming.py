@@ -404,7 +404,7 @@ def test_o8_labor_trace_reconciles_live_machining_and_changeover(tmp_path):
         (op["name"], op["tool_sku"], op["minutes"], op["cost"])
         for op in face_ops
     ] == [
-        ("粗铣", "TK-028", 0.2193, 0.44),
+        ("面粗", "TK-028", 0.2193, 0.44),
         ("倒角", "TK-036", 0.3016, 0.60),
     ]
     assert labor["changeover"] == {

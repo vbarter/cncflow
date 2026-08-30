@@ -126,7 +126,7 @@ def _assert_smoke(body, names, hours=0.1):
 
 def test_o8_plate_emits_step_params(client):
     body = client.post("/api/v1/quotes", json=_o8()).get_json()
-    _assert_smoke(body, ["粗铣", "钻孔", "倒角"])
+    _assert_smoke(body, ["面粗", "钻孔", "倒角"])
     _assert_d1_risk(body, 2)
     assert body["confidence"] == 90
     face = next(s for s in body["process_sequence"] if s["process"] == "rough_face")
@@ -147,7 +147,7 @@ def test_o8_plate_emits_step_params(client):
 
 def test_open_slot_emits_step_params(client):
     body = client.post("/api/v1/quotes", json=_slot()).get_json()
-    _assert_smoke(body, ["粗铣", "粗铣", "倒角"])
+    _assert_smoke(body, ["槽粗", "面粗", "倒角"])
     _assert_d1_risk(body, 2)
     assert body["confidence"] == 90
     slot = next(s for s in body["process_sequence"] if s["process"] == "rough_pocket")
@@ -160,7 +160,7 @@ def test_open_slot_emits_step_params(client):
 
 def test_m8_thread_emits_step_params(client):
     body = client.post("/api/v1/quotes", json=_m8()).get_json()
-    _assert_smoke(body, ["粗铣", "钻孔", "攻牙", "倒角"])
+    _assert_smoke(body, ["面粗", "底孔", "攻牙", "倒角"])
     _assert_d1_risk(body, 3)
     assert body["confidence"] == 85
     tap = next(s for s in body["process_sequence"] if s["process"] == "tap")
