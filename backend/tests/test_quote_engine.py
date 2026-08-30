@@ -13,7 +13,7 @@ def quote(client, payload):
 @pytest.mark.parametrize(
     (
         "sample", "dimensions", "features", "v_part_cad", "names",
-        "processes", "skus", "machining", "material",
+            "processes", "sku_pins", "machining", "material",
     ),
     [
         (
@@ -37,7 +37,7 @@ def quote(client, payload):
             56_997,
             ["粗铣", "钻孔", "倒角"],
             ["rough_face", "drill", "chamfer"],
-            ["TK-028", "TK-003", "TK-036"],
+            {},
             211.39,
             5.72,
         ),
@@ -62,7 +62,7 @@ def quote(client, payload):
             18.757003,
             ["粗铣", "钻孔", "攻牙", "倒角"],
             ["rough_face", "drill", "tap", "chamfer"],
-            ["TK-027", "TK-003", "TK-033", "TK-036"],
+            {"tap": "TK-033"},
             211.19,
             1.17,
         ),
@@ -89,7 +89,11 @@ def quote(client, payload):
             54.430702,
             ["粗铣", "粗铣", "倒角"],
             ["rough_pocket", "rough_face", "chamfer"],
-            ["TK-022", "TK-028", "TK-036"],
+            {
+                "rough_pocket": "TK-022",
+                "rough_face": "TK-028",
+                "chamfer": "TK-036",
+            },
             211.59,
             None,
         ),
@@ -103,7 +107,7 @@ def test_frozen_live_quote_pins(
     v_part_cad,
     names,
     processes,
-    skus,
+    sku_pins,
     machining,
     material,
 ):
@@ -123,7 +127,11 @@ def test_frozen_live_quote_pins(
 
     assert [step["name"] for step in body["process_sequence"]] == names, sample
     assert [step["process"] for step in body["process_sequence"]] == processes, sample
-    assert [step["sku"] for step in body["process_sequence"]] == skus, sample
+    by_process = {step["process"]: step for step in body["process_sequence"]}
+    assert {
+        process: by_process[process]["sku"]
+        for process in sku_pins
+    } == sku_pins, sample
     assert sum(step["process"] == "chamfer" for step in body["process_sequence"]) == 1
     assert body["labor_cost_breakdown"]["total"] == pytest.approx(
         machining,
