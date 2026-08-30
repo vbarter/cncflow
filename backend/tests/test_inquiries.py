@@ -6,7 +6,7 @@ import pytest
 
 from cncflow_core.common.db import get_conn
 from cncflow_core.ingestion.jobs import finish_job
-from cncflow_core.inquiries.api import _cad_volume_mm3
+from cncflow_core.inquiries.api import _cad_volume_mm3, _flatten_hole_fields
 
 
 MINIMAL_STEP = b"ISO-10303-21;\nHEADER;\nFILE_SCHEMA(('AUTOMOTIVE_DESIGN'));\nENDSEC;\nDATA;\nENDSEC;\nEND-ISO-10303-21;"
@@ -15,6 +15,14 @@ MINIMAL_STEP = b"ISO-10303-21;\nHEADER;\nFILE_SCHEMA(('AUTOMOTIVE_DESIGN'));\nEN
 def test_parser_volume_cm3_converts_to_quote_mm3():
     assert _cad_volume_mm3({"volume_cm3": 56.997}) == pytest.approx(56_997)
     assert _cad_volume_mm3({}) is None
+
+
+def test_flatten_feature_fields_preserves_brep_face_area():
+    feature = _flatten_hole_fields({
+        "type": "face",
+        "dimensions": {"length": 285, "width": 128, "area": 20_183},
+    })
+    assert feature["area"] == 20_183
 
 
 
