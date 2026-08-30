@@ -2,6 +2,8 @@
 
 供 app.py 的特征注册表调用；不依赖 Flask。
 """
+import math
+
 from ...common import params_calc, sku_match
 from ...common.case_retrieval import retrieve_process_cases
 from ...common.materials import material_evidence, resolve_material
@@ -17,6 +19,14 @@ _NO_TOOL_PROCESS_NOTES = {
 }
 _NO_TOOL_PROCESSES = set(_NO_TOOL_PROCESS_NOTES)
 _FINISH_WITHOUT_TOOL = {"grind"}
+
+R08_R16_RISK_TAGS = {
+    "R08": "需要超高速切削中心",
+    "R09": "主轴转速不足",
+    "R14": "需要刀具可达性检查",
+    "R15": "干涉风险",
+    "R16": "刚性不足",
+}
 
 
 def _thread_diameter(thread, fallback):
@@ -69,6 +79,112 @@ def _blocking_conditions(payload: dict, feature: dict, hole: HoleSpec) -> list:
             "message": f"{int(machine_axes)} 轴机床不可加工侧向孔，至少需要 4 轴",
         })
     return blockers
+
+
+def _number(source: dict, *keys: str) -> float | None:
+    for key in keys:
+        value = source.get(key)
+        if value in (None, ""):
+            continue
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def _flag(source: dict, *keys: str) -> bool:
+    for key in keys:
+        value = source.get(key)
+        if isinstance(value, str):
+            if value.strip().lower() in {"true", "yes", "1", "是", "有", "需要"}:
+                return True
+        elif value:
+            return True
+    return False
+
+
+def _feature_number(feature: dict, *keys: str) -> float | None:
+    value = _number(feature, *keys)
+    if value is not None:
+        return value
+    dimensions = feature.get("dimensions")
+    return _number(dimensions, *keys) if isinstance(dimensions, dict) else None
+
+
+def _machine_max_rpm(payload: dict) -> float | None:
+    profile = payload.get("machine_profile")
+    if not isinstance(profile, dict):
+        profile = {}
+    return _number(
+        {
+            "machine_max_rpm": payload.get("machine_max_rpm"),
+            "max_spindle_rpm": profile.get("max_spindle_rpm"),
+            "max_rpm": profile.get("max_rpm"),
+        },
+        "machine_max_rpm",
+        "max_spindle_rpm",
+        "max_rpm",
+    )
+
+
+def _required_rpm(payload: dict, feature: dict, default: float) -> float:
+    keys = ("required_rpm", "required_spindle_rpm", "needed_rpm")
+    value = _feature_number(feature, *keys)
+    if value is None:
+        value = _number(payload, *keys)
+    return default if value is None else value
+
+
+def _r08_r16_risk_tags(payload: dict, feature: dict, hole: HoleSpec) -> list[str]:
+    """R08–R16 仅产出标签；不得改变可加工性、工艺链或置信度。"""
+    tags = []
+    max_rpm = _machine_max_rpm(payload)
+
+    if (
+        math.isclose(hole.diameter_mm, 0.5, abs_tol=1e-9)
+        and _required_rpm(payload, feature, 30_000) >= 30_000
+        and max_rpm is not None
+        and max_rpm < 30_000
+    ):
+        tags.append(R08_R16_RISK_TAGS["R08"])
+
+    if (
+        math.isclose(hole.diameter_mm, 1.0, abs_tol=1e-9)
+        and _required_rpm(payload, feature, 20_000) >= 20_000
+        and max_rpm is not None
+        and max_rpm < 20_000
+    ):
+        tags.append(R08_R16_RISK_TAGS["R09"])
+
+    opening_distance = _feature_number(
+        feature,
+        "hole_bottom_distance_from_opening_mm",
+        "bottom_distance_from_opening_mm",
+        "bottom_to_opening_distance_mm",
+        "distance_from_opening_mm",
+        "孔底距开口",
+        "孔底距开口_mm",
+    )
+    if feature.get("position_type") == "深腔" and opening_distance is not None and opening_distance > 50:
+        tags.append(R08_R16_RISK_TAGS["R14"])
+
+    if _flag(feature, "deep_cavity_interference", "interference", "has_interference", "干涉"):
+        tags.append(R08_R16_RISK_TAGS["R15"])
+
+    long_overhang = _flag(
+        feature,
+        "long_overhang",
+        "is_long_overhang",
+        "requires_long_overhang",
+        "tool_long_overhang",
+        "长悬伸",
+    )
+    deep_hole = hole.h_over_d >= 5 or _flag(feature, "deep_hole", "is_deep_hole", "深孔")
+    if deep_hole and long_overhang:
+        tags.append(R08_R16_RISK_TAGS["R16"])
+
+    return tags
 
 
 def run(payload: dict, conn) -> dict:
@@ -247,7 +363,7 @@ def run(payload: dict, conn) -> dict:
     if any(step.get("selected_candidate", {}).get("is_mock") for step in tool_steps):
         top_warnings.append("方案包含模拟 SKU，投产前必须替换为已确认的真实库存")
     deep_rules = load_rules("hole/process_chain.yaml")["deep_hole"]
-    risk_tags = []
+    risk_tags = _r08_r16_risk_tags(payload, feature, hole)
     if hole.h_over_d > deep_rules["gun_drill_max_hd"]:
         risk_tags.append("极限深孔需特种加工/EDM")
     elif hole.h_over_d > deep_rules["gun_drill_min_hd"]:

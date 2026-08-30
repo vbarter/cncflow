@@ -131,9 +131,97 @@ def test_frozen_live_quote_pins(
     if sample == "Ø8":
         assert body["programming_time"] == 93
         assert body["programming_cost"] == pytest.approx(62, abs=0.01)
+        assert body["confidence"] == 90
+        tags = body["risk"]["tags"]
+        assert all(
+            tag == "低于下限"
+            or "刀径非全等" in tag
+            or "TK-003" in tag
+            for tag in tags
+        )
+        assert not any(
+            banned in tag
+            for tag in tags
+            for banned in ("超高速", "转速不足", "深腔", "可达性", "长悬伸", "刚性不足")
+        )
     if sample == "M8":
         tap = next(step for step in body["process_sequence"] if step["process"] == "tap")
         assert tap["sku"] == "TK-033"
+
+
+@pytest.mark.parametrize(
+    ("feature", "risk_override", "safe_override", "tag"),
+    [
+        (
+            {"type": "hole", "diameter_mm": 0.5, "depth_mm": 2},
+            {"machine_max_rpm": 29_999},
+            {"machine_max_rpm": 30_000},
+            "需要超高速切削中心",
+        ),
+        (
+            {"type": "hole", "diameter_mm": 1, "depth_mm": 2},
+            {"machine_max_rpm": 19_999},
+            {"machine_max_rpm": 20_000},
+            "主轴转速不足",
+        ),
+        (
+            {
+                "type": "hole",
+                "diameter_mm": 10,
+                "depth_mm": 20,
+                "position_type": "深腔",
+            },
+            {"hole_bottom_distance_from_opening_mm": 50.01},
+            {"hole_bottom_distance_from_opening_mm": 50},
+            "需要刀具可达性检查",
+        ),
+        (
+            {"type": "hole", "diameter_mm": 10, "depth_mm": 50},
+            {"long_overhang": True},
+            {"long_overhang": False},
+            "刚性不足",
+        ),
+    ],
+)
+def test_r08_r09_r14_r16_tags_do_not_deduct_confidence(
+    client,
+    feature,
+    risk_override,
+    safe_override,
+    tag,
+):
+    base = {
+        "material": "铝合金",
+        "stock_type": "板材",
+        "length": 80,
+        "width": 60,
+        "height": 12,
+    }
+    risk_feature = {**feature, **{
+        key: value
+        for key, value in risk_override.items()
+        if key not in {"machine_max_rpm"}
+    }}
+    safe_feature = {**feature, **{
+        key: value
+        for key, value in safe_override.items()
+        if key not in {"machine_max_rpm"}
+    }}
+    risk_body = quote(client, {
+        **base,
+        **{key: value for key, value in risk_override.items() if key == "machine_max_rpm"},
+        "features": [risk_feature],
+    }).get_json()
+    safe_body = quote(client, {
+        **base,
+        **{key: value for key, value in safe_override.items() if key == "machine_max_rpm"},
+        "features": [safe_feature],
+    }).get_json()
+
+    assert tag in risk_body["risk"]["tags"]
+    assert tag not in safe_body["risk"]["tags"]
+    assert risk_body["confidence"] == safe_body["confidence"]
+    assert risk_body["process_sequence"]
 
 
 def test_bar_stock_volume_example(client):

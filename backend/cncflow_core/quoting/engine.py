@@ -375,6 +375,15 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
         plan_payload = dict(payload)
         plan_payload["feature"] = feat
         plan_payload["material"] = material
+        machine_profile = payload.get("machine_profile")
+        if not isinstance(machine_profile, dict):
+            machine_profile = {}
+        if (
+            payload.get("machine_max_rpm") is None
+            and machine_profile.get("max_spindle_rpm") is None
+            and machine_profile.get("max_rpm") is None
+        ):
+            plan_payload["machine_max_rpm"] = picked.get("max_rpm")
         try:
             result = fn(plan_payload, conn)
         except ValueError as exc:
@@ -599,6 +608,7 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
         "model": picked.get("model"),
         "type": picked.get("type"),
         "axes": picked.get("axes"),
+        "max_rpm": picked.get("max_rpm"),
         "hourly_rate": picked.get("hourly_rate"),
     }
     deductions = risk_dimensions.collect(
