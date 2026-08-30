@@ -12,6 +12,7 @@ SURFACE_FROM_POSITION = {
 ALIGN_COS = math.cos(math.radians(15))
 THROUGH_SPAN = 0.88
 RECESS_MM = 2.0
+MIN_CYLINDER_COVERAGE = 0.8
 
 
 def _xyz(value):
@@ -409,6 +410,7 @@ def _coaxial(a, b, tol_axis=0.05, tol_dir=0.02):
 
 
 def _merge_inner(items):
+    """Merge every connected set of same-diameter faces on one cylinder."""
     used = [False] * len(items)
     groups = []
     for i, item in enumerate(items):
@@ -416,14 +418,37 @@ def _merge_inner(items):
             continue
         group = [item]
         used[i] = True
-        for j in range(i + 1, len(items)):
-            if used[j]:
-                continue
-            if _coaxial(item, items[j]):
+        pending = [item]
+        while pending:
+            current = pending.pop()
+            for j in range(i + 1, len(items)):
+                if used[j] or not _coaxial(current, items[j]):
+                    continue
                 group.append(items[j])
+                pending.append(items[j])
                 used[j] = True
         groups.append(group)
     return groups
+
+
+def cylinder_group_coverage(group):
+    """周向覆盖率：完整孔约为 1，窗口圆角约为 0.25。"""
+    if not group:
+        return 0.0
+    radius = float(group[0].get("diameter_mm") or 0) / 2
+    cyl_min = min(float(item.get("cyl_min") or 0) for item in group)
+    cyl_max = max(float(item.get("cyl_max") or 0) for item in group)
+    depth = cyl_max - cyl_min
+    area = sum(max(float(item.get("area") or 0), 0.0) for item in group)
+    full_area = 2 * math.pi * radius * depth
+    if full_area <= 1e-9:
+        return 0.0
+    return area / full_area
+
+
+def is_complete_cylinder(group, min_coverage=MIN_CYLINDER_COVERAGE):
+    """Only a near-complete cylindrical wall can become a reviewable hole."""
+    return cylinder_group_coverage(group) >= min_coverage
 
 
 def _hole_feature(group, bbox, all_faces, index, cavities=None):
@@ -499,35 +524,6 @@ def _hole_feature(group, bbox, all_faces, index, cavities=None):
     return feat
 
 
-def _candidate(index, radius, depth, location, axis=None, hole_type=None, position_type=None):
-    d = round(radius * 2, 4)
-    h = round(depth, 4)
-    pos = position_type
-    surface = SURFACE_FROM_POSITION.get(pos) if pos else None
-    cut = through_cut_depth(d, h, hole_type) if hole_type else None
-    return {
-        "feature_id": "cylinder-%d" % index,
-        "type": "hole",
-        "subtype": "cylindrical_candidate",
-        "diameter_mm": d,
-        "depth_mm": h,
-        "cut_depth_mm": cut,
-        "h_over_d": round(h / d, 4) if d else None,
-        "hole_type": hole_type,
-        "position_type": pos,
-        "surface": surface,
-        "bottom_shape": "cone",
-        "dimensions": {"diameter_mm": d, "depth_mm": h},
-        "location": location,
-        "axis": axis,
-        "occurrences": 1,
-        "confidence": 0.45,
-        "selected": False,
-        "evidence": ["B-Rep cylinder #%d" % index],
-        "warnings": ["内外圆分不清，请工程师勾选"],
-    }
-
-
 def parse_step(path: str) -> dict:
     try:
         import cadquery as cq
@@ -554,7 +550,7 @@ def parse_step(path: str) -> dict:
         kind = face.geomType()
         geom_counts[kind] = geom_counts.get(kind, 0) + 1
 
-    inner, outer, unknown, other, all_cyls = [], [], [], [], []
+    inner, outer, other, all_cyls = [], [], [], []
     for index, face in enumerate(faces):
         kind = face.geomType()
         location = face.Center()
@@ -568,7 +564,6 @@ def parse_step(path: str) -> dict:
             except Exception:
                 axis, origin, cyl_min, cyl_max = None, None, None, None
             if axis is None or cyl_min is None:
-                unknown.append(_candidate(index, radius, max(fb.xlen, fb.ylen, fb.zlen), _point(location)))
                 continue
             face_center = _xyz(location)
             side = classify_side(solids, face_center, axis, origin, radius, _face_normal(face))
@@ -590,6 +585,7 @@ def parse_step(path: str) -> dict:
                 "solid_max": solid_max,
                 "location": _point(location),
                 "helix": _has_helix(face),
+                "area": float(face.Area()),
             }
             ht = classify_through_blind(cyl_min, cyl_max, solid_min, solid_max)
             lo = _axis_point(origin, axis, cyl_min - 0.4)
@@ -609,13 +605,6 @@ def parse_step(path: str) -> dict:
                 inner.append(rec)
             elif side == "outer":
                 outer.append(rec)
-            else:
-                axis_d = {"x": round(axis[0], 6), "y": round(axis[1], 6), "z": round(axis[2], 6)}
-                pos = classify_position(axis, (bbox.xlen, bbox.ylen, bbox.zlen))
-                unknown.append(_candidate(
-                    index, radius, cyl_max - cyl_min, _point(location), axis_d,
-                    hole_type=ht, position_type=pos,
-                ))
         elif kind == "CONE":
             other.append({
                 "feature_id": "cone-%d" % index, "type": "chamfer", "subtype": "conical_face",
@@ -632,7 +621,8 @@ def parse_step(path: str) -> dict:
             })
 
     features = []
-    for i, group in enumerate(_merge_inner(inner)):
+    complete_holes = [group for group in _merge_inner(inner) if is_complete_cylinder(group)]
+    for i, group in enumerate(complete_holes):
         features.append(_hole_feature(group, bbox, faces, i, cavities=all_cyls))
     for rec in outer:
         depth = rec["cyl_max"] - rec["cyl_min"]
@@ -651,7 +641,6 @@ def parse_step(path: str) -> dict:
             "evidence": ["outer cylinder #%d" % rec["index"]],
             "warnings": ["外圆，不进孔工序链"],
         })
-    features.extend(unknown)
     features.extend(other)
 
     planar = geom_counts.get("PLANE", 0)
@@ -667,9 +656,6 @@ def parse_step(path: str) -> dict:
     warnings = []
     if len(solids) > 1:
         warnings.append("检测到%d个实体，结果按组合体统计" % len(solids))
-    recognized = any(f.get("subtype") == "recognized_hole" for f in features)
-    if not recognized and any(f.get("type") == "hole" for f in features):
-        warnings.append("圆柱面未能确认内孔，已标候选待工程师勾选")
     mesh_glb = None
     try:
         from cncflow_core.geometry.mesh import step_to_glb

@@ -1,5 +1,6 @@
 """Hole recognition fields vs hole pipeline (D/H, through/blind, position_type)."""
 from io import BytesIO
+import math
 
 import pytest
 
@@ -10,10 +11,10 @@ from cncflow_core.ingestion.jobs import finish_job
 from cncflow_core.ingestion.step_parser import (
     classify_by_containment, classify_cylinder_side, classify_position,
     classify_through_blind, classify_through_by_ends, coaxial_cavity_span,
-    is_curved_entry_kind,
+    cylinder_group_coverage, is_complete_cylinder, is_curved_entry_kind,
     is_quote_hole, likely_outer_od, likely_plate_hole, override_false_outer,
     recover_through_depth, through_cut_depth, through_into_cavity,
-    through_wall_depth, _hole_feature,
+    through_wall_depth, _hole_feature, _merge_inner,
 )
 from cncflow_core.inquiries.api import _hole_for_pipeline, _review_and_quote_features
 
@@ -92,6 +93,26 @@ def test_outer_cylinder_not_quoted():
     assert holes[0]["cut_depth_mm"] == pytest.approx(12 + 0.3 * 6)
 
 
+def test_raw_cylinder_candidate_never_reaches_review_or_quote():
+    feats = [
+        {
+            "type": "hole", "feature_id": "cylinder-139",
+            "subtype": "cylindrical_candidate", "selected": True,
+            "diameter_mm": 5.2, "depth_mm": 3.5,
+            "hole_type": "through", "position_type": "垂直",
+        },
+        {
+            "type": "hole", "feature_id": "hole-0",
+            "subtype": "recognized_hole", "selected": True,
+            "diameter_mm": 2.5, "depth_mm": 3.5,
+            "hole_type": "through", "position_type": "垂直",
+        },
+    ]
+    review, quoted = _review_and_quote_features(feats, None, 100, 80)
+    assert [feat["feature_id"] for feat in review] == ["hole-0"]
+    assert [feat["feature_id"] for feat in quoted] == ["hole-0"]
+
+
 def test_quote_recognized_through_hole_runs_chain(client, seeded_db_path):
     inq = client.post("/api/v1/inquiries", json={"customer": "华科"}).get_json()
     iid = inq["id"]
@@ -158,6 +179,58 @@ def test_cadquery_plate_with_through_hole():
     )
     ods = [f for f in result["features"] if f.get("type") == "outer_cylinder"]
     assert not any(f.get("selected") for f in ods)
+
+
+def test_nuc_shape_holes_merge_and_window_fillets_stay_internal():
+    cadquery = pytest.importorskip("cadquery")
+    from cncflow_core.ingestion.step_parser import parse_step
+    import os
+    import tempfile
+
+    thickness = 3.5
+    z0 = -thickness / 2
+
+    def wp():
+        return cadquery.Workplane("XY", origin=(0, 0, z0))
+
+    plate = cadquery.Workplane("XY").box(120, 80, thickness)
+    radius = 2.6
+    window_w, window_h = 55, 30
+    window = wp().rect(window_w - 2 * radius, window_h).extrude(thickness)
+    window = window.union(
+        wp().rect(window_w, window_h - 2 * radius).extrude(thickness),
+    )
+    for x in (-window_w / 2 + radius, window_w / 2 - radius):
+        for y in (-window_h / 2 + radius, window_h / 2 - radius):
+            window = window.union(wp().center(x, y).circle(radius).extrude(thickness))
+    part = plate.cut(window)
+
+    hole_points = (
+        [(x, y) for y in (-30, 30) for x in (-50, -30, -10, 10, 30, 50)]
+        + [(x, y) for x in (-50, 50) for y in (-15, 0, 15)]
+    )
+    for x, y in hole_points:
+        part = part.cut(wp().center(x, y).circle(1.25).extrude(thickness))
+
+    fd, path = tempfile.mkstemp(suffix=".step")
+    os.close(fd)
+    try:
+        cadquery.exporters.export(part, path)
+        result = parse_step(path)
+    finally:
+        os.unlink(path)
+
+    review, quoted = _review_and_quote_features(result["features"], None, 120, 80)
+    holes = [feat for feat in review if feat.get("type") == "hole"]
+    assert len(holes) == 18
+    assert all(feat["feature_id"].startswith("hole-") for feat in holes)
+    assert all(feat["selected"] is True for feat in holes)
+    assert all(feat["diameter_mm"] == pytest.approx(2.5, abs=0.1) for feat in holes)
+    assert all(feat["depth_mm"] == pytest.approx(3.5, abs=0.2) for feat in holes)
+    assert all(feat["hole_type"] == "through" for feat in holes)
+    assert all(feat["position_type"] == "垂直" for feat in holes)
+    assert not any(str(feat.get("feature_id", "")).startswith("cylinder-") for feat in review)
+    assert not any(feat.get("diameter_mm") == pytest.approx(5.2, abs=0.1) for feat in quoted)
 
 
 
@@ -248,6 +321,30 @@ def _cyl(diameter, cyl_min, cyl_max, solid_max=44.0):
         "location": {"x": 0.0, "y": 0.0, "z": 0.0},
         "helix": False,
     }
+
+
+def test_coaxial_partial_faces_merge_into_one_complete_cylinder():
+    depth = 3.5
+    radius = 1.25
+    first = _cyl(radius * 2, 0, depth, solid_max=depth)
+    second = _cyl(radius * 2, 0, depth, solid_max=depth)
+    first["area"] = math.pi * radius * depth
+    second["area"] = math.pi * radius * depth
+
+    groups = _merge_inner([first, second])
+    assert len(groups) == 1
+    assert cylinder_group_coverage(groups[0]) == pytest.approx(1)
+    assert is_complete_cylinder(groups[0]) is True
+
+
+@pytest.mark.parametrize("diameter", [4, 5.2, 6, 8])
+def test_quarter_cylinder_window_fillet_is_not_a_complete_hole(diameter):
+    depth = 3.5
+    radius = diameter / 2
+    fillet = _cyl(diameter, 0, depth, solid_max=depth)
+    fillet["area"] = 0.5 * math.pi * radius * depth
+    assert cylinder_group_coverage([fillet]) == pytest.approx(0.25)
+    assert is_complete_cylinder([fillet]) is False
 
 
 def test_coaxial_cavity_skips_od():

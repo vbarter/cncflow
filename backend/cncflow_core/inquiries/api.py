@@ -330,7 +330,15 @@ def _review_and_quote_features(parsed_feats, selected_ids, L, W):
     review = []
     quoted = []
     selected = set(str(x) for x in selected_ids) if selected_ids is not None else None
-    feats = [dict(feat) for feat in (parsed_feats or []) if isinstance(feat, dict)]
+    feats = []
+    for source in parsed_feats or []:
+        if not isinstance(source, dict):
+            continue
+        feat = dict(source)
+        fid = str(feat.get("feature_id") or feat.get("id") or "")
+        if feat.get("subtype") == "cylindrical_candidate" or fid.startswith("cylinder-"):
+            continue
+        feats.append(feat)
     if selected is None:
         feats = apply_quote_default_selection(feats, L, W)
     for i, feat in enumerate(feats):
