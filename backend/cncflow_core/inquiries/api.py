@@ -8,6 +8,7 @@ from io import BytesIO
 from flask import Blueprint, current_app, jsonify, request, Response, send_file
 
 from ..common.db import get_conn
+from ..geometry import FEATURE_SCHEMA
 from ..geometry.service import apply_quote_default_selection
 from ..ingestion.jobs import get_job
 from ..ingestion import r2
@@ -19,6 +20,22 @@ from .quote_pdf import build_quote_pdf
 
 bp = Blueprint("inquiries", __name__)
 _UNSET = object()
+_BASE_PARSER_SUBTYPES = {
+    "recognized_hole",
+    "cylindrical_candidate",
+    "boss_or_od",
+    "conical_face",
+    "toroidal_face",
+    "planar_region",
+}
+_BASE_PARSER_ID_PREFIXES = (
+    "hole-",
+    "cylinder-",
+    "od-",
+    "cone-",
+    "torus-",
+    "prismatic-region-",
+)
 
 
 def _conn():
@@ -393,7 +410,7 @@ def _sanitize_review_features(features):
     ]
 
 
-def _parse_result(conn, part):
+def _stored_parse_result(conn, part):
     job = None
     if part.get("parse_job_id"):
         try:
@@ -402,6 +419,84 @@ def _parse_result(conn, part):
             job = None
     geom = (job or {}).get("result") or {}
     return geom if isinstance(geom, dict) else {}
+
+
+def _schema_revision(value):
+    match = re.fullmatch(r"hole-v(\d+)", str(value or ""))
+    return int(match.group(1)) if match else None
+
+
+def _is_base_parser_feature(feature):
+    if not isinstance(feature, dict):
+        return True
+    feature_id = str(feature.get("feature_id") or feature.get("id") or "")
+    return (
+        feature.get("type") in {"hole", "outer_cylinder"}
+        or feature.get("subtype") in _BASE_PARSER_SUBTYPES
+        or feature_id.startswith(_BASE_PARSER_ID_PREFIXES)
+    )
+
+
+def _parse_result_needs_refresh(result):
+    if not isinstance(result.get("features"), list):
+        return False
+    current_revision = _schema_revision(FEATURE_SCHEMA)
+    stored_revision = _schema_revision(result.get("feature_schema"))
+    if stored_revision is None or (
+        current_revision is not None and stored_revision < current_revision
+    ):
+        return True
+    return any(
+        isinstance(feature, dict)
+        and feature.get("type") == "hole"
+        and (
+            feature.get("subtype") == "cylindrical_candidate"
+            or str(
+                feature.get("feature_id") or feature.get("id") or "",
+            ).startswith("cylinder-")
+        )
+        for feature in result["features"]
+    )
+
+
+def _refresh_parse_result(conn, part, result):
+    """Reparse stale hole features from the stored STEP without touching mesh."""
+    if not _parse_result_needs_refresh(result):
+        return result, False
+    path = _step_path_for_job(conn, part.get("parse_job_id"))
+    if not path:
+        return result, False
+    from ..ingestion.step_parser import parse_step
+    try:
+        parsed = parse_step(path, include_mesh=False)
+    except Exception:
+        return result, False
+
+    preserved = [
+        feature
+        for feature in result.get("features") or []
+        if not _is_base_parser_feature(feature)
+    ]
+    refreshed = dict(result)
+    refreshed["features"] = list(parsed.get("features") or []) + preserved
+    refreshed["feature_schema"] = FEATURE_SCHEMA
+    if refreshed.get("parser") == "geometry-service":
+        refreshed["parser_version"] = FEATURE_SCHEMA
+    conn.execute(
+        "UPDATE parse_jobs SET result_json=?, updated_at=datetime('now') WHERE job_id=?",
+        (json.dumps(refreshed, ensure_ascii=False), part["parse_job_id"]),
+    )
+    conn.commit()
+    return refreshed, True
+
+
+def _parse_result_with_refresh(conn, part):
+    result = _stored_parse_result(conn, part)
+    return _refresh_parse_result(conn, part, result)
+
+
+def _parse_result(conn, part):
+    return _parse_result_with_refresh(conn, part)[0]
 
 
 def _parse_geom(conn, part):
@@ -500,7 +595,7 @@ def _flatten_hole_fields(feat):
 
 def _attach_parsed_features(conn, part):
     """零件详情在未报价时也能看到 parse-job 孔参数。"""
-    result = _parse_result(conn, part)
+    result, refreshed = _parse_result_with_refresh(conn, part)
     feats = [
         _flatten_hole_fields(f)
         for f in _sanitize_review_features(result.get("features"))
@@ -524,9 +619,15 @@ def _attach_parsed_features(conn, part):
     for key in ("review_features", "features"):
         if isinstance(quote.get(key), list):
             quote[key] = _sanitize_review_features(quote[key])
-    if not (quote.get("review_features") or quote.get("features")):
+    if refreshed or not (quote.get("review_features") or quote.get("features")):
         review, _ = _review_and_quote_features(feats, None, part.get("length") or 0, part.get("width") or 0)
         quote["review_features"] = [_flatten_hole_fields(f) for f in review]
+        if refreshed and isinstance(part.get("quote"), dict):
+            conn.execute(
+                "UPDATE parts SET quote_json=?, updated_at=datetime('now') WHERE id=?",
+                (json.dumps(quote, ensure_ascii=False), part["id"]),
+            )
+            conn.commit()
     part["quote"] = quote
     return part
 

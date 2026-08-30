@@ -1,4 +1,4 @@
-"""几何特征服务：询价 parse-job 进程内调用；孔字段与 hole-v3 现网一致。"""
+"""几何特征服务：询价 parse-job 进程内调用；孔字段与 hole-v4 现网一致。"""
 from . import FEATURE_SCHEMA, FACE_FEATURE_FIELDS, FACE_SCHEMA, HOLE_FEATURE_FIELDS, SERVICE_NAME, SLOT_FEATURE_FIELDS, SLOT_SCHEMA, STEP_FEATURE_FIELDS, STEP_SCHEMA, SURFACE_FEATURE_FIELDS, SURFACE_SCHEMA, THREAD_FEATURE_FIELDS, THREAD_SCHEMA
 from .plugins import list_plugins, plugin_names, run_face, run_slot, run_step, run_surface, run_thread
 
@@ -57,7 +57,7 @@ def contract():
         "plugins": list_plugins(),
         "notes": [
             "询价 parse-job 进程内调用 geometry service，Ø8/ZN-010 仍走现网 parse-jobs",
-            "Ø8 / ZN-010 hole-v3 不得回退",
+            "Ø8 / ZN-010 hole-v4 不得回退",
             "台阶本轮验收；孔五字段、槽腔、平面、螺纹不回退",
             "曲面最小集 surface_type/R/position 本轮验收；孔/槽/面/螺纹/台阶不回退",
         ],

@@ -1,4 +1,4 @@
-"""GLB export and part mesh endpoint. Does not change hole-v3 fields."""
+"""GLB export and part mesh endpoint. Does not change hole-v4 fields."""
 from io import BytesIO
 
 from cncflow_core.common.db import get_conn

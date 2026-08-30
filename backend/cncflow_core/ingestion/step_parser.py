@@ -569,7 +569,7 @@ def _hole_feature(group, bbox, all_faces, index, cavities=None):
     return feat
 
 
-def parse_step(path: str) -> dict:
+def parse_step(path: str, include_mesh: bool = True) -> dict:
     try:
         import cadquery as cq
     except ImportError as exc:
@@ -703,15 +703,16 @@ def parse_step(path: str) -> dict:
     if len(solids) > 1:
         warnings.append("检测到%d个实体，结果按组合体统计" % len(solids))
     mesh_glb = None
-    try:
-        from cncflow_core.geometry.mesh import step_to_glb
-        mesh_glb = step_to_glb(path)
-    except Exception:
-        warnings.append("网格导出失败，零件详情将显示空态")
+    if include_mesh:
+        try:
+            from cncflow_core.geometry.mesh import step_to_glb
+            mesh_glb = step_to_glb(path)
+        except Exception:
+            warnings.append("网格导出失败，零件详情将显示空态")
 
     out = {
         "parser": "cadquery-occ", "parser_version": getattr(cq, "__version__", "unknown"),
-        "feature_schema": "hole-v3",
+        "feature_schema": "hole-v4",
         "geometry": {
             "unit": "mm", "solid_count": len(solids), "volume_cm3": round(volume / 1000, 6),
             "surface_area_cm2": round(area / 100, 6), "bounding_box_mm": _bbox(bbox),
