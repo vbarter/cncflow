@@ -40,6 +40,11 @@ function featType(f: Feat): string {
   return String(f.type || f.kind || f.feature_type || "").toLowerCase()
 }
 
+export function isReviewTreeFeature(feature: Feat): boolean {
+  const id = String(feature?.feature_id || feature?.id || "")
+  return feature?.subtype !== "cylindrical_candidate" && !id.startsWith("cylinder-")
+}
+
 function poseOf(f: Feat): Pose | null {
   const t = featType(f)
   const dim = f.dimensions || {}
@@ -417,8 +422,15 @@ export function FeatureReview({
   const [sectionT, setSectionT] = useState(0.5)
   const fitted = useRef(false)
   const meshUrl = `${API}/parts/${partId}/mesh`
-  const selected = features.find((f) => f.feature_id === picked)
-  const pickables = useMemo(() => features.filter((f) => poseOf(f)), [features])
+  const visibleFeatures = useMemo(
+    () => features.filter(isReviewTreeFeature),
+    [features],
+  )
+  const selected = visibleFeatures.find((f) => f.feature_id === picked)
+  const pickables = useMemo(
+    () => visibleFeatures.filter((f) => poseOf(f)),
+    [visibleFeatures],
+  )
   const fields = selected ? inspectorFields(selected) : null
   const dimensions = selected ? editableDimensions(selected) : []
   const selectedSteps = useMemo(
@@ -435,13 +447,13 @@ export function FeatureReview({
 
   useEffect(() => {
     setDimensionDrafts({})
-  }, [features])
+  }, [visibleFeatures])
 
   useEffect(() => {
-    if (picked && !features.some((feature) => feature.feature_id === picked)) {
+    if (picked && !visibleFeatures.some((feature) => feature.feature_id === picked)) {
       setPicked(null)
     }
-  }, [features, picked])
+  }, [visibleFeatures, picked])
 
   useEffect(() => {
     if (!box || fitted.current) return
@@ -506,7 +518,7 @@ export function FeatureReview({
       <section className="rounded border border-[#e2e8f0] bg-[#f8fafc] p-3">
         <div className="mb-3 text-xs font-medium text-slate-700">特征树</div>
         <div className="max-h-[260px] space-y-1 overflow-auto text-sm lg:max-h-[420px]">
-          {features.length ? features.map((f) => {
+          {visibleFeatures.length ? visibleFeatures.map((f) => {
             const on = f.selected !== false
             const active = f.feature_id === picked
             return (

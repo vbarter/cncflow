@@ -330,15 +330,7 @@ def _review_and_quote_features(parsed_feats, selected_ids, L, W):
     review = []
     quoted = []
     selected = set(str(x) for x in selected_ids) if selected_ids is not None else None
-    feats = []
-    for source in parsed_feats or []:
-        if not isinstance(source, dict):
-            continue
-        feat = dict(source)
-        fid = str(feat.get("feature_id") or feat.get("id") or "")
-        if feat.get("subtype") == "cylindrical_candidate" or fid.startswith("cylinder-"):
-            continue
-        feats.append(feat)
+    feats = [dict(source) for source in _sanitize_review_features(parsed_feats)]
     if selected is None:
         feats = apply_quote_default_selection(feats, L, W)
     for i, feat in enumerate(feats):
@@ -376,6 +368,17 @@ def _review_and_quote_features(parsed_feats, selected_ids, L, W):
                 quoted.append(mapped)
     features = quoted
     return review, features
+
+
+def _sanitize_review_features(features):
+    """Raw B-Rep cylinders are parser internals, never review-tree features."""
+    return [
+        feature
+        for feature in features or []
+        if isinstance(feature, dict)
+        and feature.get("subtype") != "cylindrical_candidate"
+        and not str(feature.get("feature_id") or feature.get("id") or "").startswith("cylinder-")
+    ]
 
 
 def _parse_result(conn, part):
@@ -485,7 +488,10 @@ def _flatten_hole_fields(feat):
 def _attach_parsed_features(conn, part):
     """零件详情在未报价时也能看到 parse-job 孔参数。"""
     result = _parse_result(conn, part)
-    feats = [_flatten_hole_fields(f) for f in (result.get("features") or [])]
+    feats = [
+        _flatten_hole_fields(f)
+        for f in _sanitize_review_features(result.get("features"))
+    ]
     part["parsed_features"] = feats
     mesh = result.get("mesh") if isinstance(result.get("mesh"), dict) else None
     stored = bool(mesh and (mesh.get("key") or mesh.get("path")))
@@ -500,12 +506,15 @@ def _attach_parsed_features(conn, part):
     quote = part.get("quote")
     if not isinstance(quote, dict):
         quote = {}
-        part["quote"] = quote
+    else:
+        quote = dict(quote)
+    for key in ("review_features", "features"):
+        if isinstance(quote.get(key), list):
+            quote[key] = _sanitize_review_features(quote[key])
     if not (quote.get("review_features") or quote.get("features")):
         review, _ = _review_and_quote_features(feats, None, part.get("length") or 0, part.get("width") or 0)
-        quote = dict(quote)
         quote["review_features"] = [_flatten_hole_fields(f) for f in review]
-        part["quote"] = quote
+    part["quote"] = quote
     return part
 
 

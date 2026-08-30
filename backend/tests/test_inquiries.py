@@ -1,5 +1,8 @@
 """询价单 / 零件状态机。"""
 from io import BytesIO
+import json
+
+import pytest
 
 from cncflow_core.common.db import get_conn
 from cncflow_core.ingestion.jobs import finish_job
@@ -157,6 +160,92 @@ def test_part_detail_shows_parse_job_holes_before_quote(client, seeded_db_path):
     assert hole["hole_type"] == "through"
     assert hole["position_type"] == "垂直"
     assert hole.get("cut_depth_mm") == 26.99
+
+
+@pytest.mark.parametrize(
+    ("part_name", "candidate_id", "candidate_diameter", "hole_diameter", "hole_depth"),
+    [
+        ("NUC", "cylinder-139", 5.2, 2.5, 3.5),
+        ("ZN-010", "cylinder-3", 33.4, 3.3, 26),
+    ],
+)
+def test_part_detail_sanitizes_stale_stored_and_parsed_cylinders(
+    client,
+    seeded_db_path,
+    part_name,
+    candidate_id,
+    candidate_diameter,
+    hole_diameter,
+    hole_depth,
+):
+    inquiry = client.post(
+        "/api/v1/inquiries",
+        json={"customer": "华科"},
+    ).get_json()
+    pid = client.post(
+        f"/api/v1/inquiries/{inquiry['id']}/parts",
+        json={"name": part_name, "material": "铝合金"},
+    ).get_json()["id"]
+    upload = {
+        "step_file": (BytesIO(MINIMAL_STEP), "part.step"),
+        "part_id": pid,
+    }
+    job_id = client.post(
+        "/api/v1/parse-jobs",
+        data=upload,
+        content_type="multipart/form-data",
+    ).get_json()["job_id"]
+    candidate = {
+        "type": "hole",
+        "feature_id": candidate_id,
+        "subtype": "cylindrical_candidate",
+        "selected": True,
+        "diameter_mm": candidate_diameter,
+        "depth_mm": hole_depth,
+        "hole_type": "through",
+        "position_type": "垂直",
+    }
+    hole = {
+        "type": "hole",
+        "feature_id": "hole-0",
+        "subtype": "recognized_hole",
+        "selected": True,
+        "diameter_mm": hole_diameter,
+        "depth_mm": hole_depth,
+        "hole_type": "through",
+        "position_type": "垂直",
+    }
+    conn = get_conn(seeded_db_path)
+    finish_job(conn, job_id, {
+        "geometry": {
+            "volume_cm3": 12.5,
+            "bounding_box_mm": {"x": 120, "y": 80, "z": hole_depth},
+        },
+        "features": [candidate, hole],
+        "drawing": None,
+        "warnings": [],
+    })
+    conn.close()
+
+    quoted = client.get(f"/api/v1/parts/{pid}").get_json()
+    stale_quote = quoted["quote"]
+    stale_quote["review_features"] = [candidate, hole]
+    conn = get_conn(seeded_db_path)
+    conn.execute(
+        "UPDATE parts SET quote_json=? WHERE id=?",
+        (json.dumps(stale_quote, ensure_ascii=False), pid),
+    )
+    conn.commit()
+    conn.close()
+
+    response = client.get(f"/api/v1/parts/{pid}")
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert [feature["feature_id"] for feature in payload["parsed_features"]] == ["hole-0"]
+    assert [
+        feature["feature_id"]
+        for feature in payload["quote"]["review_features"]
+    ] == ["hole-0"]
 
 
 def test_post_part_quote_one_click(client):
