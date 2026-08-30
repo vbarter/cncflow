@@ -352,6 +352,7 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
     }
 
     features = dedup.absorb_holes(features)
+    features = dedup.absorb_step_faces(features)
     picked = equipment.select(factory, payload, features, L, D, H)
     rate = picked["rate"]
     hourly = float(payload.get("hourly_rate") or rate["hourly_rate"])

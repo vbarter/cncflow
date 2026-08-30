@@ -66,6 +66,20 @@ def test_far_hole_not_eaten():
     assert [f["type"] for f in got] == ["thread", "hole"]
 
 
+def test_step_eats_matching_shoulder_top_only():
+    feats = [
+        {"type": "step", "feature_id": "step-0", "length": 80, "width": 25, "height": 8},
+        {"type": "face", "feature_id": "shoulder-top", "length": 80, "width": 25},
+        {"type": "face", "feature_id": "plate-top", "length": 80, "width": 60},
+        {
+            "type": "face", "feature_id": "step-side", "length": 80, "width": 25,
+            "face_position": "垂直",
+        },
+    ]
+    got = dedup.absorb_step_faces(feats)
+    assert [f["feature_id"] for f in got] == ["step-0", "plate-top", "step-side"]
+
+
 def test_quote_o8_three_steps(client):
     body = client.post("/api/v1/quotes", json={
         "material": "铝合金",
@@ -109,6 +123,7 @@ def test_quote_open_slot_plus_face_three_steps(client):
         "material": "铝合金",
         "stock_type": "板材",
         "length": 80, "width": 60, "height": 12,
+        "v_part_cad": 54.430702,
         "features": [
             {"type": "slot", "feature_id": "slot-0", "length": 40, "width": 10, "depth": 8, "corner_radius": 3, "pocket_type": "开放"},
             {"type": "face", "feature_id": "face-0", "length": 80, "width": 60},
@@ -117,3 +132,33 @@ def test_quote_open_slot_plus_face_three_steps(client):
     names = [s.get("name") for s in body["process_sequence"]]
     assert names == ["粗铣", "粗铣", "倒角"], names
     assert [s["feature_id"] for s in body["process_sequence"] if s["process"] != "chamfer"] == ["slot-0", "face-0"]
+    assert [s["sku"] for s in body["process_sequence"][:2]] == ["TK-022", "TK-028"]
+    assert sum(s["process"] == "chamfer" for s in body["process_sequence"]) == 1
+    assert body["labor_cost_breakdown"]["total"] == 211.59
+    assert body["material_cost_breakdown"]["net_material_cost"] == 3.25
+    assert body["programming_time"] == 103
+    assert body["programming_cost"] == 68.67
+
+
+def test_quote_step_swallows_checked_shoulder_top(client):
+    body = client.post("/api/v1/quotes", json={
+        "material": "铝合金",
+        "stock_type": "板材",
+        "length": 80, "width": 60, "height": 12,
+        "features": [
+            {
+                "type": "step", "feature_id": "step-0",
+                "length": 80, "width": 25, "height": 8,
+            },
+            {
+                "type": "face", "feature_id": "face-0",
+                "length": 80, "width": 25, "face_position": "水平",
+            },
+        ],
+    }).get_json()
+    assert [s["process"] for s in body["process_sequence"]] == ["rough_step", "chamfer"]
+    assert [s["sku"] for s in body["process_sequence"]] == ["TK-026", "TK-036"]
+    assert body["labor_cost_breakdown"]["total"] == 214.18
+    assert body["material_cost_breakdown"]["net_material_cost"] == 3.43
+    assert body["programming_time"] == 90
+    assert body["programming_cost"] == 60
