@@ -119,6 +119,20 @@ export function inspectDrawerValues(inspectFee: unknown) {
   }
 }
 
+export function scrapDrawerValues(scrap: any) {
+  const rate = scrap?.scrap_rate
+
+  return {
+    slider: scrap?.slider || "—",
+    materialGroup: scrap?.material_group || "—",
+    scrapRate: rate == null || rate === ""
+      ? "—"
+      : `${decimal(number(rate) * 100, 2)}%`,
+    base: number(scrap?.base).toFixed(2),
+    scrapFee: number(scrap?.scrap_fee).toFixed(2),
+  }
+}
+
 function MaterialDrawer({ material, onClose }: { material: any; onClose: () => void }) {
   const values = materialDrawerValues(material)
 
@@ -438,6 +452,62 @@ function InspectDrawer({
   </>
 }
 
+function ScrapDrawer({ scrap, onClose }: { scrap: any; onClose: () => void }) {
+  const values = scrapDrawerValues(scrap)
+
+  useEffect(() => {
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") onClose()
+    }
+    window.addEventListener("keydown", closeOnEscape)
+    return () => window.removeEventListener("keydown", closeOnEscape)
+  }, [onClose])
+
+  const rows = [
+    ["滑轴档", values.slider],
+    ["材料组", values.materialGroup],
+    ["报废率", values.scrapRate],
+    ["计费基数", values.base],
+    ["不良损耗", values.scrapFee],
+  ]
+
+  return <>
+    <button
+      type="button"
+      className="fixed inset-0 z-40 cursor-default bg-slate-950/30"
+      aria-label="关闭不良损耗费用明细"
+      onClick={onClose}
+    />
+    <aside
+      id="scrap-cost-drawer"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="scrap-cost-drawer-title"
+      className="fixed inset-y-0 right-0 z-50 w-full max-w-md overflow-y-auto bg-white shadow-2xl"
+    >
+      <div className="flex items-center justify-between border-b border-slate-200 px-6 py-5">
+        <h2 id="scrap-cost-drawer-title" className="text-lg font-semibold">不良损耗费用</h2>
+        <button
+          type="button"
+          className="flex size-10 items-center justify-center rounded text-2xl text-slate-500 hover:bg-slate-100"
+          aria-label="关闭"
+          onClick={onClose}
+        >
+          ×
+        </button>
+      </div>
+      <dl className="divide-y divide-slate-100 px-6 py-6 text-sm">
+        {rows.map(([label, value]) => (
+          <div className="flex items-center justify-between gap-4 py-3 first:pt-0 last:pb-0" key={label}>
+            <dt className="text-slate-500">{label}</dt>
+            <dd className="font-mono text-right text-slate-900">{value}</dd>
+          </div>
+        ))}
+      </dl>
+    </aside>
+  </>
+}
+
 function FixtureDrawer({ fixture, onClose }: { fixture: any; onClose: () => void }) {
   const values = fixtureDrawerValues(fixture)
 
@@ -510,7 +580,7 @@ export function CostBreakdown({
   quoteSummary: any
 }) {
   const [openDrawer, setOpenDrawer] = useState<
-    "material" | "machining" | "fixture" | "programming" | "inspect" | null
+    "material" | "machining" | "fixture" | "programming" | "inspect" | "scrap" | null
   >(null)
   const maxCost = Math.max(1, ...COST_ROWS.map(([key]) => costValue(quote, uiCost, key)))
 
@@ -535,6 +605,7 @@ export function CostBreakdown({
                 || key === "machining"
                 || key === "inspect"
                 || key === "toolwear"
+                || key === "scrap"
                 ? value.toFixed(2)
                 : yen(value)}
             </div>
@@ -544,7 +615,8 @@ export function CostBreakdown({
             || key === "material"
             || key === "machining"
             || key === "programming"
-            || key === "inspect" ? (
+            || key === "inspect"
+            || key === "scrap" ? (
             <button
               key={key}
               type="button"
@@ -592,6 +664,12 @@ export function CostBreakdown({
     {openDrawer === "inspect" && (
       <InspectDrawer
         inspectFee={uiCost?.inspect}
+        onClose={() => setOpenDrawer(null)}
+      />
+    )}
+    {openDrawer === "scrap" && (
+      <ScrapDrawer
+        scrap={quote?.scrap_cost_breakdown}
         onClose={() => setOpenDrawer(null)}
       />
     )}

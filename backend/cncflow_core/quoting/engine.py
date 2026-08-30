@@ -685,6 +685,13 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
             "toolwear": round(toolwear, 2),
             "scrap": round(scrap_fee, 2),
         },
+        "scrap_cost_breakdown": {
+            "slider": slide["slider"],
+            "material_group": slide["material_group"],
+            "scrap_rate": float(slide["scrap_rate"]),
+            "base": round(base, 2),
+            "scrap_fee": round(scrap_fee, 2),
+        },
         "labor_cost_breakdown": {
             "machining": round(machining_sub, 2),
             "setup": round(setup_ui, 2),

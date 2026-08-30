@@ -142,6 +142,144 @@ def test_pinned_live_sample_numbers(client, sample_id, features, expected_time, 
     )
 
 
+@pytest.mark.parametrize(
+    ("sample", "features", "overrides", "expected_slider", "expected_rate", "expected_scrap"),
+    [
+        (
+            "Ø8",
+            [
+                {
+                    "type": "hole",
+                    "feature_id": "hole-0",
+                    "selected": True,
+                    "diameter_mm": 8,
+                    "depth_mm": 12,
+                    "cut_depth_mm": 14.4,
+                    "hole_type": "through",
+                    "surface": "top",
+                    "position_type": "垂直",
+                    "bottom_shape": "cone",
+                },
+                {
+                    "type": "face",
+                    "feature_id": "face-1",
+                    "selected": True,
+                    "length": 80,
+                    "width": 60,
+                    "face_position": "水平",
+                },
+            ],
+            {"v_part_cad": 56.996814},
+            "标准",
+            0.05,
+            16.84,
+        ),
+        (
+            "开口槽",
+            [
+                {
+                    "type": "pocket",
+                    "feature_id": "slot-0",
+                    "selected": True,
+                    "pocket_type": "开放",
+                    "length": 40,
+                    "width": 10,
+                    "depth": 8,
+                    "corner_radius": 3,
+                },
+                {
+                    "type": "face",
+                    "feature_id": "face-0",
+                    "selected": True,
+                    "length": 80,
+                    "width": 60,
+                    "face_position": "水平",
+                },
+            ],
+            {"v_part_cad": 54.430702},
+            "标准",
+            0.05,
+            17.18,
+        ),
+        (
+            "M8",
+            [
+                {
+                    "type": "thread",
+                    "feature_id": "thread-0",
+                    "selected": True,
+                    "diameter_mm": 8,
+                    "nominal_d": 8,
+                    "pitch": 1.25,
+                    "thread_length": 12,
+                },
+                {
+                    "type": "face",
+                    "feature_id": "face-2",
+                    "selected": True,
+                    "length": 40,
+                    "width": 40,
+                    "face_position": "水平",
+                },
+            ],
+            {
+                "length": 40,
+                "width": 40,
+                "height": 12,
+                "v_part_cad": 18.757003,
+            },
+            "标准",
+            0.05,
+            16.72,
+        ),
+        (
+            "387101",
+            [{
+                "type": "surface",
+                "feature_id": "surface-0",
+                "selected": True,
+                "surface_type": "凸面",
+                "curvature_radius": 20,
+                "manual_hours": 0.1607,
+            }],
+            {"length": 63.5, "width": 63.5, "height": 17, "slider": "激进"},
+            "激进",
+            0.12,
+            69.63,
+        ),
+    ],
+)
+def test_scrap_cost_breakdown_pins(
+    client,
+    sample,
+    features,
+    overrides,
+    expected_slider,
+    expected_rate,
+    expected_scrap,
+):
+    body = _quote(client, features, **overrides)
+    breakdown = body["scrap_cost_breakdown"]
+    items = {item["code"]: item["amount"] for item in body["cost_items"]}
+
+    assert breakdown["slider"] == expected_slider, sample
+    assert breakdown["material_group"] == "易切", sample
+    assert breakdown["scrap_rate"] == expected_rate, sample
+    assert breakdown["scrap_fee"] == pytest.approx(expected_scrap, abs=0.02), sample
+    assert breakdown["scrap_fee"] == body["ui_cost"]["scrap"] == items["SCRAP"], sample
+    assert breakdown["scrap_fee"] == pytest.approx(
+        breakdown["base"] * breakdown["scrap_rate"],
+        abs=0.02,
+    ), sample
+    if sample == "Ø8":
+        assert breakdown["base"] == pytest.approx(336.79, abs=0.02)
+        assert body["ui_cost"]["inspect"] == 60
+    if sample == "387101":
+        assert body["fixture"]["fixture_processing_cost"] == pytest.approx(1.72, abs=0.01)
+        assert body["fixture"]["fixture_material_cost"] == pytest.approx(40.78, abs=0.02)
+        assert items["FIX"] == pytest.approx(42.50, abs=0.01)
+
+
 def test_it6_requires_aluminum_fixture_without_changing_programming(client):
     body = _quote(
         client,
