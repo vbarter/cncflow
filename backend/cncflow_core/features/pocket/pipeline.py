@@ -3,6 +3,12 @@ from ..generic import evaluate_difficulty
 
 _LEVEL_ORDER = {"D1": 1, "D2": 2, "D3": 3, "D4": 4, "NA": 5}
 _TYPE_LEVEL = {"开放": "D1", "封闭": "D2", "键槽": "D2", "T型": "D3", "T型槽": "D3"}
+_TYPE_RISK_TAGS = {
+    "封闭": ["封闭型腔排屑差，需螺旋下刀"],
+    "键槽": ["键槽需键槽刀；刀具目录无专用 SKU，沿用现有铣刀并人工确认"],
+    "T型": ["T型槽高风险，需T型刀/燕尾刀；刀具目录无专用 SKU，沿用现有铣刀并人工确认"],
+    "T型槽": ["T型槽高风险，需T型刀/燕尾刀；刀具目录无专用 SKU，沿用现有铣刀并人工确认"],
+}
 
 
 def _worse(a, b):
@@ -73,8 +79,7 @@ def run(payload: dict, conn) -> dict:
     difficulty["level"] = _worse(difficulty["level"], _TYPE_LEVEL.get(str(pocket_type), "D1"))
     chain = _handbook_chain(length, width, depth, corner, it, ra)
     tags = ["槽腔超边界，需人工确认"] if difficulty["na"] else []
-    if pocket_type == "T型":
-        tags.append("T型槽需专用刀，人工确认")
+    tags.extend(_TYPE_RISK_TAGS.get(str(pocket_type), []))
     if depth / width > 2:
         tags.append("深槽排屑困难")
     if corner < 2:
