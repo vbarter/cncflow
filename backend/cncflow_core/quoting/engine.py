@@ -364,6 +364,16 @@ def _feature_minutes(result: dict, ftype: str) -> tuple[float, object, bool]:
     return DIFF_MIN.get(level, 6.0), level, bool(diff.get("na"))
 
 
+def _surface_manual_minutes(plans: list) -> float:
+    """曲面手补工时（分钟）。无 process_sequence 时只认这一口，不走 DIFF_MIN。"""
+    total = 0.0
+    for plan in plans:
+        if plan.get("type") != "surface":
+            continue
+        total += float((plan.get("plan") or {}).get("manual_hours") or 0) * 60
+    return total
+
+
 def quote(payload: dict, conn, rules_version: str = "") -> dict:
     material = payload.get("material") or payload.get("material_code") or "铝合金"
     factory = get_config(conn)
@@ -530,6 +540,10 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
     )
     if seq:
         cut_min = sum(float(step.get("minutes") or 0) for step in seq)
+    else:
+        # D9-4：空工艺路线不得沿用 _feature_minutes / DIFF_MIN / 空链默认走刀。
+        cut_min = _surface_manual_minutes(plans)
+        n_tools = 0
     # 人工路线偏离系统推荐顺序时计入最小切换/复核工时；原路线保持零调整。
     sequence_adjustment_min = sequence_inversions * 0.5
     cut_min += sequence_adjustment_min
@@ -567,6 +581,13 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
         setup_amort = setup_fee / batch * 1.2
     else:
         setup_amort = setup_fee / batch * 1.5
+    if not seq and cut_min <= 0:
+        # D9-4：无路线且无手补时，⑩ 人工（加工+装夹工时）不得另开一口。
+        # 加工工时栏 = ui.machining + ui.setup；setup_amort / rapid 默认 1 刀都会进栏。
+        toolchg_min = 0.0
+        rapid_min = 0.0
+        setup_min = 0.0
+        setup_amort = 0.0
     programming_time = programming.calculate_time(
         features,
         fixture.get("setup_count"),

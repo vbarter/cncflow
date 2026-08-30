@@ -171,6 +171,25 @@ def test_m8_thread_emits_step_params(client):
     assert abs(tap["time"]["t_cut"] - 0.0096) < 0.001
 
 
+def _assert_d9_empty_route_zeros_machining_labor(body):
+    assert body["process_sequence"] == []
+    d9 = [item for item in body["deductions"] if item["rule_id"] == "D9-4"]
+    assert len(d9) == 1
+    assert d9[0]["reason"] == "缺少可报价的工艺路线"
+    assert d9[0]["dimension"] == "D9"
+    ui = body["ui_cost"]
+    labor = body["labor_cost_breakdown"]
+    items = {item["code"]: item["amount"] for item in body["cost_items"]}
+    assert ui["machining"] == 0
+    assert ui["setup"] == 0
+    assert labor["machining"] == labor["setup"] == labor["total"] == 0
+    assert labor["machining_total"] == 0
+    assert items["CUT"] == items["TOOLCHG"] == items["RAPID"] == 0
+    assert items["SETUP"] == items["MACHINE_SETUP"] == 0
+    assert ui["inspect"] == ui["toolwear"] == ui["scrap"] == 0
+    assert items["INSPECT"] == items["TOOLWEAR"] == items["SCRAP"] == 0
+
+
 def test_missing_key_fields_still_quote_with_d9_deductions(client):
     response = client.post("/api/v1/quotes", json={})
     assert response.status_code == 200
@@ -184,5 +203,39 @@ def test_missing_key_fields_still_quote_with_d9_deductions(client):
     assert {item["rule_id"] for item in d9} == {"D9-1", "D9-2", "D9-3", "D9-4"}
     assert all(item["status"] == "missing" for item in d9)
     assert all(item["deduction"] > 0 and item["reason"] for item in d9)
-    assert body["confidence"] == 100 - sum(item["deduction"] for item in deductions)
+    assert body["confidence"] == max(0, 100 - sum(item["deduction"] for item in deductions))
     assert body["risk"]["customer_forbidden"] is True
+    _assert_d9_empty_route_zeros_machining_labor(body)
+
+
+def test_d9_missing_process_route_zeros_machining_labor(client):
+    """空 process_sequence 触发 D9-4 时，加工工时栏不得用 setup_amort / DIFF_MIN 冒充。"""
+    surface = client.post("/api/v1/quotes", json={
+        "material": "铝合金",
+        "stock_type": "板材",
+        "length": 80,
+        "width": 60,
+        "height": 12,
+        "features": [{
+            "type": "surface",
+            "surface_type": "凸面",
+            "curvature_radius": 20,
+            "selected": True,
+        }],
+    }).get_json()
+    assert surface["status"] == "quoted"
+    _assert_d9_empty_route_zeros_machining_labor(surface)
+    assert surface["confidence"] == 75
+    assert surface["ui_cost"]["material"] > 0
+    assert surface["ui_cost"]["programming"] > 0
+
+    failed_face = client.post("/api/v1/quotes", json={
+        "material": "铝合金",
+        "stock_type": "板材",
+        "length": 80,
+        "width": 60,
+        "height": 12,
+        "features": [{"type": "face", "feature_id": "face-0"}],
+    }).get_json()
+    assert failed_face["status"] == "quoted"
+    _assert_d9_empty_route_zeros_machining_labor(failed_face)
