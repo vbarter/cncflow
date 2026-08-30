@@ -338,13 +338,13 @@ def _apply_feature_overrides(features, overrides):
     return result
 
 
-def _review_and_quote_features(parsed_feats, selected_ids, L, W):
+def _review_and_quote_features(parsed_feats, selected_ids, L, W, H=0):
     review = []
     quoted = []
     selected = set(str(x) for x in selected_ids) if selected_ids is not None else None
     feats = [dict(source) for source in _sanitize_review_features(parsed_feats)]
     if selected is None:
-        feats = apply_quote_default_selection(feats, L, W)
+        feats = apply_quote_default_selection(feats, L, W, H)
     for i, feat in enumerate(feats):
         fid = str(feat.get("feature_id") or feat.get("id") or f"f{i}")
         on = True if selected is None else fid in selected
@@ -525,7 +525,9 @@ def _attach_parsed_features(conn, part):
         if isinstance(quote.get(key), list):
             quote[key] = _sanitize_review_features(quote[key])
     if not (quote.get("review_features") or quote.get("features")):
-        review, _ = _review_and_quote_features(feats, None, part.get("length") or 0, part.get("width") or 0)
+        review, _ = _review_and_quote_features(
+            feats, None, part.get("length") or 0, part.get("width") or 0, part.get("height") or 0,
+        )
         quote["review_features"] = [_flatten_hole_fields(f) for f in review]
     part["quote"] = quote
     return part
@@ -581,7 +583,7 @@ def _quote_part(
         incoming_feature_overrides,
     )
     feature_source = _apply_feature_overrides(feature_source, feature_overrides)
-    review, features = _review_and_quote_features(feature_source, selected_ids, L, W)
+    review, features = _review_and_quote_features(feature_source, selected_ids, L, W, H)
     features = _overlay_manual_hours(features, override, extra.get("manual_hours"))
     try:
         rules_version = current_app.config.get("RULES_VERSION") or ""

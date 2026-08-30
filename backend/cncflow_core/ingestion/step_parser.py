@@ -409,8 +409,8 @@ def _coaxial(a, b, tol_axis=0.05, tol_dir=0.02):
     return dist <= tol_axis
 
 
-def _merge_inner(items):
-    """Merge every connected set of same-diameter faces on one cylinder."""
+def _merge_inner(items, extras=None):
+    """Merge same-diameter coaxial faces. Unclassified halves join a matching group."""
     used = [False] * len(items)
     groups = []
     for i, item in enumerate(items):
@@ -428,6 +428,17 @@ def _merge_inner(items):
                 pending.append(items[j])
                 used[j] = True
         groups.append(group)
+    leftover = []
+    for extra in extras or []:
+        placed = False
+        for group in groups:
+            if group and _coaxial(group[0], extra):
+                group.append(extra)
+                placed = True
+                break
+        if not placed:
+            leftover.append(extra)
+    groups.extend(_merge_inner(leftover) if leftover else [])
     return groups
 
 
@@ -449,6 +460,113 @@ def cylinder_group_coverage(group):
 def is_complete_cylinder(group, min_coverage=MIN_CYLINDER_COVERAGE):
     """Only a near-complete cylindrical wall can become a reviewable hole."""
     return cylinder_group_coverage(group) >= min_coverage
+
+
+def matches_window_fillet(rec, fillets, tol_d=0.2):
+    """Pocket/window corner cylinder, not a quote hole."""
+    if not rec or not fillets:
+        return False
+    for fillet in fillets:
+        if abs((rec.get("diameter_mm") or 0) - (fillet.get("diameter_mm") or 0)) > tol_d:
+            continue
+        if rec.get("axis_t") and fillet.get("axis_t") and _same_axis(rec, fillet):
+            return True
+    return False
+
+
+def _edge_circle(edge):
+    try:
+        circle = edge._geomAdaptor().Circle()
+        loc = circle.Location()
+        direction = circle.Axis().Direction()
+        origin = (float(loc.X()), float(loc.Y()), float(loc.Z()))
+        axis = (float(direction.X()), float(direction.Y()), float(direction.Z()))
+        return origin, float(circle.Radius()), axis
+    except Exception:
+        pass
+    try:
+        return _xyz(edge.Center()), float(edge.radius()), None
+    except Exception:
+        return None
+
+
+def _as_wires(wires):
+    if wires is None:
+        return []
+    if hasattr(wires, "Edges") and not hasattr(wires, "__len__"):
+        return [wires]
+    try:
+        return list(wires)
+    except TypeError:
+        return [wires]
+
+
+def _wire_is_circular_hole(edges):
+    circles = []
+    for edge in edges:
+        kind = str(edge.geomType() or "").upper()
+        if kind == "LINE":
+            return False
+        info = _edge_circle(edge)
+        if not info:
+            return False
+        circles.append(info)
+    if not circles:
+        return False
+    origin0, radius0, _axis0 = circles[0]
+    for origin, radius, _axis in circles[1:]:
+        if abs(radius - radius0) > 0.15:
+            return False
+        dist = math.sqrt(sum((origin[i] - origin0[i]) ** 2 for i in range(3)))
+        if dist > 0.8:
+            return False
+    return True
+
+
+def window_fillets_from_faces(faces):
+    """Non-circular inner wires → corner cylinders (Ø4/Ø5.2/Ø6/Ø8 windows)."""
+    fillets = []
+    for face in faces:
+        if str(getattr(face, "geomType", lambda: "")() or "").upper() != "PLANE":
+            continue
+        try:
+            wires = face.innerWires()
+        except Exception:
+            try:
+                all_wires = list(face.Wires())
+                wires = all_wires[1:] if len(all_wires) > 1 else []
+            except Exception:
+                continue
+        for wire in _as_wires(wires):
+            try:
+                edges = list(wire.Edges())
+            except Exception:
+                continue
+            if not edges or _wire_is_circular_hole(edges):
+                continue
+            kinds = [str(edge.geomType() or "").upper() for edge in edges]
+            if not any(kind == "LINE" for kind in kinds):
+                continue
+            for edge, kind in zip(edges, kinds):
+                if kind not in {"CIRCLE", "ARC"}:
+                    continue
+                info = _edge_circle(edge)
+                if not info:
+                    continue
+                origin, radius, axis = info
+                if radius < 0.05 or radius > 40:
+                    continue
+                axis, mag = _norm(axis or (0.0, 0.0, 1.0))
+                if mag < 1e-9:
+                    axis = (0.0, 0.0, 1.0)
+                fillets.append({
+                    "diameter_mm": radius * 2,
+                    "origin": origin,
+                    "axis_t": axis,
+                    "cyl_min": 0.0,
+                    "cyl_max": 0.0,
+                })
+    return fillets
 
 
 def _hole_feature(group, bbox, all_faces, index, cavities=None):
@@ -550,7 +668,7 @@ def parse_step(path: str) -> dict:
         kind = face.geomType()
         geom_counts[kind] = geom_counts.get(kind, 0) + 1
 
-    inner, outer, other, all_cyls = [], [], [], []
+    inner, outer, unknown, other, all_cyls = [], [], [], [], []
     for index, face in enumerate(faces):
         kind = face.geomType()
         location = face.Center()
@@ -605,6 +723,8 @@ def parse_step(path: str) -> dict:
                 inner.append(rec)
             elif side == "outer":
                 outer.append(rec)
+            else:
+                unknown.append(rec)
         elif kind == "CONE":
             other.append({
                 "feature_id": "cone-%d" % index, "type": "chamfer", "subtype": "conical_face",
@@ -621,7 +741,19 @@ def parse_step(path: str) -> dict:
             })
 
     features = []
-    complete_holes = [group for group in _merge_inner(inner) if is_complete_cylinder(group)]
+    window_fils = window_fillets_from_faces(faces)
+    extents = (bbox.xlen, bbox.ylen, bbox.zlen)
+    complete_holes = []
+    for group in _merge_inner(inner, extras=unknown):
+        if not is_complete_cylinder(group):
+            continue
+        item = group[0]
+        depth = max(g["cyl_max"] for g in group) - min(g["cyl_min"] for g in group)
+        if not is_quote_hole(item["diameter_mm"], depth, item.get("hole_type"), extents, item.get("axis_t")):
+            continue
+        if matches_window_fillet(item, window_fils):
+            continue
+        complete_holes.append(group)
     for i, group in enumerate(complete_holes):
         features.append(_hole_feature(group, bbox, faces, i, cavities=all_cyls))
     for rec in outer:

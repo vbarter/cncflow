@@ -198,6 +198,20 @@ def test_open_slot_not_keyway_no_fillet_holes():
     assert pockets[0]["length"] == pytest.approx(40, abs=1.5)
 
 
+def test_nuc_windows_do_not_steal_hole_radius():
+    pytest.importorskip("cadquery")
+    nuc = os.path.join(FIXTURES, "nuc_plate_windows.step")
+    if not os.path.exists(nuc):
+        pytest.skip("missing NUC plate fixture")
+    slots = run_slot(nuc)
+    radii = [round(slot.get("corner_radius") or 0, 3) for slot in slots]
+    assert 1.25 not in radii, radii
+    result = parse_step_file(nuc)
+    holes = [feat for feat in result["features"] if feat.get("subtype") == "recognized_hole"]
+    assert 18 <= len(holes) <= 24, [feat.get("diameter_mm") for feat in holes]
+    assert all(feat["diameter_mm"] == pytest.approx(2.5, abs=0.15) for feat in holes)
+
+
 def test_d8_hole_fixture_five_fields_hold():
     pytest.importorskip("cadquery")
     if not os.path.exists(HOLE_D8_STEP):

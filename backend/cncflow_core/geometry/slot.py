@@ -80,10 +80,13 @@ def _corner_radius(bottom, walls, all_faces, pocket_box):
             r = _edge_radius(edge)
             if r and 0.05 < r < 40:
                 radii.append(r)
+    if radii:
+        return round(min(radii), 3)
     px0, px1 = pocket_box[0], pocket_box[1]
     py0, py1 = pocket_box[2], pocket_box[3]
     pz0, pz1 = pocket_box[4], pocket_box[5]
     pad = 3.0
+    nearby = []
     for face in all_faces:
         kind = face.geomType()
         try:
@@ -94,14 +97,24 @@ def _corner_radius(bottom, walls, all_faces, pocket_box):
             continue
         if kind == "CYLINDER":
             r = _cyl_radius(face)
-            if r and 0.05 < r < 40:
-                radii.append(r)
+            if not r or r < 0.05 or r > 40:
+                continue
+            try:
+                area = float(face.Area())
+                fb = face.BoundingBox()
+                depth = max(fb.xlen, fb.ylen, fb.zlen)
+                full = 2 * math.pi * r * max(depth, 1e-6)
+                if full > 1e-9 and area / full >= 0.8:
+                    continue
+            except Exception:
+                pass
+            nearby.append(r)
         elif kind == "TORUS":
             r = _torus_minor(face)
             if r and 0.05 < r < 40:
-                radii.append(r)
-    if radii:
-        return round(min(radii), 3)
+                nearby.append(r)
+    if nearby:
+        return round(min(nearby), 3)
     return None
 
 
