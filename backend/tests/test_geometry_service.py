@@ -36,7 +36,7 @@ def test_plugin_registry_hole_slot_face():
     assert list_plugins()[1]["status"] == "active"
 
 
-def test_parse_step_file_uses_hole_v3_and_stubs(monkeypatch, tmp_path):
+def test_parse_step_file_uses_hole_v4_and_stubs(monkeypatch, tmp_path):
     from cncflow_core.ingestion import step_parser
 
     monkeypatch.setattr(step_parser, "parse_step", lambda path: {

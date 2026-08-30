@@ -20,7 +20,7 @@ def test_triangles_to_glb_magic():
     assert len(data) >= 12
 
 
-def test_hole_feature_pose_does_not_change_v3_fields():
+def test_hole_feature_pose_does_not_change_v4_fields():
     class BBox:
         xlen, ylen, zlen = 80.0, 60.0, 12.0
 
