@@ -38,6 +38,12 @@ FEATURE_NAME = {
     "surface": "曲面",
     "step": "台阶",
 }
+FEATURE_STEP_NAME = {
+    ("face", "rough_face"): "面粗",
+    ("slot", "rough_pocket"): "槽粗",
+    ("thread", "drill"): "底孔",
+    ("thread", "tap"): "攻牙",
+}
 
 
 def suggested_lead_time_days(hours_total: float, setup_count: int, batch: int) -> int:
@@ -490,8 +496,11 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
             ):
                 if step.get(key) is not None:
                     seq[-1][key] = step[key]
-            if step.get("name"):
-                seq[-1]["name"] = step["name"]
+            display_name = FEATURE_STEP_NAME.get(
+                (ftype, step.get("process")), step.get("name"),
+            )
+            if display_name:
+                seq[-1]["name"] = display_name
             if si < len(timed_steps):
                 ts = timed_steps[si]
                 seq[-1]["minutes"] = round(float(ts["t_step"]), 4)
