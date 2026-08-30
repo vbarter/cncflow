@@ -239,6 +239,10 @@ def test_nuc_live_setup_freezes_machining_54_23(tmp_path):
     conn = get_conn(db_path)
     seed(conn)
     conn.execute("UPDATE machines SET setup_fee = 30 WHERE id = 'DMU65'")
+    conn.execute(
+        "UPDATE rate_table SET setup_fee = 30 "
+        "WHERE equipment_type = '5轴联动加工中心'"
+    )
     conn.commit()
     conn.close()
     live_client = create_app(db_path=str(db_path)).test_client()
