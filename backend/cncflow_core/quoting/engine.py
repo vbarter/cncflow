@@ -28,6 +28,7 @@ DIFF_MIN = {"D1": 2.0, "D2": 6.0, "D3": 15.0, "D4": 25.0, "NA": 20.0, 1: 2.0, 2:
 DIFF_FACTOR = {"D3": 1.3, "D4": 1.8, 3: 1.3, 4: 1.8}
 STEP_PARAMS = ("formula", "n", "f", "cut", "passes", "t_min", "t_max", "status")
 DIAMETER_MISMATCH_RISK = "刀径非全等，需工艺确认"
+FACE_NET_AREA_RATIO = 1.2
 FEATURE_NAME = {
     "hole": "孔",
     "face": "面",
@@ -72,6 +73,39 @@ def _dimension(payload: dict, *keys: str, default: float) -> float:
         if number > 0:
             return number
     return default
+
+
+def _face_with_quote_area(feat: dict, vol: dict, height: float) -> dict:
+    """旧面特征缺面积时，用 CAD 体积识别带大面积通窗的等厚板。"""
+    dimensions = feat.get("dimensions") or {}
+    stored_area = feat.get("area")
+    if stored_area is None:
+        stored_area = dimensions.get("area")
+    try:
+        stored_area = float(stored_area) if stored_area is not None else 0.0
+    except (TypeError, ValueError):
+        stored_area = 0.0
+    if stored_area > 0:
+        if feat.get("area") == stored_area:
+            return feat
+        return {**feat, "area": stored_area}
+
+    if vol.get("v_part_source") != "cad" or height <= 0:
+        return feat
+    try:
+        envelope_area = float(feat.get("length") or dimensions.get("length")) * float(
+            feat.get("width") or dimensions.get("width")
+        )
+        net_area = float(vol.get("v_part_mm3") or 0) / height
+    except (TypeError, ValueError):
+        return feat
+    if (
+        net_area > 0
+        and net_area <= envelope_area
+        and envelope_area >= net_area * FACE_NET_AREA_RATIO
+    ):
+        return {**feat, "area": net_area}
+    return feat
 
 
 def _validation(seq: list) -> dict:
@@ -374,6 +408,8 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
         fn = PIPELINES.get(ftype)
         if fn is None:
             continue
+        if ftype == "face":
+            feat = _face_with_quote_area(feat, vol, H)
         plan_payload = dict(payload)
         plan_payload["feature"] = feat
         plan_payload["material"] = material

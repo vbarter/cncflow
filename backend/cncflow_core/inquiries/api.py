@@ -491,6 +491,7 @@ def _flatten_hole_fields(feat):
     for key in (
         "diameter_mm", "depth_mm", "hole_type", "position_type", "cut_depth_mm",
         "pocket_type", "length", "width", "depth", "corner_radius", "profile_type", "height",
+        "area",
     ):
         if out.get(key) is None and dim.get(key) is not None:
             out[key] = dim[key]

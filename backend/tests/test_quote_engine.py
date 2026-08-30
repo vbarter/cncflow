@@ -167,7 +167,6 @@ def test_nuc_mounting_plate_groups_holes_and_uses_net_face_area(client):
         "feature_id": "face-0",
         "length": 285,
         "width": 128,
-        "area": 20_183,
     })
     body = quote(client, {
         "material": "铝合金",
@@ -190,6 +189,11 @@ def test_nuc_mounting_plate_groups_holes_and_uses_net_face_area(client):
         step for step in body["process_sequence"] if step["process"] == "rough_face"
     )
     assert rough_face["time"]["cut"] == pytest.approx(20_183 / (0.7 * 80), abs=0.01)
+    assert rough_face["time"]["cut"] != pytest.approx(
+        285 * 128 / (0.7 * 80),
+        abs=0.01,
+    )
+    assert rough_face["time"]["t_cut"] == pytest.approx(0.57, abs=0.03)
 
     for process in ("spot_drill", "drill"):
         steps = [
