@@ -330,6 +330,7 @@ def test_nuc_live_setup_freezes_machining_54_23(tmp_path):
     assert body["labor_cost_breakdown"]["total"] == pytest.approx(54.23, abs=0.01)
     assert body["material_cost_breakdown"]["net_material_cost"] == pytest.approx(13.86, abs=0.01)
     assert body["volume"]["v_part_mm3"] == 70_641
+    # 编程仍走 Word v3（种子库 DMU65 ≠ 现网工厂截图的 ¥24）。不改公式。
     ui = body["ui_cost"]
     items = {item["code"]: item["amount"] for item in body["cost_items"]}
     assert ui["material"] == pytest.approx(13.86, abs=0.01)
