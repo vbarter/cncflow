@@ -76,7 +76,14 @@ def run(payload: dict, conn) -> dict:
         "length": length,
     }
     difficulty = evaluate_difficulty("pocket/difficulty.yaml", metrics)
-    difficulty["level"] = _worse(difficulty["level"], _TYPE_LEVEL.get(str(pocket_type), "D1"))
+    type_level = _TYPE_LEVEL.get(str(pocket_type), "D1")
+    difficulty["level"] = _worse(difficulty["level"], type_level)
+    difficulty["fired_rules"].append({
+        "id": "POCKET-TYPE",
+        "name": "槽腔类型",
+        "level": type_level,
+        "value": pocket_type,
+    })
     chain = _handbook_chain(length, width, depth, corner, it, ra)
     tags = ["槽腔超边界，需人工确认"] if difficulty["na"] else []
     tags.extend(_TYPE_RISK_TAGS.get(str(pocket_type), []))

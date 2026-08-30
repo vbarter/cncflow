@@ -33,6 +33,7 @@ def test_pocket_deep_is_d3_not_na(client):
 @pytest.mark.parametrize(
     ("pocket_type", "expected_level", "expected_risk"),
     [
+        ("开放", "D1", None),
         ("封闭", "D2", "封闭型腔排屑差，需螺旋下刀"),
         ("键槽", "D2", "键槽需键槽刀"),
         ("T型", "D3", "T型槽高风险，需T型刀/燕尾刀"),
@@ -60,7 +61,14 @@ def test_pocket_type_drives_difficulty_and_risk(
 
     assert body["difficulty"]["level"] == expected_level
     assert body["difficulty"]["na"] is False
-    assert any(expected_risk in tag for tag in body["risk_tags"])
+    assert {
+        "id": "POCKET-TYPE",
+        "name": "槽腔类型",
+        "level": expected_level,
+        "value": pocket_type,
+    } in body["difficulty"]["fired_rules"]
+    if expected_risk:
+        assert any(expected_risk in tag for tag in body["risk_tags"])
     assert [step["process"] for step in body["process_chain"]] == [
         "rough_pocket",
         "chamfer",
