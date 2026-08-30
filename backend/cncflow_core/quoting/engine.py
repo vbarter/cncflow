@@ -335,7 +335,9 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
     dens = _density(material, factory, payload)
     vol = volume.compute(stock, L, D, H, density=dens, v_part_cad=payload.get("v_part_cad"))
     price, scrap_price = _price(material, factory, payload)
-    mat_cost = vol["blank_weight_kg"] * price - vol["scrap_weight_kg"] * scrap_price
+    blank_cost = round(vol["blank_weight_kg"] * price, 2)
+    scrap_recycle_cost = round(vol["scrap_weight_kg"] * scrap_price, 2)
+    mat_cost = blank_cost - scrap_recycle_cost
     material_cost_breakdown = {
         "density_g_cm3": dens,
         "blank_price_per_kg": price,
@@ -346,8 +348,8 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
         "part_weight_kg": round(vol["v_part_mm3"] * dens / 1_000_000, 5),
         "scrap_volume_mm3": vol["v_removed_mm3"],
         "scrap_weight_kg": vol["scrap_weight_kg"],
-        "blank_cost": round(vol["blank_weight_kg"] * price, 2),
-        "scrap_recycle_cost": round(vol["scrap_weight_kg"] * scrap_price, 2),
+        "blank_cost": blank_cost,
+        "scrap_recycle_cost": scrap_recycle_cost,
         "net_material_cost": round(mat_cost, 2),
     }
 
@@ -466,6 +468,7 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
 
     feat_types = {p["feature_id"]: p["type"] for p in plans}
     seq = sequence.sort_steps(seq, feat_types)
+    seq = dedup.merge_identical_hole_steps(seq, feat_types)
     seq = dedup.merge_chamfers(seq)
     seq, process_overrides, sequence_inversions = process_edits.apply(
         seq, payload.get("process_overrides"),

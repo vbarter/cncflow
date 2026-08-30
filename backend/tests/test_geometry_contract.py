@@ -38,7 +38,7 @@ def test_geometry_contract_lists_hole_fields(client):
         assert output["features"]["slot"].get("accepted") is True
         assert output["features"]["face"]["status"] == "active"
         assert output["features"]["face"].get("accepted") is True
-        for name in ("length", "width", "face_position"):
+        for name in ("length", "width", "area", "face_position"):
             assert name in output["features"]["face"]["fields"]
         assert output["features"]["thread"]["status"] == "active"
         for name in ("diameter_mm", "pitch", "thread_length"):

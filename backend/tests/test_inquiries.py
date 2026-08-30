@@ -6,9 +6,15 @@ import pytest
 
 from cncflow_core.common.db import get_conn
 from cncflow_core.ingestion.jobs import finish_job
+from cncflow_core.inquiries.api import _cad_volume_mm3
 
 
 MINIMAL_STEP = b"ISO-10303-21;\nHEADER;\nFILE_SCHEMA(('AUTOMOTIVE_DESIGN'));\nENDSEC;\nDATA;\nENDSEC;\nEND-ISO-10303-21;"
+
+
+def test_parser_volume_cm3_converts_to_quote_mm3():
+    assert _cad_volume_mm3({"volume_cm3": 56.997}) == pytest.approx(56_997)
+    assert _cad_volume_mm3({}) is None
 
 
 
@@ -77,6 +83,7 @@ def test_quote_uses_parse_bbox(client, seeded_db_path):
     part = q.get_json()["parts"][0]
     assert part["status"] == "quoted"
     assert part["quote"]["quote"]["amount"] > 0
+    assert part["quote"]["volume"]["v_part_mm3"] == 12_500
 
 
 def test_patch_material_and_unselect_hole_recalculates(client, seeded_db_path):

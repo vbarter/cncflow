@@ -135,7 +135,7 @@ def test_quote_open_slot_plus_face_three_steps(client):
     assert [s["sku"] for s in body["process_sequence"][:2]] == ["TK-022", "TK-028"]
     assert sum(s["process"] == "chamfer" for s in body["process_sequence"]) == 1
     assert body["labor_cost_breakdown"]["total"] == 211.59
-    assert body["material_cost_breakdown"]["net_material_cost"] == 3.25
+    assert body["material_cost_breakdown"]["net_material_cost"] == 3.26
     assert body["programming_time"] == 103
     assert body["programming_cost"] == 68.67
 

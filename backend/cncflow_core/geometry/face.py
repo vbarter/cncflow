@@ -103,6 +103,7 @@ def detect_faces(path: str) -> list:
         pos = _face_position(item["n"], item["c"], bbox, thick_axis)
         length = round(item["length"], 4)
         width = round(item["width"], 4)
+        area = round(item["area"], 4)
         found.append({
             "feature_id": "face-%d" % len(found),
             "type": "face",
@@ -110,10 +111,12 @@ def detect_faces(path: str) -> list:
             "selected": False,
             "length": length,
             "width": width,
+            "area": area,
             "face_position": pos,
             "dimensions": {
                 "length": length,
                 "width": width,
+                "area": area,
                 "face_position": pos,
             },
             "location": _point(item["c"]),

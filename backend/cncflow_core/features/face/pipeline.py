@@ -48,6 +48,12 @@ def run(payload: dict, conn) -> dict:
         raise ValueError("feature.length / feature.width 必填且须为数值")
     if length <= 0 or width <= 0:
         raise ValueError("平面长宽必须为正数")
+    try:
+        area = float(feature.get("area") or length * width)
+    except (TypeError, ValueError):
+        raise ValueError("feature.area 须为数值") from None
+    if area <= 0:
+        raise ValueError("平面面积必须为正数")
     depth = float(feature.get("depth") or feature.get("allowance") or 1)
     it = payload.get("tolerance_it")
     if it is None:
@@ -59,7 +65,7 @@ def run(payload: dict, conn) -> dict:
     ra = float(ra)
     pos = feature.get("face_position") or "水平"
     metrics = {
-        "area": length * width,
+        "area": area,
         "tolerance_it": it,
         "roughness_ra": ra,
         "depth": depth,
