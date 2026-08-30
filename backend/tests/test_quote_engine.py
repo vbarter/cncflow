@@ -11,7 +11,10 @@ def quote(client, payload):
 
 
 @pytest.mark.parametrize(
-    ("sample", "dimensions", "features", "v_part_cad", "names", "machining", "material"),
+    (
+        "sample", "dimensions", "features", "v_part_cad", "names",
+        "processes", "skus", "machining", "material",
+    ),
     [
         (
             "Ø8",
@@ -33,6 +36,8 @@ def quote(client, payload):
             ],
             56_997,
             ["粗铣", "钻孔", "倒角"],
+            ["rough_face", "drill", "chamfer"],
+            ["TK-028", "TK-003", "TK-036"],
             211.39,
             5.72,
         ),
@@ -56,6 +61,8 @@ def quote(client, payload):
             ],
             18.757003,
             ["粗铣", "钻孔", "攻牙", "倒角"],
+            ["rough_face", "drill", "tap", "chamfer"],
+            ["TK-027", "TK-003", "TK-033", "TK-036"],
             211.19,
             1.17,
         ),
@@ -81,6 +88,8 @@ def quote(client, payload):
             ],
             54.430702,
             ["粗铣", "粗铣", "倒角"],
+            ["rough_pocket", "rough_face", "chamfer"],
+            ["TK-022", "TK-028", "TK-036"],
             211.59,
             None,
         ),
@@ -93,6 +102,8 @@ def test_frozen_live_quote_pins(
     features,
     v_part_cad,
     names,
+    processes,
+    skus,
     machining,
     material,
 ):
@@ -111,6 +122,9 @@ def test_frozen_live_quote_pins(
     ).get_json()
 
     assert [step["name"] for step in body["process_sequence"]] == names, sample
+    assert [step["process"] for step in body["process_sequence"]] == processes, sample
+    assert [step["sku"] for step in body["process_sequence"]] == skus, sample
+    assert sum(step["process"] == "chamfer" for step in body["process_sequence"]) == 1
     assert body["labor_cost_breakdown"]["total"] == pytest.approx(
         machining,
         abs=0.01,
@@ -188,6 +202,7 @@ def test_nuc_mounting_plate_groups_holes_and_uses_net_face_area(client):
     rough_face = next(
         step for step in body["process_sequence"] if step["process"] == "rough_face"
     )
+    assert rough_face["time"]["cut"] == pytest.approx(360.4107, abs=0.01)
     assert rough_face["time"]["cut"] == pytest.approx(20_183 / (0.7 * 80), abs=0.01)
     assert rough_face["time"]["cut"] != pytest.approx(
         285 * 128 / (0.7 * 80),
@@ -213,6 +228,50 @@ def test_nuc_mounting_plate_groups_holes_and_uses_net_face_area(client):
         5.5,
         abs=0.2,
     )
+
+
+def test_nuc_live_setup_freezes_machining_54_23(tmp_path):
+    from app import create_app
+    from cncflow_core.common.db import get_conn
+    from data.seed_tools import seed
+
+    db_path = tmp_path / "nuc-live.db"
+    conn = get_conn(db_path)
+    seed(conn)
+    conn.execute("UPDATE machines SET setup_fee = 30 WHERE id = 'DMU65'")
+    conn.commit()
+    conn.close()
+    live_client = create_app(db_path=str(db_path)).test_client()
+    features = [
+        {
+            "type": "hole",
+            "feature_id": f"hole-{index}",
+            "diameter_mm": 2.5,
+            "depth_mm": 3.5,
+            "hole_type": "through",
+        }
+        for index in range(18)
+    ]
+    features.append({
+        "type": "face",
+        "feature_id": "face-0",
+        "length": 285,
+        "width": 128,
+    })
+
+    body = quote(live_client, {
+        "material": "铝合金",
+        "stock_type": "板材",
+        "length": 285,
+        "width": 128,
+        "height": 3.5,
+        "v_part_cad": 70_641,
+        "features": features,
+    }).get_json()
+
+    assert body["labor_cost_breakdown"]["total"] == pytest.approx(54.23, abs=0.01)
+    assert body["material_cost_breakdown"]["net_material_cost"] == pytest.approx(13.86, abs=0.01)
+    assert body["volume"]["v_part_mm3"] == 70_641
 
 
 @pytest.mark.parametrize(

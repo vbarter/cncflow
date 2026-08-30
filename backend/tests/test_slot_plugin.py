@@ -205,8 +205,9 @@ def test_open_slot_not_keyway_no_fillet_holes():
     if not os.path.exists(OPEN_SLOT_STEP):
         pytest.skip("missing open-slot fixture")
     slots = run_slot(OPEN_SLOT_STEP)
-    assert slots, "expected open slot"
+    assert len(slots) == 1, slots
     slot = slots[0]
+    assert slot["feature_id"] == "slot-0"
     assert slot["pocket_type"] == "开放", slot
     assert slot["length"] == pytest.approx(40, abs=1.5)
     assert slot["width"] == pytest.approx(10, abs=1.5)
@@ -217,8 +218,13 @@ def test_open_slot_not_keyway_no_fillet_holes():
     fake = [h for h in holes if abs((h.get("diameter_mm") or 0) - 6) < 0.6]
     assert fake == [], fake
     pockets = [f for f in result["features"] if f.get("subtype") == "recognized_slot"]
+    assert len(pockets) == 1, pockets
+    assert pockets[0]["feature_id"] == "slot-0"
     assert pockets[0]["pocket_type"] == "开放"
     assert pockets[0]["length"] == pytest.approx(40, abs=1.5)
+    assert pockets[0]["width"] == pytest.approx(10, abs=1.5)
+    assert pockets[0]["depth"] == pytest.approx(8, abs=1.5)
+    assert pockets[0]["corner_radius"] == pytest.approx(3, abs=0.6)
 
 
 def test_nuc_windows_are_not_slots_and_keep_mounting_holes():

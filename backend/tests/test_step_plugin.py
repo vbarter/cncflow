@@ -150,8 +150,9 @@ def test_rect_step_h8_sample_emits_lh():
         pytest.skip("missing rect_step_h8 fixture")
     result = parse_step_file(STEP_H8)
     steps = [f for f in result["features"] if f.get("subtype") == "recognized_step"]
-    assert steps, result.get("features")
+    assert len(steps) == 1, result.get("features")
     st = steps[0]
+    assert st["feature_id"] == "step-0"
     assert st["profile_type"] == "台阶"
     assert st["selected"] is True
     assert st["height"] == pytest.approx(8, abs=1.5)
