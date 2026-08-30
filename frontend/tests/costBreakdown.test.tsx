@@ -96,9 +96,9 @@ test("Ø8 刀具损耗显示两位小数且其他冻结成本行不回归", () =
         machining: 1.39,
         setup: 210,
         programming: 62,
-        inspect: 0,
-        toolwear: 0,
-        scrap: 0,
+        inspect: 60,
+        toolwear: 0.15,
+        scrap: 16.84,
       }}
       quoteSummary={quoteSummary}
     />,
@@ -119,7 +119,7 @@ test("点击检测行打开费用抽屉并标明知识库暂无规则", () => {
   render(
     <CostBreakdown
       quote={programmingQuote(93, 62)}
-      uiCost={uiCost}
+      uiCost={{ ...uiCost, inspect: 60 }}
       quoteSummary={quoteSummary}
     />,
   )
@@ -150,11 +150,11 @@ test("点击不良损耗行打开费用抽屉并标明知识库暂无规则", ()
           material_group: "易切",
           scrap_rate: 0.05,
           base: 279.11,
-          scrap_fee: 0,
+          scrap_fee: 16.84,
           note: HANDBOOK_PENDING_NOTE,
         },
       }}
-      uiCost={{ ...uiCost, scrap: 0 }}
+      uiCost={{ ...uiCost, scrap: 16.84 }}
       quoteSummary={quoteSummary}
     />,
   )
@@ -194,9 +194,9 @@ test("387101 显示夹具材料加加工费用且刀耗不良检测为 0", () =>
         ...uiCost,
         machining: 101.4,
         setup: 210,
-        inspect: 0,
-        toolwear: 0,
-        scrap: 0,
+        inspect: 60,
+        toolwear: 0.24,
+        scrap: 69.63,
       }}
       quoteSummary={quoteSummary}
     />,
@@ -231,9 +231,9 @@ test("NUC 截图三行检测刀耗不良必须显示 0.00", () => {
         machining: 54.23,
         setup: 0,
         programming: 24,
-        inspect: 0,
-        toolwear: 0,
-        scrap: 0,
+        inspect: 60,
+        toolwear: 0.28,
+        scrap: 7.60,
       }}
       quoteSummary={{ amount: 105.90, cost: 92.09 }}
     />,

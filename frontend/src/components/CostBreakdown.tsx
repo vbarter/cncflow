@@ -42,6 +42,7 @@ export function fixtureCost(fixture: any) {
 }
 
 export function costValue(quote: any, uiCost: any, key: string) {
+  if (HANDBOOK_PENDING_KEYS.has(key)) return 0
   if (key === "fixture") return fixtureCost(quote?.fixture)
   if (key === "machining") {
     return number(uiCost?.machining) + number(uiCost?.setup)
@@ -115,10 +116,11 @@ export function programmingDrawerValues(quote: any) {
 }
 
 export function inspectDrawerValues(inspectFee: unknown) {
+  void inspectFee
   return {
-    unitPrice: `${decimal(inspectFee, 2)} ¥/件`,
+    unitPrice: "0 ¥/件",
     billedQuantity: "1 件",
-    fee: number(inspectFee).toFixed(2),
+    fee: "0.00",
     note: HANDBOOK_PENDING_NOTE,
   }
 }
@@ -133,7 +135,7 @@ export function scrapDrawerValues(scrap: any) {
       ? "—"
       : `${decimal(number(rate) * 100, 2)}%`,
     base: number(scrap?.base).toFixed(2),
-    scrapFee: number(scrap?.scrap_fee).toFixed(2),
+    scrapFee: "0.00",
     note: scrap?.note || HANDBOOK_PENDING_NOTE,
   }
 }
