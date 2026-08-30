@@ -143,7 +143,7 @@ def test_pinned_live_sample_numbers(client, sample_id, features, expected_time, 
 
 
 @pytest.mark.parametrize(
-    ("sample", "features", "overrides", "expected_slider", "expected_rate", "expected_scrap"),
+    ("sample", "features", "overrides", "expected_slider", "expected_rate"),
     [
         (
             "Ø8",
@@ -172,7 +172,6 @@ def test_pinned_live_sample_numbers(client, sample_id, features, expected_time, 
             {"v_part_cad": 56.996814},
             "标准",
             0.05,
-            16.84,
         ),
         (
             "开口槽",
@@ -199,7 +198,6 @@ def test_pinned_live_sample_numbers(client, sample_id, features, expected_time, 
             {"v_part_cad": 54.430702},
             "标准",
             0.05,
-            17.18,
         ),
         (
             "M8",
@@ -230,7 +228,6 @@ def test_pinned_live_sample_numbers(client, sample_id, features, expected_time, 
             },
             "标准",
             0.05,
-            16.72,
         ),
         (
             "387101",
@@ -245,35 +242,42 @@ def test_pinned_live_sample_numbers(client, sample_id, features, expected_time, 
             {"length": 63.5, "width": 63.5, "height": 17, "slider": "激进"},
             "激进",
             0.12,
-            69.63,
         ),
     ],
 )
-def test_scrap_cost_breakdown_pins(
+def test_handbook_pending_inspect_toolwear_scrap_are_zero(
     client,
     sample,
     features,
     overrides,
     expected_slider,
     expected_rate,
-    expected_scrap,
 ):
+    from cncflow_core.quoting.engine import HANDBOOK_PENDING_NOTE
+
     body = _quote(client, features, **overrides)
     breakdown = body["scrap_cost_breakdown"]
     items = {item["code"]: item["amount"] for item in body["cost_items"]}
+    ui = body["ui_cost"]
 
     assert breakdown["slider"] == expected_slider, sample
     assert breakdown["material_group"] == "易切", sample
     assert breakdown["scrap_rate"] == expected_rate, sample
-    assert breakdown["scrap_fee"] == pytest.approx(expected_scrap, abs=0.02), sample
-    assert breakdown["scrap_fee"] == body["ui_cost"]["scrap"] == items["SCRAP"], sample
-    assert breakdown["scrap_fee"] == pytest.approx(
-        breakdown["base"] * breakdown["scrap_rate"],
-        abs=0.02,
-    ), sample
+    assert breakdown["scrap_fee"] == 0, sample
+    assert breakdown["note"] == HANDBOOK_PENDING_NOTE, sample
+    assert ui["inspect"] == ui["toolwear"] == ui["scrap"] == 0, sample
+    assert items["INSPECT"] == items["TOOLWEAR"] == items["SCRAP"] == 0, sample
+    assert body["handbook_pending"] == {
+        "inspect": HANDBOOK_PENDING_NOTE,
+        "toolwear": HANDBOOK_PENDING_NOTE,
+        "scrap": HANDBOOK_PENDING_NOTE,
+    }, sample
     if sample == "Ø8":
-        assert breakdown["base"] == pytest.approx(336.79, abs=0.02)
-        assert body["ui_cost"]["inspect"] == 60
+        assert breakdown["base"] == pytest.approx(
+            ui["material"] + ui["machining"] + ui["setup"] + ui["fixture"] + ui["programming"],
+            abs=0.02,
+        )
+        assert breakdown["base"] != pytest.approx(336.79, abs=0.02)
     if sample == "387101":
         assert body["fixture"]["fixture_processing_cost"] == pytest.approx(1.72, abs=0.01)
         assert body["fixture"]["fixture_material_cost"] == pytest.approx(40.78, abs=0.02)
@@ -388,6 +392,7 @@ def test_o8_labor_trace_reconciles_live_machining_and_changeover(tmp_path):
 
     assert body["ui_cost"]["machining"] == 1.39
     assert body["ui_cost"]["setup"] == 210
+    assert body["ui_cost"]["inspect"] == body["ui_cost"]["toolwear"] == body["ui_cost"]["scrap"] == 0
     assert labor["machining_total"] == 1.39
     assert labor["operation_cost"] == 1.22
     assert labor["air_cut_and_tool_change_cost"] == 0.17

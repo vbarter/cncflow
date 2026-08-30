@@ -11,6 +11,9 @@ const COST_ROWS = [
   ["scrap", "不良损耗"],
 ] as const
 
+export const HANDBOOK_PENDING_NOTE = "知识库暂无规则，待独立 Word 后再计"
+const HANDBOOK_PENDING_KEYS = new Set(["inspect", "toolwear", "scrap"])
+
 function number(value: unknown) {
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : 0
@@ -116,6 +119,7 @@ export function inspectDrawerValues(inspectFee: unknown) {
     unitPrice: `${decimal(inspectFee, 2)} ¥/件`,
     billedQuantity: "1 件",
     fee: number(inspectFee).toFixed(2),
+    note: HANDBOOK_PENDING_NOTE,
   }
 }
 
@@ -130,6 +134,7 @@ export function scrapDrawerValues(scrap: any) {
       : `${decimal(number(rate) * 100, 2)}%`,
     base: number(scrap?.base).toFixed(2),
     scrapFee: number(scrap?.scrap_fee).toFixed(2),
+    note: scrap?.note || HANDBOOK_PENDING_NOTE,
   }
 }
 
@@ -511,6 +516,7 @@ function InspectDrawer({
           </div>
         ))}
       </dl>
+      <p className="px-6 pb-6 text-xs text-slate-500">{values.note}</p>
     </aside>
   </>
 }
@@ -567,6 +573,7 @@ function ScrapDrawer({ scrap, onClose }: { scrap: any; onClose: () => void }) {
           </div>
         ))}
       </dl>
+      <p className="px-6 pb-6 text-xs text-slate-500">{values.note}</p>
     </aside>
   </>
 }
@@ -655,7 +662,12 @@ export function CostBreakdown({
         {COST_ROWS.map(([key, label]) => {
           const value = costValue(quote, uiCost, key)
           const content = <>
-            <div className="text-left text-slate-500">{label}</div>
+            <div className="text-left text-slate-500">
+              {label}
+              {HANDBOOK_PENDING_KEYS.has(key) && (
+                <div className="mt-0.5 text-[10px] leading-4 text-slate-400">{HANDBOOK_PENDING_NOTE}</div>
+              )}
+            </div>
             <div className="h-2 rounded bg-slate-100">
               <div
                 className="h-2 rounded bg-blue-600"

@@ -138,6 +138,7 @@ def test_quote_open_slot_plus_face_three_steps(client):
     assert body["material_cost_breakdown"]["net_material_cost"] == 3.26
     assert body["programming_time"] == 103
     assert body["programming_cost"] == 68.67
+    assert body["ui_cost"]["inspect"] == body["ui_cost"]["toolwear"] == body["ui_cost"]["scrap"] == 0
 
 
 def test_quote_step_swallows_checked_shoulder_top(client):
@@ -163,3 +164,4 @@ def test_quote_step_swallows_checked_shoulder_top(client):
     assert body["material_cost_breakdown"]["net_material_cost"] == 3.43
     assert body["programming_time"] == 90
     assert body["programming_cost"] == 60
+    assert body["ui_cost"]["inspect"] == body["ui_cost"]["toolwear"] == body["ui_cost"]["scrap"] == 0

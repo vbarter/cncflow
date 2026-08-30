@@ -171,6 +171,10 @@ def test_frozen_live_quote_pins(
     if sample == "M8":
         tap = next(step for step in body["process_sequence"] if step["process"] == "tap")
         assert tap["sku"] == "TK-033"
+    ui = body["ui_cost"]
+    items = {item["code"]: item["amount"] for item in body["cost_items"]}
+    assert ui["inspect"] == ui["toolwear"] == ui["scrap"] == 0, sample
+    assert items["INSPECT"] == items["TOOLWEAR"] == items["SCRAP"] == 0, sample
 
 
 def test_two_setup_fixture_keeps_each_setup_contiguous(client):
@@ -279,6 +283,7 @@ def test_nuc_mounting_plate_groups_holes_and_uses_net_face_area(client):
         5.5,
         abs=0.2,
     )
+    assert body["ui_cost"]["inspect"] == body["ui_cost"]["toolwear"] == body["ui_cost"]["scrap"] == 0
 
 
 def test_nuc_live_setup_freezes_machining_54_23(tmp_path):
@@ -325,6 +330,48 @@ def test_nuc_live_setup_freezes_machining_54_23(tmp_path):
     assert body["labor_cost_breakdown"]["total"] == pytest.approx(54.23, abs=0.01)
     assert body["material_cost_breakdown"]["net_material_cost"] == pytest.approx(13.86, abs=0.01)
     assert body["volume"]["v_part_mm3"] == 70_641
+    ui = body["ui_cost"]
+    items = {item["code"]: item["amount"] for item in body["cost_items"]}
+    assert ui["material"] == pytest.approx(13.86, abs=0.01)
+    assert ui["machining"] + ui["setup"] == pytest.approx(54.23, abs=0.01)
+    assert ui["fixture"] == items["FIX"] == 0
+    assert ui["inspect"] == ui["toolwear"] == ui["scrap"] == 0
+    assert items["INSPECT"] == items["TOOLWEAR"] == items["SCRAP"] == 0
+    # 截图三行 60 / 0.28 / 7.60 必须归零，利润只从剩余成本重算。
+    remaining = ui["material"] + ui["machining"] + ui["setup"] + ui["fixture"] + ui["programming"]
+    assert remaining == pytest.approx(body["quote"]["cost"], abs=0.02)
+    assert body["quote"]["amount"] == pytest.approx(remaining * 1.15, abs=0.02)
+    assert body["quote"]["amount"] != pytest.approx(184, abs=0.5)
+
+
+def test_factory_inspect_fee_override_does_not_fill_quote(tmp_path):
+    from app import create_app
+    from cncflow_core.common.db import get_conn
+    from cncflow_core.quoting.engine import HANDBOOK_PENDING_NOTE
+
+    db_path = tmp_path / "inspect-override.db"
+    live_client = create_app(db_path=str(db_path)).test_client()
+    orig = live_client.get("/api/v1/factory-config").get_json()
+    live_client.put("/api/v1/factory-config", json={
+        "settings": {**orig["settings"], "inspect_fee": 80},
+        "machines": orig["machines"],
+        "material_prices": orig["material_prices"],
+        "rate_table": orig["rate_table"],
+    })
+    body = quote(live_client, {
+        "material": "铝合金",
+        "stock_type": "板材",
+        "length": 80,
+        "width": 60,
+        "height": 12,
+        "features": [{"type": "face", "length": 80, "width": 60}],
+    }).get_json()
+    items = {item["code"]: item["amount"] for item in body["cost_items"]}
+    assert body["ui_cost"]["inspect"] == 0
+    assert items["INSPECT"] == 0
+    assert body["handbook_pending"]["inspect"] == HANDBOOK_PENDING_NOTE
+    cfg = live_client.get("/api/v1/factory-config").get_json()
+    assert cfg["settings"]["inspect_fee"] == 80
 
 
 @pytest.mark.parametrize(
