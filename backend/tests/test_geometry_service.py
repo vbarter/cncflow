@@ -1,4 +1,4 @@
-"""Geometry service wiring: in-process parse-jobs, hole-v3, slot/face stubs."""
+"""Geometry service wiring: in-process parse-jobs, hole-v4, slot/face stubs."""
 from io import BytesIO
 
 import pytest
@@ -23,7 +23,7 @@ def local_storage(monkeypatch, tmp_path):
 
 def test_plugin_registry_hole_slot_face():
     assert plugin_names() == ["hole", "slot", "face", "thread", "step", "surface"]
-    assert FEATURE_SCHEMA == "hole-v3"
+    assert FEATURE_SCHEMA == "hole-v4"
     assert list(HOLE_FEATURE_FIELDS) == [
         "diameter_mm", "depth_mm", "hole_type", "position_type", "cut_depth_mm",
     ]
@@ -52,8 +52,8 @@ def test_parse_step_file_uses_hole_v3_and_stubs(monkeypatch, tmp_path):
     step.write_bytes(MINIMAL_STEP)
     result = parse_step_file(str(step))
     assert result["parser"] == "geometry-service"
-    assert result["parser_version"] == "hole-v3"
-    assert result["feature_schema"] == "hole-v3"
+    assert result["parser_version"] == "hole-v4"
+    assert result["feature_schema"] == "hole-v4"
     ids = [plugin["id"] for plugin in result["plugins"]]
     assert ids == ["hole", "slot", "face", "thread", "step", "surface"]
     assert result["plugins"][0]["status"] == "active"
@@ -90,8 +90,8 @@ def test_process_claimed_emits_geometry_parse_event(client, seeded_db_path, monk
     def fake_parse(path):
         return {
             "parser": "geometry-service",
-            "parser_version": "hole-v3",
-            "feature_schema": "hole-v3",
+            "parser_version": "hole-v4",
+            "feature_schema": "hole-v4",
             "geometry": {"volume_cm3": 1, "bounding_box_mm": {"x": 80, "y": 60, "z": 12}},
             "features": [{
                 "type": "hole", "feature_id": "hole-0", "subtype": "recognized_hole",
@@ -100,7 +100,7 @@ def test_process_claimed_emits_geometry_parse_event(client, seeded_db_path, monk
             }],
             "warnings": [],
             "plugins": [
-                {"id": "hole", "status": "active", "version": "hole-v3"},
+                {"id": "hole", "status": "active", "version": "hole-v4"},
                 {"id": "slot", "status": "active", "version": "slot-v1"},
                 {"id": "face", "status": "active", "version": "face-v1"},
                 {"id": "thread", "status": "active", "version": "thread-v1"},
@@ -118,11 +118,11 @@ def test_process_claimed_emits_geometry_parse_event(client, seeded_db_path, monk
     assert geo_events, job["events"]
     message = geo_events[0]["message"]
     assert "geometry-service" in message
-    assert "hole-v3" in message
+    assert "hole-v4" in message
     assert "hole" in message and "slot" in message and "face" in message
     assert job["stage"] == "review"
     assert job["result"]["parser"] == "geometry-service"
-    assert job["result"]["feature_schema"] == "hole-v3"
+    assert job["result"]["feature_schema"] == "hole-v4"
     ids = [plugin["id"] for plugin in job["result"]["plugins"]]
     assert ids == ["hole", "slot", "face", "thread", "step", "surface"]
 
@@ -140,7 +140,7 @@ def test_service_o8_plate_no_regress():
         result = parse_step_file(path)
     finally:
         os.unlink(path)
-    assert result["feature_schema"] == "hole-v3"
+    assert result["feature_schema"] == "hole-v4"
     ids = [plugin["id"] for plugin in result["plugins"]]
     assert ids == ["hole", "slot", "face", "thread", "step", "surface"]
     holes = [feat for feat in result["features"] if feat.get("subtype") == "recognized_hole"]

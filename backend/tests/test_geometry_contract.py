@@ -9,7 +9,7 @@ def test_geometry_contract_lists_plugins(client):
     body = r.get_json()
     assert body["service"] == "geometry"
     assert body["endpoint"] == "POST /api/v1/geometry/parse"
-    assert body["output"]["feature_schema"] == "hole-v3"
+    assert body["output"]["feature_schema"] == "hole-v4"
     ids = [p["id"] for p in body["plugins"]]
     assert ids == ["hole", "slot", "face", "thread", "step", "surface"]
     assert body["plugins"][0]["status"] == "active"
@@ -31,7 +31,7 @@ def test_geometry_contract_lists_hole_fields(client):
     hole = output["features"]["hole"] if isinstance(output.get("features"), dict) else None
     if hole:
         assert hole["status"] == "active"
-        assert hole["version"] == "hole-v3"
+        assert hole["version"] == "hole-v4"
         for name in HOLE_FIELDS:
             assert name in hole["fields"]
         assert output["features"]["slot"]["status"] == "active"

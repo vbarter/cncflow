@@ -12,6 +12,39 @@ from cncflow_core.inquiries.api import _cad_volume_mm3, _flatten_hole_fields
 MINIMAL_STEP = b"ISO-10303-21;\nHEADER;\nFILE_SCHEMA(('AUTOMOTIVE_DESIGN'));\nENDSEC;\nDATA;\nENDSEC;\nEND-ISO-10303-21;"
 
 
+def _nuc_step_bytes(tmp_path):
+    cadquery = pytest.importorskip("cadquery")
+    thickness = 3.5
+    z0 = -thickness / 2
+
+    def wp():
+        return cadquery.Workplane("XY", origin=(0, 0, z0))
+
+    plate = cadquery.Workplane("XY").box(120, 80, thickness)
+    radius = 2.6
+    window_w, window_h = 55, 30
+    window = wp().rect(window_w - 2 * radius, window_h).extrude(thickness)
+    window = window.union(
+        wp().rect(window_w, window_h - 2 * radius).extrude(thickness),
+    )
+    for x in (-window_w / 2 + radius, window_w / 2 - radius):
+        for y in (-window_h / 2 + radius, window_h / 2 - radius):
+            window = window.union(
+                wp().center(x, y).circle(radius).extrude(thickness),
+            )
+    part = plate.cut(window)
+    hole_points = (
+        [(x, y) for y in (-30, 30) for x in (-50, -30, -10, 10, 30, 50)]
+        + [(x, y) for x in (-50, 50) for y in (-15, 0, 15)]
+    )
+    for x, y in hole_points:
+        part = part.cut(wp().center(x, y).circle(1.25).extrude(thickness))
+
+    path = tmp_path / "nuc.step"
+    cadquery.exporters.export(part, str(path))
+    return path.read_bytes()
+
+
 def test_parser_volume_cm3_converts_to_quote_mm3():
     assert _cad_volume_mm3({"volume_cm3": 56.997}) == pytest.approx(56_997)
     assert _cad_volume_mm3({}) is None
@@ -261,6 +294,111 @@ def test_part_detail_sanitizes_stale_stored_and_parsed_cylinders(
         feature["feature_id"]
         for feature in payload["quote"]["review_features"]
     ] == ["hole-0"]
+
+
+def test_part_detail_reparses_stale_holes_from_stored_step_without_reupload(
+    client,
+    seeded_db_path,
+    tmp_path,
+):
+    inquiry = client.post(
+        "/api/v1/inquiries",
+        json={"customer": "华科"},
+    ).get_json()
+    pid = client.post(
+        f"/api/v1/inquiries/{inquiry['id']}/parts",
+        json={"name": "NUC", "material": "铝合金"},
+    ).get_json()["id"]
+    job_id = client.post(
+        "/api/v1/parse-jobs",
+        data={
+            "step_file": (BytesIO(_nuc_step_bytes(tmp_path)), "nuc.step"),
+            "part_id": pid,
+        },
+        content_type="multipart/form-data",
+    ).get_json()["job_id"]
+    stale_candidate = {
+        "type": "hole",
+        "feature_id": "cylinder-139",
+        "subtype": "cylindrical_candidate",
+        "selected": True,
+        "diameter_mm": 5.2,
+        "depth_mm": 3.5,
+        "hole_type": "through",
+        "position_type": "垂直",
+    }
+    mesh = {
+        "key": "meshes/existing-nuc.glb",
+        "bytes": 12345,
+        "format": "glb",
+    }
+    conn = get_conn(seeded_db_path)
+    finish_job(conn, job_id, {
+        "feature_schema": "hole-v3",
+        "geometry": {
+            "volume_cm3": 70.641,
+            "bounding_box_mm": {"x": 120, "y": 80, "z": 3.5},
+        },
+        "features": [stale_candidate],
+        "mesh": mesh,
+        "drawing": None,
+        "warnings": [],
+    })
+    uploads_before = conn.execute(
+        "SELECT COUNT(*) FROM uploaded_files WHERE job_id=?",
+        (job_id,),
+    ).fetchone()[0]
+    conn.close()
+
+    response = client.get(f"/api/v1/parts/{pid}")
+    assert response.status_code == 200
+    payload = response.get_json()
+    parsed_holes = [
+        feature
+        for feature in payload["parsed_features"]
+        if feature.get("type") == "hole"
+    ]
+    review_holes = [
+        feature
+        for feature in payload["quote"]["review_features"]
+        if feature.get("type") == "hole"
+    ]
+    for holes in (parsed_holes, review_holes):
+        assert len(holes) == 18
+        assert all(feature["feature_id"].startswith("hole-") for feature in holes)
+        assert all(feature["selected"] is True for feature in holes)
+        assert all(feature["diameter_mm"] == pytest.approx(2.5) for feature in holes)
+        assert all(feature["depth_mm"] == pytest.approx(3.5) for feature in holes)
+        assert all(feature["hole_type"] == "through" for feature in holes)
+        assert not any(
+            feature["feature_id"].startswith("cylinder-")
+            for feature in holes
+        )
+
+    conn = get_conn(seeded_db_path)
+    stored = json.loads(conn.execute(
+        "SELECT result_json FROM parse_jobs WHERE job_id=?",
+        (job_id,),
+    ).fetchone()[0])
+    uploads_after = conn.execute(
+        "SELECT COUNT(*) FROM uploaded_files WHERE job_id=?",
+        (job_id,),
+    ).fetchone()[0]
+    conn.close()
+    stored_holes = [
+        feature
+        for feature in stored["features"]
+        if feature.get("type") == "hole"
+    ]
+    assert stored["feature_schema"] == "hole-v4"
+    assert len(stored_holes) == 18
+    assert not any(
+        str(feature.get("feature_id", "")).startswith("cylinder-")
+        for feature in stored["features"]
+        if feature.get("type") == "hole"
+    )
+    assert stored["mesh"] == mesh
+    assert uploads_before == uploads_after == 1
 
 
 def test_post_part_quote_one_click(client):

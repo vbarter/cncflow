@@ -167,7 +167,7 @@ class TestPersistHealth:
         conn.execute(
             "INSERT OR REPLACE INTO parser_workers(worker_id,parser_version,heartbeat_at) "
             "VALUES(?,?,datetime('now'))",
-            ("health-worker", "hole-v3"),
+            ("health-worker", "hole-v4"),
         )
         conn.commit()
         conn.close()
