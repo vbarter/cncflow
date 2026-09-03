@@ -94,6 +94,52 @@ function gatedFirstTextAgent() {
   }
 }
 
+function gatedBurstAgent() {
+  const listeners = new Set<(event: unknown) => void>()
+  let releaseBurst: () => void = () => {}
+  let releaseFinish: () => void = () => {}
+  const burstMayArrive = new Promise<void>((resolve) => {
+    releaseBurst = resolve
+  })
+  const finishMayArrive = new Promise<void>((resolve) => {
+    releaseFinish = resolve
+  })
+  const emitText = (delta: string) => {
+    for (const listener of listeners) {
+      listener({
+        type: "message_update",
+        assistantMessageEvent: { type: "text_delta", delta },
+      })
+    }
+  }
+  const agent = {
+    subscribe(fn: (event: unknown) => void) {
+      listeners.add(fn)
+      return () => listeners.delete(fn)
+    },
+    async prompt() {
+      emitText("孔")
+      await burstMayArrive
+      // Model parsers commonly publish every SSE event from one upstream read
+      // synchronously. These must still become separate flushed Node writes.
+      emitText("工")
+      emitText("艺")
+      emitText("链")
+      await finishMayArrive
+    },
+    abort() {
+      releaseBurst()
+      releaseFinish()
+    },
+    state: { messages: [], tools: [] },
+  }
+  return {
+    agent: agent as typeof agent & Agent,
+    releaseBurst,
+    releaseFinish,
+  }
+}
+
 test("stream headers skip Hono Content-Length buffering and CF gzip", () => {
   assert.equal(STREAM_HEADERS["Transfer-Encoding"], "chunked")
   assert.equal(STREAM_HEADERS["Content-Encoding"], "identity")
@@ -267,6 +313,83 @@ test("Node HTTP does not resolve fetch until its first body chunk contains assis
     }
   } finally {
     gated.releaseFirst()
+    gated.releaseFinish()
+    await new Promise<void>((resolve, reject) => server.close((err) => (err ? reject(err) : resolve())))
+  }
+})
+
+test("Node HTTP flushes same-turn provider deltas as separate socket writes", async () => {
+  const gated = gatedBurstAgent()
+  const app = new Hono()
+  app.post("/api/v1/chat", (c) =>
+    piToUIMessageResponse(gated.agent, "孔工艺链", c.req.raw.signal, c.env?.outgoing),
+  )
+
+  const socketWrites: string[] = []
+  const server = createServer(getRequestListener(app.fetch))
+  server.on("connection", (socket) => {
+    type WritevChunk = { chunk: string | Uint8Array; encoding: BufferEncoding }
+    type SocketWritev = (
+      chunks: WritevChunk[],
+      callback: (error?: Error | null) => void,
+    ) => void
+    const writable = socket as typeof socket & { _writev: SocketWritev }
+    const originalWritev = writable._writev
+    writable._writev = function (chunks, callback) {
+      socketWrites.push(Buffer.concat(chunks.map(({ chunk }) => Buffer.from(chunk))).toString())
+      return originalWritev.call(this, chunks, callback)
+    }
+  })
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
+  const { port } = server.address() as AddressInfo
+
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/api/v1/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        messages: [{ role: "user", parts: [{ type: "text", text: "孔工艺链" }] }],
+      }),
+    })
+    const reader = response.body?.getReader()
+    assert.ok(reader)
+
+    const first = await reader.read()
+    assert.equal(first.done, false)
+    const firstText = new TextDecoder().decode(first.value)
+    assert.match(firstText, /"delta":"孔"/)
+    assert.doesNotMatch(firstText, /"delta":"工"/)
+
+    let laterResolved = false
+    const laterRead = reader.read().then((result) => {
+      laterResolved = true
+      return result
+    })
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    assert.equal(laterResolved, false, "later text arrived before the provider gate opened")
+
+    gated.releaseBurst()
+    const later = await laterRead
+    assert.equal(later.done, false)
+    assert.match(new TextDecoder().decode(later.value), /"delta":"[工艺链]"/)
+
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    const deltaWrite = (delta: string) =>
+      socketWrites.findIndex((write) => write.includes(`"delta":"${delta}"`))
+    const writeIndexes = ["工", "艺", "链"].map(deltaWrite)
+    assert.ok(writeIndexes.every((index) => index >= 0), JSON.stringify(socketWrites))
+    assert.equal(
+      new Set(writeIndexes).size,
+      3,
+      `same-turn provider deltas shared one socket write: ${JSON.stringify(socketWrites)}`,
+    )
+
+    gated.releaseFinish()
+    while (!(await reader.read()).done) {
+      /* drain */
+    }
+  } finally {
+    gated.releaseBurst()
     gated.releaseFinish()
     await new Promise<void>((resolve, reject) => server.close((err) => (err ? reject(err) : resolve())))
   }
