@@ -1,5 +1,5 @@
 import type { ServerResponse } from "node:http"
-import { createUIMessageStream, createUIMessageStreamResponse, pipeUIMessageStreamToResponse } from "ai"
+import { createUIMessageStream, type UIMessageChunk } from "ai"
 import type { Agent } from "@earendil-works/pi-agent-core"
 
 /**
@@ -24,6 +24,73 @@ function streamHeaders(extra?: Headers): Headers {
     headers.set(name, value)
   }
   return headers
+}
+
+/**
+ * Hold protocol-only frames until the first real assistant text delta, then
+ * serialize that prelude and text into one body chunk. There is no timer or
+ * text slicing: every later chunk keeps the timing supplied by the agent.
+ */
+export function textFirstSseStream(
+  stream: ReadableStream<UIMessageChunk>,
+): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder()
+  let pending = ""
+  let textStarted = false
+  const frame = (chunk: UIMessageChunk) => `data: ${JSON.stringify(chunk)}\n\n`
+
+  return stream.pipeThrough(new TransformStream<UIMessageChunk, Uint8Array>({
+    transform(chunk, controller) {
+      const encoded = frame(chunk)
+      if (!textStarted) {
+        pending += encoded
+        if (chunk.type !== "text-delta" || chunk.delta.length === 0) return
+        textStarted = true
+        controller.enqueue(encoder.encode(pending))
+        pending = ""
+        return
+      }
+      controller.enqueue(encoder.encode(encoded))
+    },
+    flush(controller) {
+      if (pending) controller.enqueue(encoder.encode(pending))
+      controller.enqueue(encoder.encode("data: [DONE]\n\n"))
+    },
+  }))
+}
+
+function pipeTextFirstSseToNode(
+  response: ServerResponse,
+  stream: ReadableStream<Uint8Array>,
+  headers: Headers,
+): void {
+  void (async () => {
+    const reader = stream.getReader()
+    let headersSent = false
+    try {
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        if (!headersSent) {
+          response.writeHead(200, Object.fromEntries(headers.entries()))
+          headersSent = true
+        }
+        response.write(value)
+      }
+      if (!headersSent) response.writeHead(200, Object.fromEntries(headers.entries()))
+      response.end()
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error(String(error))
+      if (!response.headersSent) {
+        response.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" })
+        response.end(`Error: ${err.message}`)
+      } else {
+        response.destroy(err)
+      }
+    } finally {
+      reader.releaseLock()
+    }
+  })()
 }
 
 function toolText(result: unknown): string {
@@ -128,24 +195,19 @@ export function piToUIMessageResponse(
 ): Response {
   const stream = mapPiEvents(agent, userText, signal)
   const headers = streamHeaders(extraHeaders)
+  const body = textFirstSseStream(stream)
 
-  // Node HTTP: write SSE chunks as they arrive. Skips @hono/node-server's
-  // 2-chunk pre-read that can attach Content-Length and dump the full body.
+  // Node HTTP: wait to send headers until the first body write, so fetch() does
+  // not resolve into an empty Stop state before assistant text is available.
   if (outgoing && typeof outgoing.writeHead === "function") {
-    pipeUIMessageStreamToResponse({
-      response: outgoing,
-      stream,
-      headers,
-    })
-    if (typeof outgoing.flushHeaders === "function") outgoing.flushHeaders()
+    pipeTextFirstSseToNode(outgoing, body, headers)
     headers.set(ALREADY_SENT, "1")
     return new Response(null, {
       headers,
     })
   }
 
-  return createUIMessageStreamResponse({
-    stream,
+  return new Response(body, {
     headers,
   })
 }

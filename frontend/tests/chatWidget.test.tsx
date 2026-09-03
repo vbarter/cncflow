@@ -59,40 +59,13 @@ test("FAB 叠在页面上，useChat 打到 /api/v1/chat", () => {
   assert.ok(screen.getByText("可以问手册规则或这份代码怎么报价"))
 })
 
-test("同一网络 burst 的真实 text_delta 在 Stop 亮着时分多次写入 DOM", async () => {
+test("同 burst 一次呈现，只有后续网络 payload 才让 Stop 下文本增长", async () => {
   const encoder = new TextEncoder()
-  let modelFinished = false
-  let releaseLaterDelta: () => void = () => {}
-  let releaseModelFinish: () => void = () => {}
-  const laterDeltaMayArrive = new Promise<void>((resolve) => {
-    releaseLaterDelta = resolve
-  })
-  const modelMayFinish = new Promise<void>((resolve) => {
-    releaseModelFinish = resolve
-  })
+  let networkPayloads = 0
+  let streamController!: ReadableStreamDefaultController<Uint8Array>
   globalThis.fetch = async () => new Response(new ReadableStream({
-    async start(controller) {
-      controller.enqueue(encoder.encode([
-        frame({ type: "start", messageId: "assistant-1" }),
-        frame({ type: "start-step" }),
-        frame({ type: "text-start", id: "text-1" }),
-        frame({ type: "text-delta", id: "text-1", delta: "孔" }),
-        frame({ type: "text-delta", id: "text-1", delta: "工艺" }),
-      ].join("")))
-      await laterDeltaMayArrive
-      controller.enqueue(encoder.encode(
-        frame({ type: "text-delta", id: "text-1", delta: "链" }),
-      ))
-      await modelMayFinish
-      controller.enqueue(encoder.encode([
-        frame({ type: "text-delta", id: "text-1", delta: "文".repeat(343) }),
-        frame({ type: "text-end", id: "text-1" }),
-        frame({ type: "finish-step" }),
-        frame({ type: "finish" }),
-        "data: [DONE]\n\n",
-      ].join("")))
-      modelFinished = true
-      controller.close()
+    start(controller) {
+      streamController = controller
     },
   }), {
     headers: {
@@ -112,51 +85,78 @@ test("同一网络 burst 的真实 text_delta 在 Stop 亮着时分多次写入 
     const nodes = container.querySelectorAll(".whitespace-pre-wrap")
     return nodes.length > 1 ? nodes.item(nodes.length - 1)?.textContent || "" : ""
   }
+  const snapshots: Array<{ payload: number; text: string; stop: boolean }> = []
+  const observer = new MutationObserver(() => {
+    const text = assistantText()
+    if (!text || snapshots.at(-1)?.text === text) return
+    snapshots.push({
+      payload: networkPayloads,
+      text,
+      stop: Boolean(screen.queryByLabelText("停止生成")),
+    })
+  })
+  observer.observe(container, { childList: true, characterData: true, subtree: true })
+
   assert.ok(screen.getByLabelText("停止生成"))
   assert.match(
     screen.getByRole("dialog").getAttribute("data-chat-status") || "",
     /submitted|streaming/,
   )
-  assert.ok(assistantText().length < 89)
 
-  const observed = new Set<string>()
-  const observedWithStop = new Set<string>()
-  for (let i = 0; i < 200 && !observed.has("孔工艺"); i++) {
-    await act(() => new Promise((resolve) => setTimeout(resolve, 5)))
-    const text = assistantText()
-    observed.add(text)
-    if (screen.queryByLabelText("停止生成")) observedWithStop.add(text)
+  networkPayloads++
+  streamController.enqueue(encoder.encode([
+    frame({ type: "start", messageId: "assistant-1" }),
+    frame({ type: "start-step" }),
+    frame({ type: "text-start", id: "text-1" }),
+    frame({ type: "text-delta", id: "text-1", delta: "孔" }),
+    frame({ type: "text-delta", id: "text-1", delta: "工艺" }),
+  ].join("")))
+  for (let i = 0; i < 100 && assistantText() !== "孔工艺"; i++) {
+    await act(() => new Promise((resolve) => setTimeout(resolve, 2)))
   }
+  // Catch #141's 16ms paint yield: it exposes "孔" before "孔工艺".
+  await act(() => new Promise((resolve) => setTimeout(resolve, 40)))
 
-  assert.equal(modelFinished, false)
+  assert.equal(assistantText(), "孔工艺")
   assert.ok(screen.getByLabelText("停止生成"))
-  assert.ok(observed.has("孔"), `missing first painted delta: ${JSON.stringify([...observed])}`)
-  assert.ok(
-    observed.has("孔工艺"),
-    `same-burst deltas did not paint separately: ${JSON.stringify([...observed])}`,
+  assert.deepEqual(
+    snapshots.filter(({ payload }) => payload === 1).map(({ text }) => text),
+    ["孔工艺"],
+    `one network payload dripped across renders: ${JSON.stringify(snapshots)}`,
   )
-  assert.ok(observedWithStop.has("孔"))
-  assert.ok(observedWithStop.has("孔工艺"))
-  assert.equal(observed.has("孔工艺链"), false)
+  assert.equal(snapshots[0]?.stop, true)
 
-  releaseLaterDelta()
+  networkPayloads++
+  streamController.enqueue(encoder.encode(
+    frame({ type: "text-delta", id: "text-1", delta: "链" }),
+  ))
   for (let i = 0; i < 200 && assistantText() !== "孔工艺链"; i++) {
-    await act(() => new Promise((resolve) => setTimeout(resolve, 5)))
+    await act(() => new Promise((resolve) => setTimeout(resolve, 2)))
   }
   assert.equal(assistantText(), "孔工艺链")
-  assert.equal(modelFinished, false)
   assert.ok(screen.getByLabelText("停止生成"))
+  assert.equal(snapshots.at(-1)?.payload, 2)
+  assert.equal(snapshots.at(-1)?.stop, true)
 
-  releaseModelFinish()
+  networkPayloads++
+  streamController.enqueue(encoder.encode([
+    frame({ type: "text-delta", id: "text-1", delta: "文".repeat(343) }),
+    frame({ type: "text-end", id: "text-1" }),
+    frame({ type: "finish-step" }),
+    frame({ type: "finish" }),
+    "data: [DONE]\n\n",
+  ].join("")))
+  streamController.close()
   for (let i = 0; i < 200 && assistantText().length !== 347; i++) {
-    await act(() => new Promise((resolve) => setTimeout(resolve, 5)))
+    await act(() => new Promise((resolve) => setTimeout(resolve, 2)))
   }
   assert.equal(assistantText().length, 347)
-  assert.equal(modelFinished, true)
+  assert.equal(snapshots.at(-1)?.payload, 3)
 
   for (let i = 0; i < 200 && screen.queryByLabelText("停止生成"); i++) {
-    await act(() => new Promise((resolve) => setTimeout(resolve, 5)))
+    await act(() => new Promise((resolve) => setTimeout(resolve, 2)))
   }
   assert.equal(screen.queryByLabelText("停止生成"), null)
   assert.equal(screen.getByRole("dialog").getAttribute("data-chat-status"), "ready")
+  observer.disconnect()
 })

@@ -50,6 +50,50 @@ function fakeAgent(delayMs = 180) {
   return agent as typeof agent & Agent
 }
 
+function gatedFirstTextAgent() {
+  const listeners = new Set<(event: unknown) => void>()
+  let releaseFirst: () => void = () => {}
+  let releaseFinish: () => void = () => {}
+  const firstMayArrive = new Promise<void>((resolve) => {
+    releaseFirst = resolve
+  })
+  const finishMayArrive = new Promise<void>((resolve) => {
+    releaseFinish = resolve
+  })
+  const agent = {
+    subscribe(fn: (event: unknown) => void) {
+      listeners.add(fn)
+      return () => listeners.delete(fn)
+    },
+    async prompt() {
+      await firstMayArrive
+      for (const listener of listeners) {
+        listener({
+          type: "message_update",
+          assistantMessageEvent: { type: "text_delta", delta: "孔" },
+        })
+      }
+      await finishMayArrive
+      for (const listener of listeners) {
+        listener({
+          type: "message_update",
+          assistantMessageEvent: { type: "text_delta", delta: "工艺链" },
+        })
+      }
+    },
+    abort() {
+      releaseFirst()
+      releaseFinish()
+    },
+    state: { messages: [], tools: [] },
+  }
+  return {
+    agent: agent as typeof agent & Agent,
+    releaseFirst,
+    releaseFinish,
+  }
+}
+
 test("stream headers skip Hono Content-Length buffering and CF gzip", () => {
   assert.equal(STREAM_HEADERS["Transfer-Encoding"], "chunked")
   assert.equal(STREAM_HEADERS["Content-Encoding"], "identity")
@@ -184,8 +228,9 @@ test("piToUIMessageResponse yields first SSE chunk before agent.prompt finishes"
   assert.equal(agent.promptDone(), true)
 })
 
-test("Node HTTP listener flushes first chunk before the agent finishes", async () => {
-  const agent = fakeAgent(250)
+test("Node HTTP does not resolve fetch until its first body chunk contains assistant text", async () => {
+  const gated = gatedFirstTextAgent()
+  const agent = gated.agent
   const app = new Hono()
   app.post("/api/v1/chat", (c) =>
     piToUIMessageResponse(agent, "孔工艺链", c.req.raw.signal, c.env?.outgoing),
@@ -196,13 +241,22 @@ test("Node HTTP listener flushes first chunk before the agent finishes", async (
   const { port } = server.address() as AddressInfo
 
   try {
-    const response = await fetch(`http://127.0.0.1:${port}/api/v1/chat`, {
+    let responseResolved = false
+    const responsePromise = fetch(`http://127.0.0.1:${port}/api/v1/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         messages: [{ role: "user", parts: [{ type: "text", text: "孔工艺链" }] }],
       }),
+    }).then((response) => {
+      responseResolved = true
+      return response
     })
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    assert.equal(responseResolved, false, "headers-only TTFB creates an empty Stop flash")
+
+    gated.releaseFirst()
+    const response = await responsePromise
     assert.equal(response.ok, true)
     assert.equal(response.headers.get("content-length"), null)
     assert.match(response.headers.get("content-type") || "", /event-stream/)
@@ -212,14 +266,16 @@ test("Node HTTP listener flushes first chunk before the agent finishes", async (
     const first = await reader.read()
     const text = new TextDecoder().decode(first.value)
     assert.match(text, /data:/)
-    assert.equal(agent.promptDone(), false, "HTTP first bytes must precede agent finish")
     assert.match(text, /孔/)
+    assert.doesNotMatch(text, /工艺链/, "first read must not contain unreleased later text")
 
+    gated.releaseFinish()
     while (!(await reader.read()).done) {
       /* drain */
     }
-    assert.equal(agent.promptDone(), true)
   } finally {
+    gated.releaseFirst()
+    gated.releaseFinish()
     await new Promise<void>((resolve, reject) => server.close((err) => (err ? reject(err) : resolve())))
   }
 })
