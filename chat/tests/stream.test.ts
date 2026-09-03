@@ -172,12 +172,10 @@ test("real Pi agent flushes first tu-zi text_delta before prompt resolves", asyn
     const reader = response.body?.getReader()
     assert.ok(reader)
 
-    let seen = ""
-    while (!seen.includes(`"delta":"孔"`)) {
-      const next = await reader.read()
-      assert.equal(next.done, false)
-      seen += new TextDecoder().decode(next.value)
-    }
+    const first = await reader.read()
+    assert.equal(first.done, false)
+    const firstText = new TextDecoder().decode(first.value)
+    assert.match(firstText, /"delta":"孔"/)
     assert.equal(upstreamFinished, false)
     assert.equal(promptResolved, false)
     assert.equal(agent.state.isStreaming, true)
@@ -210,16 +208,10 @@ test("piToUIMessageResponse yields first SSE chunk before agent.prompt finishes"
   const firstText = new TextDecoder().decode(first.value)
   assert.ok(firstText.length > 0, "expected a chunk")
   assert.match(firstText, /data:/)
+  assert.match(firstText, /孔/, "first body chunk must already contain assistant text")
   assert.doesNotMatch(firstText.trim(), /^\{/)
   assert.equal(agent.promptDone(), false, "first chunk arrived while prompt still running")
 
-  let seen = firstText
-  while (!seen.includes("孔")) {
-    const next = await reader.read()
-    if (next.done) break
-    seen += new TextDecoder().decode(next.value)
-  }
-  assert.match(seen, /孔/)
   assert.equal(agent.promptDone(), false, "text_delta 孔 must arrive before prompt resolves")
 
   while (!(await reader.read()).done) {
