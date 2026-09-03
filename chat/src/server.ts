@@ -1,3 +1,4 @@
+import type { HttpBindings } from "@hono/node-server"
 import { serve } from "@hono/node-server"
 import { Hono } from "hono"
 import { cors } from "hono/cors"
@@ -11,60 +12,75 @@ const allowed = (process.env.CNCFLOW_CORS_ORIGINS || "*")
   .map((item) => item.trim())
   .filter(Boolean)
 
-const app = new Hono()
+type ChatEnv = { Bindings: HttpBindings }
 
-app.use(
-  "*",
-  cors({
-    origin: (origin) => {
-      if (!origin) return allowed.includes("*") ? "*" : ""
-      if (allowed.includes("*") || allowed.includes(origin)) return origin
-      return ""
-    },
-    allowMethods: ["GET", "POST", "OPTIONS"],
-    allowHeaders: ["Content-Type", "Authorization"],
-    maxAge: 86400,
-  }),
-)
+export function createChatApp(opts?: { createAgent?: typeof createChatAgent }) {
+  const makeAgent = opts?.createAgent ?? createChatAgent
+  const app = new Hono<ChatEnv>()
 
-app.get("/health", (c) => c.json({
-  service: "cncflow-chat",
-  model: TUZI_MODEL,
-  tools: [...REGISTERED_TOOL_NAMES],
-  forbidden: [...FORBIDDEN_TOOL_NAMES],
-  key: Boolean(tuziApiKey()),
-}))
+  app.use(
+    "*",
+    cors({
+      origin: (origin) => {
+        if (!origin) return allowed.includes("*") ? "*" : ""
+        if (allowed.includes("*") || allowed.includes(origin)) return origin
+        return ""
+      },
+      allowMethods: ["GET", "POST", "OPTIONS"],
+      allowHeaders: ["Content-Type", "Authorization"],
+      maxAge: 86400,
+    }),
+  )
 
-async function handleChat(c: { req: { json: () => Promise<unknown>; raw: Request } }) {
-  if (!tuziApiKey()) {
-    return new Response(JSON.stringify({ error: "未配置 TUZI_API_KEY" }), {
-      status: 503,
-      headers: { "Content-Type": "application/json" },
-    })
+  app.get("/health", (c) => c.json({
+    service: "cncflow-chat",
+    model: TUZI_MODEL,
+    tools: [...REGISTERED_TOOL_NAMES],
+    forbidden: [...FORBIDDEN_TOOL_NAMES],
+    key: Boolean(tuziApiKey()),
+  }))
+
+  async function handleChat(c: {
+    req: { json: () => Promise<unknown>; raw: Request }
+    env: HttpBindings
+    res: Response
+  }) {
+    if (!tuziApiKey()) {
+      return new Response(JSON.stringify({ error: "未配置 TUZI_API_KEY" }), {
+        status: 503,
+        headers: { "Content-Type": "application/json" },
+      })
+    }
+
+    const body = (await c.req.json()) as { messages?: unknown }
+    const messages = Array.isArray(body.messages) ? body.messages : []
+    const userText = lastUserText(messages)
+    if (!userText) {
+      return new Response(JSON.stringify({ error: "messages 须含用户文本" }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      })
+    }
+
+    const agent = makeAgent(jailRoot())
+    const prior = historyMessages(messages)
+    if (prior.length) agent.state.messages = prior
+
+    return piToUIMessageResponse(
+      agent,
+      userText,
+      c.req.raw.signal,
+      c.env?.outgoing,
+      c.res.headers,
+    )
   }
 
-  const body = (await c.req.json()) as { messages?: unknown }
-  const messages = Array.isArray(body.messages) ? body.messages : []
-  const userText = lastUserText(messages)
-  if (!userText) {
-    return new Response(JSON.stringify({ error: "messages 须含用户文本" }), {
-      status: 400,
-      headers: { "Content-Type": "application/json" },
-    })
-  }
-
-  const agent = createChatAgent(jailRoot())
-  const prior = historyMessages(messages)
-  if (prior.length) agent.state.messages = prior
-
-  const response = piToUIMessageResponse(agent, userText, c.req.raw.signal)
-  return response
+  app.post("/api/v1/chat", (c) => handleChat(c))
+  app.post("/api/chat", (c) => handleChat(c))
+  return app
 }
 
-app.post("/api/v1/chat", (c) => handleChat(c))
-app.post("/api/chat", (c) => handleChat(c))
-
-export { app }
+export const app = createChatApp()
 
 if (process.env.CHAT_NO_LISTEN !== "1") {
   serve({ fetch: app.fetch, hostname: CHAT_HOST, port: CHAT_PORT }, (info) => {

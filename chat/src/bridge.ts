@@ -1,5 +1,30 @@
-import { createUIMessageStream, createUIMessageStreamResponse } from "ai"
+import type { ServerResponse } from "node:http"
+import { createUIMessageStream, createUIMessageStreamResponse, pipeUIMessageStreamToResponse } from "ai"
 import type { Agent } from "@earendil-works/pi-agent-core"
+
+/**
+ * Headers that stop @hono/node-server from buffering (it assigns Content-Length
+ * unless Transfer-Encoding is chunked) and stop Cloudflare/gzip from waiting for EOS.
+ */
+export const STREAM_HEADERS: Record<string, string> = {
+  "Content-Type": "text/event-stream; charset=utf-8",
+  "Cache-Control": "no-cache, no-transform",
+  Connection: "keep-alive",
+  "X-Accel-Buffering": "no",
+  "Content-Encoding": "identity",
+  "Transfer-Encoding": "chunked",
+  "x-vercel-ai-ui-message-stream": "v1",
+}
+
+const ALREADY_SENT = "x-hono-already-sent"
+
+function streamHeaders(extra?: Headers): Headers {
+  const headers = new Headers(extra)
+  for (const [name, value] of Object.entries(STREAM_HEADERS)) {
+    headers.set(name, value)
+  }
+  return headers
+}
 
 function toolText(result: unknown): string {
   if (result == null) return ""
@@ -15,9 +40,8 @@ function toolText(result: unknown): string {
   }
 }
 
-/** Map Pi Agent events → AI SDK 5 UIMessage stream for useChat. */
-export function piToUIMessageResponse(agent: Agent, userText: string, signal?: AbortSignal): Response {
-  const stream = createUIMessageStream({
+function mapPiEvents(agent: Agent, userText: string, signal?: AbortSignal) {
+  return createUIMessageStream({
     execute: async ({ writer }) => {
       const messageId = crypto.randomUUID()
       writer.write({ type: "start", messageId })
@@ -92,12 +116,36 @@ export function piToUIMessageResponse(agent: Agent, userText: string, signal?: A
       }
     },
   })
+}
+
+/** Map Pi Agent events → AI SDK 5 UIMessage stream for useChat. */
+export function piToUIMessageResponse(
+  agent: Agent,
+  userText: string,
+  signal?: AbortSignal,
+  outgoing?: ServerResponse,
+  extraHeaders?: Headers,
+): Response {
+  const stream = mapPiEvents(agent, userText, signal)
+  const headers = streamHeaders(extraHeaders)
+
+  // Node HTTP: write SSE chunks as they arrive. Skips @hono/node-server's
+  // 2-chunk pre-read that can attach Content-Length and dump the full body.
+  if (outgoing && typeof outgoing.writeHead === "function") {
+    pipeUIMessageStreamToResponse({
+      response: outgoing,
+      stream,
+      headers,
+    })
+    if (typeof outgoing.flushHeaders === "function") outgoing.flushHeaders()
+    headers.set(ALREADY_SENT, "1")
+    return new Response(null, {
+      headers,
+    })
+  }
 
   return createUIMessageStreamResponse({
     stream,
-    headers: {
-      "Cache-Control": "no-cache, no-transform",
-      "X-Accel-Buffering": "no",
-    },
+    headers,
   })
 }

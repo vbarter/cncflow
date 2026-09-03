@@ -9,6 +9,7 @@ import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completio
 import { TUZI_BASE_URL, TUZI_MODEL, tuziApiKey } from "./config.js"
 import { SYSTEM_PROMPT } from "./prompt.js"
 import { inspectBash, inspectToolName } from "./safety.js"
+import { forceTuziStream, forceTuziStreamFetch } from "./stream.js"
 import { createReadOnlyTools } from "./tools.js"
 
 export function createTuziModel(): { models: ReturnType<typeof createModels>; model: Model<"openai-completions"> } {
@@ -61,7 +62,12 @@ export function createChatAgent(jail: string): Agent {
       tools,
       messages: [],
     },
-    streamFn: models.streamSimple.bind(models),
+    streamFn: (model, context, options) =>
+      models.streamSimple(model, context, {
+        ...options,
+        fetch: forceTuziStreamFetch(options?.fetch),
+        onPayload: (payload) => forceTuziStream(payload),
+      }),
     getApiKey: async () => tuziApiKey() || undefined,
     beforeToolCall: async ({ toolCall, args }) => {
       const nameGate = inspectToolName(toolCall.name)
