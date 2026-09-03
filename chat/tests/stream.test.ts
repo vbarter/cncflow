@@ -159,13 +159,20 @@ test("createChatApp HTTP handler streams before the agent finishes", async () =>
   try {
     const response = await fetch(`http://127.0.0.1:${port}/api/v1/chat`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "https://cncflow.pages.dev",
+      },
       body: JSON.stringify({
         messages: [{ role: "user", parts: [{ type: "text", text: "孔工艺链" }] }],
       }),
     })
     assert.equal(response.ok, true)
     assert.equal(response.headers.get("content-length"), null)
+    assert.equal(
+      response.headers.get("access-control-allow-origin"),
+      "https://cncflow.pages.dev",
+    )
     const reader = response.body?.getReader()
     assert.ok(reader)
     const first = await reader.read()

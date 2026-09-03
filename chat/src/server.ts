@@ -40,7 +40,11 @@ export function createChatApp(opts?: { createAgent?: typeof createChatAgent }) {
     key: Boolean(tuziApiKey()),
   }))
 
-  async function handleChat(c: { req: { json: () => Promise<unknown>; raw: Request }; env: HttpBindings }) {
+  async function handleChat(c: {
+    req: { json: () => Promise<unknown>; raw: Request }
+    env: HttpBindings
+    res: Response
+  }) {
     if (!tuziApiKey()) {
       return new Response(JSON.stringify({ error: "未配置 TUZI_API_KEY" }), {
         status: 503,
@@ -62,7 +66,13 @@ export function createChatApp(opts?: { createAgent?: typeof createChatAgent }) {
     const prior = historyMessages(messages)
     if (prior.length) agent.state.messages = prior
 
-    return piToUIMessageResponse(agent, userText, c.req.raw.signal, c.env?.outgoing)
+    return piToUIMessageResponse(
+      agent,
+      userText,
+      c.req.raw.signal,
+      c.env?.outgoing,
+      c.res.headers,
+    )
   }
 
   app.post("/api/v1/chat", (c) => handleChat(c))

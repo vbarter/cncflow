@@ -18,6 +18,14 @@ export const STREAM_HEADERS: Record<string, string> = {
 
 const ALREADY_SENT = "x-hono-already-sent"
 
+function streamHeaders(extra?: Headers): Headers {
+  const headers = new Headers(extra)
+  for (const [name, value] of Object.entries(STREAM_HEADERS)) {
+    headers.set(name, value)
+  }
+  return headers
+}
+
 function toolText(result: unknown): string {
   if (result == null) return ""
   if (typeof result === "string") return result
@@ -116,8 +124,10 @@ export function piToUIMessageResponse(
   userText: string,
   signal?: AbortSignal,
   outgoing?: ServerResponse,
+  extraHeaders?: Headers,
 ): Response {
   const stream = mapPiEvents(agent, userText, signal)
+  const headers = streamHeaders(extraHeaders)
 
   // Node HTTP: write SSE chunks as they arrive. Skips @hono/node-server's
   // 2-chunk pre-read that can attach Content-Length and dump the full body.
@@ -125,16 +135,17 @@ export function piToUIMessageResponse(
     pipeUIMessageStreamToResponse({
       response: outgoing,
       stream,
-      headers: STREAM_HEADERS,
+      headers,
     })
     if (typeof outgoing.flushHeaders === "function") outgoing.flushHeaders()
+    headers.set(ALREADY_SENT, "1")
     return new Response(null, {
-      headers: { [ALREADY_SENT]: "1", ...STREAM_HEADERS },
+      headers,
     })
   }
 
   return createUIMessageStreamResponse({
     stream,
-    headers: STREAM_HEADERS,
+    headers,
   })
 }
