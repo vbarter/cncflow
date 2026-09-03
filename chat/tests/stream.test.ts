@@ -85,12 +85,20 @@ test("piToUIMessageResponse yields first SSE chunk before agent.prompt finishes"
   const reader = response.body?.getReader()
   assert.ok(reader)
   const first = await reader.read()
-  const text = new TextDecoder().decode(first.value)
-  assert.ok(text.length > 0, "expected a chunk")
-  assert.match(text, /data:/)
-  assert.doesNotMatch(text.trim(), /^\{/)
+  const firstText = new TextDecoder().decode(first.value)
+  assert.ok(firstText.length > 0, "expected a chunk")
+  assert.match(firstText, /data:/)
+  assert.doesNotMatch(firstText.trim(), /^\{/)
   assert.equal(agent.promptDone(), false, "first chunk arrived while prompt still running")
-  assert.match(text, /孔/)
+
+  let seen = firstText
+  while (!seen.includes("孔")) {
+    const next = await reader.read()
+    if (next.done) break
+    seen += new TextDecoder().decode(next.value)
+  }
+  assert.match(seen, /孔/)
+  assert.equal(agent.promptDone(), false, "text_delta 孔 must arrive before prompt resolves")
 
   while (!(await reader.read()).done) {
     /* drain */
