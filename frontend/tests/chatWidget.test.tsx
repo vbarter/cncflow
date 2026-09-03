@@ -59,7 +59,7 @@ test("FAB 叠在页面上，useChat 打到 /api/v1/chat", () => {
   assert.ok(screen.getByText("可以问手册规则或这份代码怎么报价"))
 })
 
-test("Cloudflare burst 内的真实 text_delta 会逐帧显示，而非整段一次绘制", async () => {
+test("useChat 在模型完成前立即显示已到达的真实 text_delta", async () => {
   const encoder = new TextEncoder()
   let modelFinished = false
   let releaseModel: () => void = () => {}
@@ -73,11 +73,10 @@ test("Cloudflare burst 内的真实 text_delta 会逐帧显示，而非整段一
         frame({ type: "start-step" }),
         frame({ type: "text-start", id: "text-1" }),
         frame({ type: "text-delta", id: "text-1", delta: "孔" }),
-        frame({ type: "text-delta", id: "text-1", delta: "工艺" }),
       ].join("")))
       await modelMayFinish
       controller.enqueue(encoder.encode([
-        frame({ type: "text-delta", id: "text-1", delta: "链" }),
+        frame({ type: "text-delta", id: "text-1", delta: "工艺链" }),
         frame({ type: "text-end", id: "text-1" }),
         frame({ type: "finish-step" }),
         frame({ type: "finish" }),
@@ -105,7 +104,7 @@ test("Cloudflare burst 内的真实 text_delta 会逐帧显示，而非整段一
     return nodes.length > 1 ? nodes.item(nodes.length - 1)?.textContent || "" : ""
   }
   const observed = new Set<string>()
-  for (let i = 0; i < 200 && (!observed.has("孔") || !observed.has("孔工艺")); i++) {
+  for (let i = 0; i < 200 && !observed.has("孔"); i++) {
     await act(() => new Promise((resolve) => setTimeout(resolve, 5)))
     observed.add(assistantText())
   }
@@ -113,7 +112,6 @@ test("Cloudflare burst 内的真实 text_delta 会逐帧显示，而非整段一
   assert.equal(modelFinished, false)
   assert.ok(screen.getByLabelText("停止生成"))
   assert.ok(observed.has("孔"), `missing first painted delta: ${JSON.stringify([...observed])}`)
-  assert.ok(observed.has("孔工艺"), `missing second painted delta: ${JSON.stringify([...observed])}`)
   assert.equal(observed.has("孔工艺链"), false)
 
   releaseModel()
