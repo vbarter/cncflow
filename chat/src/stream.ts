@@ -6,7 +6,12 @@ export function forceTuziStream(payload: unknown): unknown {
 
 export function forceTuziStreamFetch(baseFetch: typeof fetch = globalThis.fetch): typeof fetch {
   return async (input, init) => {
-    let next = init
+    const headers = new Headers(init?.headers)
+    // This is the compression boundary #135 did not cover. A compressed SSE
+    // response can sit in the tu-zi/CDN/undici path until its final gzip block.
+    headers.set("Accept-Encoding", "identity")
+    headers.set("Cache-Control", "no-cache, no-transform")
+    let next = { ...init, headers }
     const body = init?.body
     if (typeof body === "string") {
       try {
