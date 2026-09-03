@@ -111,6 +111,13 @@ test("useChat 在模型完成前连续显示真实 text_delta，拒绝 347 字�
     const nodes = container.querySelectorAll(".whitespace-pre-wrap")
     return nodes.length > 1 ? nodes.item(nodes.length - 1)?.textContent || "" : ""
   }
+  assert.ok(screen.getByLabelText("停止生成"))
+  assert.match(
+    screen.getByRole("dialog").getAttribute("data-chat-status") || "",
+    /submitted|streaming/,
+  )
+  assert.ok(assistantText().length < 89)
+
   const observed = new Set<string>()
   for (let i = 0; i < 200 && !observed.has("孔"); i++) {
     await act(() => new Promise((resolve) => setTimeout(resolve, 5)))
@@ -128,6 +135,7 @@ test("useChat 在模型完成前连续显示真实 text_delta，拒绝 347 字�
   }
   assert.equal(assistantText(), "孔工艺链")
   assert.equal(modelFinished, false)
+  assert.ok(screen.getByLabelText("停止生成"))
 
   releaseModelFinish()
   for (let i = 0; i < 200 && assistantText().length !== 347; i++) {
@@ -135,4 +143,10 @@ test("useChat 在模型完成前连续显示真实 text_delta，拒绝 347 字�
   }
   assert.equal(assistantText().length, 347)
   assert.equal(modelFinished, true)
+
+  for (let i = 0; i < 200 && screen.queryByLabelText("停止生成"); i++) {
+    await act(() => new Promise((resolve) => setTimeout(resolve, 5)))
+  }
+  assert.equal(screen.queryByLabelText("停止生成"), null)
+  assert.equal(screen.getByRole("dialog").getAttribute("data-chat-status"), "ready")
 })
