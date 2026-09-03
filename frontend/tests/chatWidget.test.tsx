@@ -62,6 +62,10 @@ test("FAB 叠在页面上，useChat 打到 /api/v1/chat", () => {
 test("Cloudflare burst 内的真实 text_delta 会逐帧显示，而非整段一次绘制", async () => {
   const encoder = new TextEncoder()
   let modelFinished = false
+  let releaseModel: () => void = () => {}
+  const modelMayFinish = new Promise<void>((resolve) => {
+    releaseModel = resolve
+  })
   globalThis.fetch = async () => new Response(new ReadableStream({
     async start(controller) {
       controller.enqueue(encoder.encode([
@@ -71,7 +75,7 @@ test("Cloudflare burst 内的真实 text_delta 会逐帧显示，而非整段一
         frame({ type: "text-delta", id: "text-1", delta: "孔" }),
         frame({ type: "text-delta", id: "text-1", delta: "工艺" }),
       ].join("")))
-      await new Promise((resolve) => setTimeout(resolve, 250))
+      await modelMayFinish
       controller.enqueue(encoder.encode([
         frame({ type: "text-delta", id: "text-1", delta: "链" }),
         frame({ type: "text-end", id: "text-1" }),
@@ -101,7 +105,7 @@ test("Cloudflare burst 内的真实 text_delta 会逐帧显示，而非整段一
     return nodes.length > 1 ? nodes.item(nodes.length - 1)?.textContent || "" : ""
   }
   const observed = new Set<string>()
-  for (let i = 0; i < 30; i++) {
+  for (let i = 0; i < 200 && (!observed.has("孔") || !observed.has("孔工艺")); i++) {
     await act(() => new Promise((resolve) => setTimeout(resolve, 5)))
     observed.add(assistantText())
   }
@@ -112,7 +116,10 @@ test("Cloudflare burst 内的真实 text_delta 会逐帧显示，而非整段一
   assert.ok(observed.has("孔工艺"), `missing second painted delta: ${JSON.stringify([...observed])}`)
   assert.equal(observed.has("孔工艺链"), false)
 
-  await act(() => new Promise((resolve) => setTimeout(resolve, 150)))
+  releaseModel()
+  for (let i = 0; i < 200 && assistantText() !== "孔工艺链"; i++) {
+    await act(() => new Promise((resolve) => setTimeout(resolve, 5)))
+  }
   assert.equal(assistantText(), "孔工艺链")
   assert.equal(modelFinished, true)
 })
