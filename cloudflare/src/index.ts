@@ -102,8 +102,12 @@ export default {
     const proxied = withCors(request, upstream, origins);
     if (!chat) return proxied;
     const headers = new Headers(proxied.headers);
+    // Content-Length / gzip wait for EOS. HTTP/2 forbids Transfer-Encoding.
+    headers.delete("Content-Length");
+    headers.delete("Transfer-Encoding");
     headers.set("Cache-Control", "no-cache, no-transform");
     headers.set("X-Accel-Buffering", "no");
+    headers.set("Content-Encoding", "identity");
     return new Response(proxied.body, {
       status: proxied.status,
       statusText: proxied.statusText,
