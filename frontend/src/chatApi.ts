@@ -22,7 +22,18 @@ function afterNextPaint(): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, 16))
   }
   return new Promise((resolve) => {
-    requestAnimationFrame(() => setTimeout(resolve, 0))
+    let settled = false
+    let frame = 0
+    let timeout = 0
+    const finish = () => {
+      if (settled) return
+      settled = true
+      clearTimeout(timeout)
+      cancelAnimationFrame(frame)
+      resolve()
+    }
+    timeout = setTimeout(finish, 50)
+    frame = requestAnimationFrame(() => setTimeout(finish, 0))
   })
 }
 
