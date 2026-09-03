@@ -25,9 +25,6 @@ export function ChatWidget() {
   const transport = useMemo(() => createChatTransport(), [])
   const { messages, sendMessage, status, stop } = useChat({
     transport,
-    // Sample the latest live snapshot once per frame. This drops redundant
-    // React notifications; it does not queue, split, or replay model text.
-    experimental_throttle: 16,
     onFinish: ({ message }) => {
       setCompletedText(message.parts
         .filter((part) => part.type === "text")

@@ -59,7 +59,7 @@ test("FAB 叠在页面上，useChat 打到 /api/v1/chat", () => {
   assert.ok(screen.getByText("可以问手册规则或这份代码怎么报价"))
 })
 
-test("useChat 在模型完成前连续显示真实 text_delta，拒绝 347 字整段粘贴", async () => {
+test("同一网络 burst 的真实 text_delta 在 Stop 亮着时分多次写入 DOM", async () => {
   const encoder = new TextEncoder()
   let modelFinished = false
   let releaseLaterDelta: () => void = () => {}
@@ -77,10 +77,11 @@ test("useChat 在模型完成前连续显示真实 text_delta，拒绝 347 字�
         frame({ type: "start-step" }),
         frame({ type: "text-start", id: "text-1" }),
         frame({ type: "text-delta", id: "text-1", delta: "孔" }),
+        frame({ type: "text-delta", id: "text-1", delta: "工艺" }),
       ].join("")))
       await laterDeltaMayArrive
       controller.enqueue(encoder.encode(
-        frame({ type: "text-delta", id: "text-1", delta: "工艺链" }),
+        frame({ type: "text-delta", id: "text-1", delta: "链" }),
       ))
       await modelMayFinish
       controller.enqueue(encoder.encode([
@@ -119,14 +120,23 @@ test("useChat 在模型完成前连续显示真实 text_delta，拒绝 347 字�
   assert.ok(assistantText().length < 89)
 
   const observed = new Set<string>()
-  for (let i = 0; i < 200 && !observed.has("孔"); i++) {
+  const observedWithStop = new Set<string>()
+  for (let i = 0; i < 200 && !observed.has("孔工艺"); i++) {
     await act(() => new Promise((resolve) => setTimeout(resolve, 5)))
-    observed.add(assistantText())
+    const text = assistantText()
+    observed.add(text)
+    if (screen.queryByLabelText("停止生成")) observedWithStop.add(text)
   }
 
   assert.equal(modelFinished, false)
   assert.ok(screen.getByLabelText("停止生成"))
   assert.ok(observed.has("孔"), `missing first painted delta: ${JSON.stringify([...observed])}`)
+  assert.ok(
+    observed.has("孔工艺"),
+    `same-burst deltas did not paint separately: ${JSON.stringify([...observed])}`,
+  )
+  assert.ok(observedWithStop.has("孔"))
+  assert.ok(observedWithStop.has("孔工艺"))
   assert.equal(observed.has("孔工艺链"), false)
 
   releaseLaterDelta()
