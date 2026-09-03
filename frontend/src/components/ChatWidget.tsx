@@ -1,6 +1,6 @@
 import { useChat } from "@ai-sdk/react"
 import { MessageCircle, Square, X } from "lucide-react"
-import React, { useMemo, useState } from "react"
+import React, { useEffect, useMemo, useState } from "react"
 import { CHAT_API, createChatTransport } from "../chatApi"
 import { Badge, Button, Card, Input } from "./ui"
 
@@ -20,19 +20,42 @@ function toolName(part: { type?: string; toolName?: string }): string | null {
 export function ChatWidget() {
   const [open, setOpen] = useState(false)
   const [input, setInput] = useState("")
+  const [requestActive, setRequestActive] = useState(false)
+  const [completedText, setCompletedText] = useState<string | null>(null)
   const transport = useMemo(() => createChatTransport(), [])
   const { messages, sendMessage, status, stop } = useChat({
     transport,
     // Sample the latest live snapshot once per frame. This drops redundant
     // React notifications; it does not queue, split, or replay model text.
     experimental_throttle: 16,
+    onFinish: ({ message }) => {
+      setCompletedText(message.parts
+        .filter((part) => part.type === "text")
+        .map((part) => part.text)
+        .join(""))
+    },
   })
-  const busy = status === "submitted" || status === "streaming"
+  const uiStatus = requestActive && status === "ready" ? "streaming" : status
+  const busy = uiStatus === "submitted" || uiStatus === "streaming"
+  const renderedText = messages.at(-1)?.role === "assistant"
+    ? messages.at(-1)?.parts
+      .filter((part) => part.type === "text")
+      .map((part) => part.text)
+      .join("") || ""
+    : ""
+
+  useEffect(() => {
+    if (!requestActive || completedText === null || renderedText !== completedText) return
+    setRequestActive(false)
+    setCompletedText(null)
+  }, [completedText, renderedText, requestActive])
 
   function submit() {
     const text = input.trim()
     if (!text || busy) return
     setInput("")
+    setRequestActive(true)
+    setCompletedText(null)
     void sendMessage({ text })
   }
 
@@ -42,6 +65,7 @@ export function ChatWidget() {
         <Card
           role="dialog"
           aria-label="报价助手"
+          data-chat-status={uiStatus}
           className="fixed bottom-20 right-4 z-40 flex h-[min(32rem,calc(100vh-6rem))] w-[min(24rem,calc(100vw-2rem))] flex-col shadow-lg md:right-5"
         >
           <div className="flex items-center justify-between border-b border-[#e2e8f0] px-3 py-2">
@@ -103,7 +127,16 @@ export function ChatWidget() {
               className="h-10 text-sm"
             />
             {busy ? (
-              <Button type="button" variant="outline" onClick={() => stop()} aria-label="停止生成">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  stop()
+                  setRequestActive(false)
+                  setCompletedText(null)
+                }}
+                aria-label="停止生成"
+              >
                 <Square size={14} />
               </Button>
             ) : (
