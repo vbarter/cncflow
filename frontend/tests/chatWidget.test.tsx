@@ -62,7 +62,7 @@ test("FAB 叠在页面上，useChat 打到 /api/v1/chat", () => {
 test("同 burst 一次呈现，只有后续网络 payload 才让 Stop 下文本增长", async () => {
   const encoder = new TextEncoder()
   let networkPayloads = 0
-  let streamController!: ReadableStreamDefaultController<Uint8Array>
+  let streamController: ReadableStreamDefaultController<Uint8Array> | undefined
   globalThis.fetch = async () => new Response(new ReadableStream({
     start(controller) {
       streamController = controller
@@ -103,14 +103,21 @@ test("同 burst 一次呈现，只有后续网络 payload 才让 Stop 下文本�
     /submitted|streaming/,
   )
 
-  networkPayloads++
-  streamController.enqueue(encoder.encode([
-    frame({ type: "start", messageId: "assistant-1" }),
-    frame({ type: "start-step" }),
-    frame({ type: "text-start", id: "text-1" }),
-    frame({ type: "text-delta", id: "text-1", delta: "孔" }),
-    frame({ type: "text-delta", id: "text-1", delta: "工艺" }),
-  ].join("")))
+  for (let i = 0; i < 100 && !streamController; i++) {
+    await act(() => new Promise((resolve) => setTimeout(resolve, 1)))
+  }
+  assert.ok(streamController)
+  await act(async () => {
+    networkPayloads++
+    streamController?.enqueue(encoder.encode([
+      frame({ type: "start", messageId: "assistant-1" }),
+      frame({ type: "start-step" }),
+      frame({ type: "text-start", id: "text-1" }),
+      frame({ type: "text-delta", id: "text-1", delta: "孔" }),
+      frame({ type: "text-delta", id: "text-1", delta: "工艺" }),
+    ].join("")))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
   for (let i = 0; i < 100 && assistantText() !== "孔工艺"; i++) {
     await act(() => new Promise((resolve) => setTimeout(resolve, 2)))
   }
@@ -126,10 +133,13 @@ test("同 burst 一次呈现，只有后续网络 payload 才让 Stop 下文本�
   )
   assert.equal(snapshots[0]?.stop, true)
 
-  networkPayloads++
-  streamController.enqueue(encoder.encode(
-    frame({ type: "text-delta", id: "text-1", delta: "链" }),
-  ))
+  await act(async () => {
+    networkPayloads++
+    streamController?.enqueue(encoder.encode(
+      frame({ type: "text-delta", id: "text-1", delta: "链" }),
+    ))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
   for (let i = 0; i < 200 && assistantText() !== "孔工艺链"; i++) {
     await act(() => new Promise((resolve) => setTimeout(resolve, 2)))
   }
@@ -138,15 +148,18 @@ test("同 burst 一次呈现，只有后续网络 payload 才让 Stop 下文本�
   assert.equal(snapshots.at(-1)?.payload, 2)
   assert.equal(snapshots.at(-1)?.stop, true)
 
-  networkPayloads++
-  streamController.enqueue(encoder.encode([
-    frame({ type: "text-delta", id: "text-1", delta: "文".repeat(343) }),
-    frame({ type: "text-end", id: "text-1" }),
-    frame({ type: "finish-step" }),
-    frame({ type: "finish" }),
-    "data: [DONE]\n\n",
-  ].join("")))
-  streamController.close()
+  await act(async () => {
+    networkPayloads++
+    streamController?.enqueue(encoder.encode([
+      frame({ type: "text-delta", id: "text-1", delta: "文".repeat(343) }),
+      frame({ type: "text-end", id: "text-1" }),
+      frame({ type: "finish-step" }),
+      frame({ type: "finish" }),
+      "data: [DONE]\n\n",
+    ].join("")))
+    streamController?.close()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
   for (let i = 0; i < 200 && assistantText().length !== 347; i++) {
     await act(() => new Promise((resolve) => setTimeout(resolve, 2)))
   }
