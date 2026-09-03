@@ -15,7 +15,7 @@ export function forceTuziStreamFetch(baseFetch: typeof fetch = globalThis.fetch)
     const body = init?.body
     if (typeof body === "string") {
       try {
-        next = { ...init, body: JSON.stringify(forceTuziStream(JSON.parse(body))) }
+        next = { ...next, body: JSON.stringify(forceTuziStream(JSON.parse(body))) }
       } catch {
         /* not JSON */
       }
