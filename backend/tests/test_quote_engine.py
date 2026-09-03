@@ -327,6 +327,12 @@ def test_nuc_live_setup_freezes_machining_54_23(tmp_path):
         "features": features,
     }).get_json()
 
+    rough_face = next(
+        step for step in body["process_sequence"] if step["process"] == "rough_face"
+    )
+    assert body["slider"]["slider"] == "标准"
+    assert rough_face["f"] == pytest.approx(630.25, abs=0.01)
+    assert rough_face["time"]["f"] == pytest.approx(630.25, abs=0.01)
     assert body["labor_cost_breakdown"]["total"] == pytest.approx(54.23, abs=0.01)
     assert body["material_cost_breakdown"]["net_material_cost"] == pytest.approx(13.86, abs=0.01)
     assert body["volume"]["v_part_mm3"] == 70_641
