@@ -59,12 +59,16 @@ test("FAB 叠在页面上，useChat 打到 /api/v1/chat", () => {
   assert.ok(screen.getByText("可以问手册规则或这份代码怎么报价"))
 })
 
-test("useChat 在模型完成前立即显示已到达的真实 text_delta", async () => {
+test("useChat 在模型完成前连续显示真实 text_delta，拒绝 347 字整段粘贴", async () => {
   const encoder = new TextEncoder()
   let modelFinished = false
-  let releaseModel: () => void = () => {}
+  let releaseLaterDelta: () => void = () => {}
+  let releaseModelFinish: () => void = () => {}
+  const laterDeltaMayArrive = new Promise<void>((resolve) => {
+    releaseLaterDelta = resolve
+  })
   const modelMayFinish = new Promise<void>((resolve) => {
-    releaseModel = resolve
+    releaseModelFinish = resolve
   })
   globalThis.fetch = async () => new Response(new ReadableStream({
     async start(controller) {
@@ -74,9 +78,13 @@ test("useChat 在模型完成前立即显示已到达的真实 text_delta", asyn
         frame({ type: "text-start", id: "text-1" }),
         frame({ type: "text-delta", id: "text-1", delta: "孔" }),
       ].join("")))
+      await laterDeltaMayArrive
+      controller.enqueue(encoder.encode(
+        frame({ type: "text-delta", id: "text-1", delta: "工艺链" }),
+      ))
       await modelMayFinish
       controller.enqueue(encoder.encode([
-        frame({ type: "text-delta", id: "text-1", delta: "工艺链" }),
+        frame({ type: "text-delta", id: "text-1", delta: "文".repeat(343) }),
         frame({ type: "text-end", id: "text-1" }),
         frame({ type: "finish-step" }),
         frame({ type: "finish" }),
@@ -114,10 +122,17 @@ test("useChat 在模型完成前立即显示已到达的真实 text_delta", asyn
   assert.ok(observed.has("孔"), `missing first painted delta: ${JSON.stringify([...observed])}`)
   assert.equal(observed.has("孔工艺链"), false)
 
-  releaseModel()
+  releaseLaterDelta()
   for (let i = 0; i < 200 && assistantText() !== "孔工艺链"; i++) {
     await act(() => new Promise((resolve) => setTimeout(resolve, 5)))
   }
   assert.equal(assistantText(), "孔工艺链")
+  assert.equal(modelFinished, false)
+
+  releaseModelFinish()
+  for (let i = 0; i < 200 && assistantText().length !== 347; i++) {
+    await act(() => new Promise((resolve) => setTimeout(resolve, 5)))
+  }
+  assert.equal(assistantText().length, 347)
   assert.equal(modelFinished, true)
 })

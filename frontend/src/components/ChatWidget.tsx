@@ -21,7 +21,12 @@ export function ChatWidget() {
   const [open, setOpen] = useState(false)
   const [input, setInput] = useState("")
   const transport = useMemo(() => createChatTransport(), [])
-  const { messages, sendMessage, status, stop } = useChat({ transport })
+  const { messages, sendMessage, status, stop } = useChat({
+    transport,
+    // Sample the latest live snapshot once per frame. This drops redundant
+    // React notifications; it does not queue, split, or replay model text.
+    experimental_throttle: 16,
+  })
   const busy = status === "submitted" || status === "streaming"
 
   function submit() {
