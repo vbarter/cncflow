@@ -75,7 +75,16 @@ function pipeTextFirstSseToNode(
           response.writeHead(200, Object.fromEntries(headers.entries()))
           headersSent = true
         }
+        const socket = response.socket
+        const corkedBefore = socket?.writableCorked ?? 0
         response.write(value)
+        // ServerResponse auto-corks every write until nextTick. Pi can publish
+        // several provider deltas through promise microtasks before that tick,
+        // collapsing their HTTP writes into one socket writev. End only the
+        // auto-cork opened by this write; preserve any outer/manual cork.
+        if (socket && socket === response.socket && socket.writableCorked > corkedBefore) {
+          socket.uncork()
+        }
       }
       if (!headersSent) response.writeHead(200, Object.fromEntries(headers.entries()))
       response.end()
