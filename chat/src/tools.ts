@@ -1,6 +1,5 @@
 import { spawn } from "node:child_process"
 import fs from "node:fs"
-import path from "node:path"
 import type { AgentTool } from "@earendil-works/pi-agent-core"
 import { Type } from "@earendil-works/pi-ai"
 import { BASH_TIMEOUT_MS, MAX_READ_BYTES, MAX_TOOL_OUTPUT } from "./config.js"
@@ -24,16 +23,6 @@ const ReadParams = Type.Object({
 
 const BashParams = Type.Object({
   command: Type.String({ description: "Read-only shell command; cwd is the jail" }),
-})
-
-const LsParams = Type.Object({
-  path: Type.Optional(Type.String({ description: "Directory relative to the jail" })),
-})
-
-const GrepParams = Type.Object({
-  pattern: Type.String({ description: "Fixed or regex pattern" }),
-  path: Type.Optional(Type.String({ description: "File or directory under the jail" })),
-  glob: Type.Optional(Type.String({ description: "Optional glob, e.g. *.py" })),
 })
 
 export function createReadOnlyTools(jail: string): AgentTool[] {
@@ -60,7 +49,7 @@ export function createReadOnlyTools(jail: string): AgentTool[] {
   const bash: AgentTool<typeof BashParams> = {
     name: "bash",
     label: "bash",
-    description: "Read-only bash in the jail. No writes, no network, no sudo. Prefer ls/grep/rg/find/cat/head.",
+    description: "Read-only bash in the jail. Only safe inspection commands are allowed; no writes, network, or path escape.",
     parameters: BashParams,
     execute: async (_id, params, signal) => {
       const verdict = inspectBash(params.command)
@@ -70,42 +59,7 @@ export function createReadOnlyTools(jail: string): AgentTool[] {
     },
   }
 
-  const ls: AgentTool<typeof LsParams> = {
-    name: "ls",
-    label: "ls",
-    description: "List a directory inside the chat jail.",
-    parameters: LsParams,
-    execute: async (_id, params) => {
-      const target = resolveJailPath(jail, params.path || ".")
-      const stat = fs.statSync(target)
-      if (!stat.isDirectory()) throw new Error("not a directory")
-      const names = fs.readdirSync(target).sort()
-      const lines = names.map((name) => {
-        const full = path.join(target, name)
-        const s = fs.statSync(full)
-        const kind = s.isDirectory() ? "dir" : "file"
-        return `${kind}\t${name}`
-      })
-      return textResult(lines.join("\n") || "(empty)", { path: params.path || "." })
-    },
-  }
-
-  const grep: AgentTool<typeof GrepParams> = {
-    name: "grep",
-    label: "grep",
-    description: "Search text under the jail with grep -R. Read-only.",
-    parameters: GrepParams,
-    execute: async (_id, params, signal) => {
-      const target = resolveJailPath(jail, params.path || ".")
-      const args = ["-R", "-n", "-I", "--exclude-dir=__pycache__"]
-      if (params.glob) args.push("--include", params.glob)
-      args.push("--", params.pattern, target)
-      const output = await runBinary(jail, "grep", args, signal)
-      return textResult(output || "(no matches)", { pattern: params.pattern })
-    },
-  }
-
-  return [read, bash, ls, grep]
+  return [read, bash]
 }
 
 function runJailed(jail: string, command: string, signal?: AbortSignal): Promise<string> {

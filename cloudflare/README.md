@@ -19,7 +19,7 @@ cd cloudflare
 npx wrangler secret put TUZI_API_KEY
 ```
 
-Optional: `npx wrangler secret put TUZI_MODEL` (default `gpt-4.1-mini`). The Worker forwards `POST /api/v1/chat` to the container Node process on port 3002 without buffering. Chat jail is `/app/chat-jail` (`docs/knowledge-base`, `backend/cncflow_core`, `frontend/src`). Tools: `read` / `bash` / `ls` / `grep`. `write` / `edit` are not registered.
+Optional: `npx wrangler secret put TUZI_MODEL` (default `gpt-4.1-mini`). The Worker forwards `POST /api/v1/chat` to the container Node process on port 3002 without buffering. Chat jail is `/app/chat-jail` (`docs/knowledge-base`, `backend/cncflow_core`, `frontend/src`). The only registered tools are `read` and read-only `bash`; `write` / `edit` and all other tools are disabled.
 
 Frontend production build uses `VITE_BASE=/` and `VITE_API_URL` pointing at the `cncflow-api` Worker origin. The Cloudflare workflow publishes `frontend/dist` to Pages project `cncflow` on every main push. VPS SSH publish remains as a fallback.
 

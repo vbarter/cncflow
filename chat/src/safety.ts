@@ -1,25 +1,25 @@
-/** Read-only bash gate. Write/edit are never registered; this is defense in depth. */
+/** Only commands with no file/network mutation surface are allowed. */
+const READ_ONLY_COMMANDS = new Set([
+  "cat",
+  "file",
+  "find",
+  "grep",
+  "head",
+  "ls",
+  "pwd",
+  "rg",
+  "stat",
+  "tail",
+  "wc",
+])
 
-const WRITE_TOOLS = new Set(["write", "edit", "strreplace", "apply_patch", "create_file"])
-
-const DENIED_COMMANDS = [
-  "sudo", "su", "doas",
-  "curl", "wget", "httpie", "aria2c",
-  "ssh", "scp", "sftp", "rsync", "ftp", "telnet", "nc", "ncat", "netcat", "socat",
-  "chmod", "chown", "chgrp", "mkfs", "dd",
-  "apt", "apt-get", "yum", "dnf", "pip", "npm", "pnpm", "yarn",
-  "docker", "kubectl", "systemctl",
-  "python", "python3", "node", "perl", "ruby", "php",
-]
-
-const WRITE_COMMANDS = [
-  "rm", "rmdir", "mv", "cp", "install", "touch", "mkdir", "tee", "truncate",
-  "ln", "unlink", "sed", "awk", "perl",
-]
-
-const WRITE_RE = /(\s|^)(>|>>|tee\b|dd\b)/
-const INPLACE_RE = /\bsed\b[^;\n]*\s-i\b|\bperl\b[^;\n]*\s-i\b/
+const ALLOWED_TOOLS = new Set(["read", "bash"])
 const PARENT_RE = /(^|[/"'\s])\.\.([/"'\s]|$)/
+const ABSOLUTE_PATH_RE = /(^|[\s=])["']?\//
+const SHELL_ESCAPE_RE = /[;<>&`$\\\n\r()[\]{}]/
+const FIND_MUTATION_RE = /(^|\s)-(delete|exec|execdir|ok|okdir|fprint|fprint0|fls)(\s|$)/
+const RG_EXEC_RE = /(^|\s)--pre(?:-glob)?(?:[=\s]|$)/
+const GREP_FILE_RE = /(^|\s)(?:-f|--file|--exclude-from|--include-from)(?:[=\s]|$)/
 
 export type BashVerdict = { ok: true } | { ok: false; reason: string }
 
@@ -28,37 +28,35 @@ export function inspectBash(command: unknown): BashVerdict {
   if (!cmd.trim()) return { ok: false, reason: "empty command" }
   if (cmd.length > 4000) return { ok: false, reason: "command too long" }
   if (PARENT_RE.test(cmd)) return { ok: false, reason: "path may leave jail (..)" }
-  if (WRITE_RE.test(cmd) || INPLACE_RE.test(cmd)) {
-    return { ok: false, reason: "bash is read-only; writes and redirects are blocked" }
+  if (ABSOLUTE_PATH_RE.test(cmd) || /(^|\s)~[/\s]/.test(cmd)) {
+    return { ok: false, reason: "absolute and home paths are outside the jail" }
+  }
+  if (SHELL_ESCAPE_RE.test(cmd)) {
+    return { ok: false, reason: "shell control, substitution, and redirection are blocked" }
+  }
+  if (FIND_MUTATION_RE.test(cmd)) {
+    return { ok: false, reason: "mutating find actions are blocked" }
+  }
+  if (RG_EXEC_RE.test(cmd) || GREP_FILE_RE.test(cmd)) {
+    return { ok: false, reason: "options that execute commands or read outside operands are blocked" }
   }
 
-  const tokens = tokenize(cmd)
-  for (const token of tokens) {
-    const base = token.replace(/^.*\//, "").toLowerCase()
-    if (DENIED_COMMANDS.includes(base)) {
-      return { ok: false, reason: `command not allowed: ${base}` }
-    }
-    if (WRITE_COMMANDS.includes(base) && base !== "sed" && base !== "awk") {
-      return { ok: false, reason: `write command blocked: ${base}` }
+  for (const segment of cmd.split("|")) {
+    const executable = segment.trim().match(/^([a-zA-Z0-9_-]+)/)?.[1]?.toLowerCase()
+    if (!executable || !READ_ONLY_COMMANDS.has(executable)) {
+      return { ok: false, reason: `only read-only commands are allowed: ${executable || "unknown"}` }
     }
   }
   return { ok: true }
-}
-
-function tokenize(command: string): string[] {
-  return command
-    .split(/[;&|`$\n(){}]+/)
-    .flatMap((part) => part.trim().split(/\s+/))
-    .filter(Boolean)
 }
 
 export function inspectToolName(name: string): BashVerdict {
   const n = String(name || "").toLowerCase()
-  if (WRITE_TOOLS.has(n) || n.startsWith("write") || n === "edit") {
-    return { ok: false, reason: `${name} is not allowed on the public chat widget` }
+  if (!ALLOWED_TOOLS.has(n)) {
+    return { ok: false, reason: `only read and bash are allowed; ${name} is disabled` }
   }
   return { ok: true }
 }
 
-export const REGISTERED_TOOL_NAMES = ["read", "bash", "ls", "grep"] as const
-export const FORBIDDEN_TOOL_NAMES = ["write", "edit"] as const
+export const REGISTERED_TOOL_NAMES = ["read", "bash"] as const
+export const FORBIDDEN_TOOL_NAMES = ["write", "edit", "ls", "grep"] as const
