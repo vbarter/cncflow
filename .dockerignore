@@ -1,6 +1,9 @@
 .git
-frontend
+frontend/node_modules
+frontend/dist
+frontend/*.tsbuildinfo
 cloudflare/node_modules
+chat/node_modules
+chat/dist
 **/__pycache__
 .pytest_cache
-*.md

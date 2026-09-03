@@ -9,5 +9,8 @@ venv/
 frontend/node_modules/
 frontend/dist/
 frontend/*.tsbuildinfo
+chat/node_modules/
+chat/dist/
+chat-jail/
 cloudflare/node_modules/
 cloudflare/.wrangler/
