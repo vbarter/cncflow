@@ -22,9 +22,15 @@ Object.defineProperty(globalThis, "navigator", {
   value: dom.window.navigator,
 })
 
-const { cleanup, fireEvent, render, screen } = await import("@testing-library/react")
+const { act, cleanup, fireEvent, render, screen } = await import("@testing-library/react")
+const nativeFetch = globalThis.fetch
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  globalThis.fetch = nativeFetch
+})
+
+const frame = (part: unknown) => `data: ${JSON.stringify(part)}\n\n`
 
 test("FAB 叠在页面上，useChat 打到 /api/v1/chat", () => {
   assert.match(CHAT_API, /\/api\/v1\/chat$/)
@@ -51,4 +57,62 @@ test("FAB 叠在页面上，useChat 打到 /api/v1/chat", () => {
 
   fireEvent.click(fab)
   assert.ok(screen.getByText("可以问手册规则或这份代码怎么报价"))
+})
+
+test("Cloudflare burst 内的真实 text_delta 会逐帧显示，而非整段一次绘制", async () => {
+  const encoder = new TextEncoder()
+  let modelFinished = false
+  globalThis.fetch = async () => new Response(new ReadableStream({
+    async start(controller) {
+      controller.enqueue(encoder.encode([
+        frame({ type: "start", messageId: "assistant-1" }),
+        frame({ type: "start-step" }),
+        frame({ type: "text-start", id: "text-1" }),
+        frame({ type: "text-delta", id: "text-1", delta: "孔" }),
+        frame({ type: "text-delta", id: "text-1", delta: "工艺" }),
+      ].join("")))
+      await new Promise((resolve) => setTimeout(resolve, 250))
+      controller.enqueue(encoder.encode([
+        frame({ type: "text-delta", id: "text-1", delta: "链" }),
+        frame({ type: "text-end", id: "text-1" }),
+        frame({ type: "finish-step" }),
+        frame({ type: "finish" }),
+        "data: [DONE]\n\n",
+      ].join("")))
+      modelFinished = true
+      controller.close()
+    },
+  }), {
+    headers: {
+      "Content-Type": "text/event-stream",
+      "x-vercel-ai-ui-message-stream": "v1",
+    },
+  })
+
+  const { container } = render(<ChatWidget />)
+  fireEvent.click(screen.getByTestId("chat-fab"))
+  fireEvent.change(screen.getByPlaceholderText("可以问手册规则或这份代码怎么报价"), {
+    target: { value: "孔工艺链" },
+  })
+  fireEvent.click(screen.getByText("发送"))
+
+  const assistantText = () => {
+    const nodes = container.querySelectorAll(".whitespace-pre-wrap")
+    return nodes.length > 1 ? nodes.item(nodes.length - 1)?.textContent || "" : ""
+  }
+  const observed = new Set<string>()
+  for (let i = 0; i < 30; i++) {
+    await act(() => new Promise((resolve) => setTimeout(resolve, 5)))
+    observed.add(assistantText())
+  }
+
+  assert.equal(modelFinished, false)
+  assert.ok(screen.getByLabelText("停止生成"))
+  assert.ok(observed.has("孔"), `missing first painted delta: ${JSON.stringify([...observed])}`)
+  assert.ok(observed.has("孔工艺"), `missing second painted delta: ${JSON.stringify([...observed])}`)
+  assert.equal(observed.has("孔工艺链"), false)
+
+  await act(() => new Promise((resolve) => setTimeout(resolve, 150)))
+  assert.equal(assistantText(), "孔工艺链")
+  assert.equal(modelFinished, true)
 })
