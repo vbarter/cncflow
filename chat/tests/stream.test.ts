@@ -1,10 +1,12 @@
 import assert from "node:assert/strict"
 import { createServer } from "node:http"
 import type { AddressInfo } from "node:net"
+import os from "node:os"
 import test from "node:test"
 import { getRequestListener } from "@hono/node-server"
 import { Hono } from "hono"
 import type { Agent } from "@earendil-works/pi-agent-core"
+import { createChatAgent } from "../src/agent.ts"
 import { piToUIMessageResponse, STREAM_HEADERS } from "../src/bridge.ts"
 import { forceTuziStream, forceTuziStreamFetch } from "../src/stream.ts"
 
@@ -65,6 +67,8 @@ test("forceTuziStream rewrites stream:false so tu-zi cannot collapse to one blob
   let seen = ""
   const wrapped = forceTuziStreamFetch(async (_input, init) => {
     seen = String(init?.body || "")
+    assert.equal(new Headers(init?.headers).get("accept-encoding"), "identity")
+    assert.match(new Headers(init?.headers).get("cache-control") || "", /no-transform/)
     return new Response("{}", { headers: { "Content-Type": "application/json" } })
   })
   await wrapped("https://api.tu-zi.com/v1/chat/completions", {
@@ -72,6 +76,80 @@ test("forceTuziStream rewrites stream:false so tu-zi cannot collapse to one blob
     body: JSON.stringify({ model: "gpt-4.1-mini", stream: false, messages: [] }),
   })
   assert.equal(JSON.parse(seen).stream, true)
+})
+
+test("real Pi agent flushes first tu-zi text_delta before prompt resolves", async () => {
+  const nativeFetch = globalThis.fetch
+  const nativeKey = process.env.TUZI_API_KEY
+  let releaseModel: () => void = () => {}
+  const modelMayFinish = new Promise<void>((resolve) => {
+    releaseModel = resolve
+  })
+  let upstreamFinished = false
+  let promptResolved = false
+  const encoder = new TextEncoder()
+  const chunk = (delta: Record<string, unknown>, finishReason: string | null = null) =>
+    `data: ${JSON.stringify({
+      id: "chatcmpl-stream-test",
+      object: "chat.completion.chunk",
+      created: 1,
+      model: "gpt-4.1-mini",
+      choices: [{ index: 0, delta, finish_reason: finishReason }],
+    })}\n\n`
+
+  process.env.TUZI_API_KEY = "test-key"
+  globalThis.fetch = async (_input, init) => {
+    assert.equal(new Headers(init?.headers).get("accept-encoding"), "identity")
+    assert.equal(JSON.parse(String(init?.body)).stream, true)
+    return new Response(new ReadableStream({
+      async start(controller) {
+        controller.enqueue(encoder.encode(chunk({ role: "assistant" })))
+        controller.enqueue(encoder.encode(chunk({ content: "孔" })))
+        await modelMayFinish
+        controller.enqueue(encoder.encode(chunk({ content: "工艺链" })))
+        controller.enqueue(encoder.encode(chunk({}, "stop")))
+        controller.enqueue(encoder.encode("data: [DONE]\n\n"))
+        upstreamFinished = true
+        controller.close()
+      },
+    }), {
+      headers: { "Content-Type": "text/event-stream" },
+    })
+  }
+
+  try {
+    const agent = createChatAgent(os.tmpdir())
+    const prompt = agent.prompt.bind(agent)
+    agent.prompt = async (input, images) => {
+      await prompt(input, images)
+      promptResolved = true
+    }
+    const response = piToUIMessageResponse(agent, "孔工艺链")
+    const reader = response.body?.getReader()
+    assert.ok(reader)
+
+    let seen = ""
+    while (!seen.includes(`"delta":"孔"`)) {
+      const next = await reader.read()
+      assert.equal(next.done, false)
+      seen += new TextDecoder().decode(next.value)
+    }
+    assert.equal(upstreamFinished, false)
+    assert.equal(promptResolved, false)
+    assert.equal(agent.state.isStreaming, true)
+
+    releaseModel()
+    while (!(await reader.read()).done) {
+      /* drain */
+    }
+    assert.equal(upstreamFinished, true)
+    assert.equal(promptResolved, true)
+  } finally {
+    releaseModel()
+    globalThis.fetch = nativeFetch
+    if (nativeKey === undefined) delete process.env.TUZI_API_KEY
+    else process.env.TUZI_API_KEY = nativeKey
+  }
 })
 
 test("piToUIMessageResponse yields first SSE chunk before agent.prompt finishes", async () => {
