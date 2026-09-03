@@ -85,17 +85,16 @@ test("同 burst 一次呈现，只有后续网络 payload 才让 Stop 下文本�
     const nodes = container.querySelectorAll(".whitespace-pre-wrap")
     return nodes.length > 1 ? nodes.item(nodes.length - 1)?.textContent || "" : ""
   }
-  const snapshots: Array<{ payload: number; text: string; stop: boolean }> = []
-  const observer = new MutationObserver(() => {
+  const paintSnapshots: Array<{ payload: number; text: string; stop: boolean }> = []
+  const samplePaint = () => {
     const text = assistantText()
-    if (!text || snapshots.at(-1)?.text === text) return
-    snapshots.push({
+    if (!text || paintSnapshots.at(-1)?.text === text) return
+    paintSnapshots.push({
       payload: networkPayloads,
       text,
       stop: Boolean(screen.queryByLabelText("停止生成")),
     })
-  })
-  observer.observe(container, { childList: true, characterData: true, subtree: true })
+  }
 
   assert.ok(screen.getByLabelText("停止生成"))
   assert.match(
@@ -118,20 +117,25 @@ test("同 burst 一次呈现，只有后续网络 payload 才让 Stop 下文本�
     ].join("")))
     await new Promise((resolve) => setTimeout(resolve, 0))
   })
+  samplePaint()
   for (let i = 0; i < 100 && assistantText() !== "孔工艺"; i++) {
     await act(() => new Promise((resolve) => setTimeout(resolve, 2)))
+    samplePaint()
   }
-  // Catch #141's 16ms paint yield: it exposes "孔" before "孔工艺".
-  await act(() => new Promise((resolve) => setTimeout(resolve, 40)))
+  // Sample several paint opportunities. #141's 16ms yield exposes "孔" here.
+  for (let i = 0; i < 20; i++) {
+    await act(() => new Promise((resolve) => setTimeout(resolve, 2)))
+    samplePaint()
+  }
 
   assert.equal(assistantText(), "孔工艺")
   assert.ok(screen.getByLabelText("停止生成"))
   assert.deepEqual(
-    snapshots.filter(({ payload }) => payload === 1).map(({ text }) => text),
+    paintSnapshots.filter(({ payload }) => payload === 1).map(({ text }) => text),
     ["孔工艺"],
-    `one network payload dripped across renders: ${JSON.stringify(snapshots)}`,
+    `one network payload dripped across paints: ${JSON.stringify(paintSnapshots)}`,
   )
-  assert.equal(snapshots[0]?.stop, true)
+  assert.equal(paintSnapshots[0]?.stop, true)
 
   await act(async () => {
     networkPayloads++
@@ -140,13 +144,15 @@ test("同 burst 一次呈现，只有后续网络 payload 才让 Stop 下文本�
     ))
     await new Promise((resolve) => setTimeout(resolve, 0))
   })
+  samplePaint()
   for (let i = 0; i < 200 && assistantText() !== "孔工艺链"; i++) {
     await act(() => new Promise((resolve) => setTimeout(resolve, 2)))
+    samplePaint()
   }
   assert.equal(assistantText(), "孔工艺链")
   assert.ok(screen.getByLabelText("停止生成"))
-  assert.equal(snapshots.at(-1)?.payload, 2)
-  assert.equal(snapshots.at(-1)?.stop, true)
+  assert.equal(paintSnapshots.at(-1)?.payload, 2)
+  assert.equal(paintSnapshots.at(-1)?.stop, true)
 
   await act(async () => {
     networkPayloads++
@@ -160,16 +166,17 @@ test("同 burst 一次呈现，只有后续网络 payload 才让 Stop 下文本�
     streamController?.close()
     await new Promise((resolve) => setTimeout(resolve, 0))
   })
+  samplePaint()
   for (let i = 0; i < 200 && assistantText().length !== 347; i++) {
     await act(() => new Promise((resolve) => setTimeout(resolve, 2)))
+    samplePaint()
   }
   assert.equal(assistantText().length, 347)
-  assert.equal(snapshots.at(-1)?.payload, 3)
+  assert.equal(paintSnapshots.at(-1)?.payload, 3)
 
   for (let i = 0; i < 200 && screen.queryByLabelText("停止生成"); i++) {
     await act(() => new Promise((resolve) => setTimeout(resolve, 2)))
   }
   assert.equal(screen.queryByLabelText("停止生成"), null)
   assert.equal(screen.getByRole("dialog").getAttribute("data-chat-status"), "ready")
-  observer.disconnect()
 })
