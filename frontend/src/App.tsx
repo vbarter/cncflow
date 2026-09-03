@@ -8,6 +8,7 @@ import { InquiryDetail } from "./pages/InquiryDetail"
 import { PartDetail } from "./pages/PartDetail"
 import { FactoryConfig } from "./pages/FactoryConfig"
 import { ParseLegacy } from "./ParseLegacy"
+import { ChatWidget } from "./components/ChatWidget"
 import { API, json } from "./api"
 
 function route(){ return (location.hash.replace(/^#\/?/, "") || "") }
@@ -107,5 +108,6 @@ export function App(){
       {seg==="factory"&&<FactoryConfig/>}
       {seg==="parse"&&<ParseLegacy/>}
     </div>
+    <ChatWidget />
   </main>
 }

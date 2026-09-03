@@ -1,5 +1,6 @@
-const root = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "")
-  || (import.meta.env.BASE_URL as string).replace(/\/$/, "")
+const viteEnv = (import.meta as { env?: { VITE_API_URL?: string; BASE_URL?: string } }).env || {}
+const root = viteEnv.VITE_API_URL?.replace(/\/$/, "")
+  || (viteEnv.BASE_URL || "").replace(/\/$/, "")
 
 export const API = `${root}/api/v1`
 

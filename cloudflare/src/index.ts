@@ -39,7 +39,26 @@ export class CncflowContainer extends Container<Env> {
       CNCFLOW_R2_BUCKET: env.CNCFLOW_R2_BUCKET || "cncflow-files",
       TUZI_API_KEY: env.TUZI_API_KEY || env.VISION_API_KEY || "",
       TUZI_MODEL: env.TUZI_MODEL || "gpt-4.1-mini",
+      TUZI_BASE_URL: "https://api.tu-zi.com/v1",
+      CHAT_JAIL: "/app/chat-jail",
+      CHAT_PORT: "3002",
+      CHAT_HOST: "0.0.0.0",
     };
+  }
+
+  override fetch(request: Request): Promise<Response> {
+    const path = new URL(request.url).pathname.replace(/\/+$/, "") || "/";
+    const chat = path === "/api/v1/chat" || path === "/api/chat";
+    if (chat) {
+      const self = this as { containerFetch?: (req: Request, port?: number) => Promise<Response> };
+      if (typeof self.containerFetch === "function") {
+        return self.containerFetch(request, 3002);
+      }
+      const headers = new Headers(request.headers);
+      headers.set("cf-container-target-port", "3002");
+      return super.fetch(new Request(request, { headers }));
+    }
+    return super.fetch(request);
   }
 
   override onActivityExpired(): void {
@@ -77,7 +96,18 @@ export default {
     if (request.method === "OPTIONS") {
       return withCors(request, new Response(null, { status: 204 }), origins);
     }
+    const path = new URL(request.url).pathname.replace(/\/+$/, "") || "/";
+    const chat = path === "/api/v1/chat" || path === "/api/chat";
     const upstream = await getContainer(env.CNCFLOW, "api").fetch(request);
-    return withCors(request, upstream, origins);
+    const proxied = withCors(request, upstream, origins);
+    if (!chat) return proxied;
+    const headers = new Headers(proxied.headers);
+    headers.set("Cache-Control", "no-cache, no-transform");
+    headers.set("X-Accel-Buffering", "no");
+    return new Response(proxied.body, {
+      status: proxied.status,
+      statusText: proxied.statusText,
+      headers,
+    });
   },
 };
