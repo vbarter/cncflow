@@ -91,6 +91,26 @@ test("同平面重叠 face 选较小局部区域，不粘在 generic face", () =
   )
 })
 
+test("外圆生成可高亮圆柱壳，侧壁可选且不会吞掉内侧面", () => {
+  const outerCylinder = {
+    feature_id: "od-8",
+    type: "outer_cylinder",
+    diameter_mm: 50,
+    depth_mm: 12,
+    location: { x: 0, y: 0, z: 0 },
+    axis: { x: 0, y: 0, z: 1 },
+  }
+
+  assert.equal(
+    pickFeatureAtPoint([face, outerCylinder], new THREE.Vector3(25, 0, 0)),
+    "od-8",
+  )
+  assert.equal(
+    pickFeatureAtPoint([face, outerCylinder], new THREE.Vector3(0, 0, 0)),
+    "face-top",
+  )
+})
+
 test("CAD 表面点击可选择最近的槽代理，并忽略无 pose 特征", () => {
   const slot = {
     feature_id: "slot-open",
@@ -118,4 +138,5 @@ test("CAD 实体统一负责拾取；树、参数和高亮共享 picked 状态",
   assert.match(source, /selected=\{f\.feature_id === picked\}/)
   assert.match(source, /color="#f97316"[\s\S]*depthTest=\{false\}/)
   assert.match(source, /<group scale=\{unitScale\}>/)
+  assert.match(source, /t === "outer_cylinder"/)
 })
