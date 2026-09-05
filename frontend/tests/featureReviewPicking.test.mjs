@@ -2,7 +2,10 @@ import assert from "node:assert/strict"
 import { readFile } from "node:fs/promises"
 import test from "node:test"
 import * as THREE from "three"
-import { pickFeatureAtPoint } from "../src/components/FeatureReview.tsx"
+import {
+  featureUnitScaleForBox,
+  pickFeatureAtPoint,
+} from "../src/components/FeatureReview.tsx"
 
 const source = await readFile(
   new URL("../src/components/FeatureReview.tsx", import.meta.url),
@@ -18,7 +21,7 @@ const face = {
   width: 60,
 }
 
-test("CAD 表面点击按分析几何选择最近特征，重叠时孔优先于面", () => {
+test("CAD 表面点击在孔缘容差内优先选孔，离开孔区后选面", () => {
   const hole = {
     feature_id: "hole-8",
     type: "hole",
@@ -31,11 +34,59 @@ test("CAD 表面点击按分析几何选择最近特征，重叠时孔优先于�
   }
 
   assert.equal(
-    pickFeatureAtPoint([face, hole], new THREE.Vector3(3.8, 0, 0)),
+    pickFeatureAtPoint([face, hole], new THREE.Vector3(5.5, 0, 0)),
     "hole-8",
   )
   assert.equal(
     pickFeatureAtPoint([face, hole], new THREE.Vector3(30, 20, 0)),
+    "face-top",
+  )
+})
+
+test("cascadio 米制 mesh 点击点与 mm 特征 pose 自动对齐", () => {
+  const meterBox = new THREE.Box3(
+    new THREE.Vector3(-0.064, -0.047, -0.006),
+    new THREE.Vector3(0.064, 0.047, 0.006),
+  )
+  const mmBox = new THREE.Box3(
+    new THREE.Vector3(-64, -47, -6),
+    new THREE.Vector3(64, 47, 6),
+  )
+  const hole = {
+    feature_id: "hole-mm",
+    type: "hole",
+    pose: {
+      origin: { x: 20, y: 0, z: -6 },
+      axis: { x: 0, y: 0, z: 1 },
+      length_mm: 12,
+      diameter_mm: 8,
+    },
+  }
+
+  assert.equal(featureUnitScaleForBox([face, hole], meterBox), 0.001)
+  assert.equal(featureUnitScaleForBox([face, hole], mmBox), 1)
+  assert.equal(
+    pickFeatureAtPoint([face, hole], new THREE.Vector3(0.0245, 0, 0), 0.001),
+    "hole-mm",
+  )
+})
+
+test("同平面重叠 face 选较小局部区域，不粘在 generic face", () => {
+  const localFace = {
+    feature_id: "face-local",
+    type: "face",
+    location: { x: 20, y: 0, z: 0 },
+    axis: { x: 0, y: 0, z: 1 },
+    length: 12,
+    width: 10,
+  }
+
+  assert.equal(
+    pickFeatureAtPoint([face, localFace], new THREE.Vector3(20, 0, 0)),
+    "face-local",
+  )
+  assert.equal(
+    pickFeatureAtPoint([face, localFace], new THREE.Vector3(-30, 20, 0)),
     "face-top",
   )
 })
@@ -59,8 +110,12 @@ test("CAD 表面点击可选择最近的槽代理，并忽略无 pose 特征", (
   assert.equal(pickFeatureAtPoint([unavailable], new THREE.Vector3()), null)
 })
 
-test("CAD 实体接入点击处理，特征树点击链保持不变", () => {
+test("CAD 实体统一负责拾取；树、参数和高亮共享 picked 状态", () => {
   assert.match(source, /<primitive[\s\S]*onClick=\{\(event: any\)/)
   assert.match(source, /onPick\(event\.point\)/)
   assert.match(source, /onClick=\{\(\) => setPicked\(f\.feature_id\)\}/)
+  assert.doesNotMatch(source, /pickBestFeature/)
+  assert.match(source, /selected=\{f\.feature_id === picked\}/)
+  assert.match(source, /color="#f97316"[\s\S]*depthTest=\{false\}/)
+  assert.match(source, /<group scale=\{unitScale\}>/)
 })
