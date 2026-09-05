@@ -1,6 +1,13 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Canvas, useThree } from "@react-three/fiber"
-import { ContactShadows, OrbitControls } from "@react-three/drei"
+import {
+  ContactShadows,
+  GizmoHelper,
+  GizmoViewcube,
+  GizmoViewport,
+  OrbitControls,
+} from "@react-three/drei"
+import { Maximize2, Scissors } from "lucide-react"
 import * as THREE from "three"
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js"
 import { API } from "../api"
@@ -8,6 +15,7 @@ import { ProcessStepParameters } from "./ProcessSequenceEditor"
 
 type Feat = any
 type ViewName = "fit" | "front" | "top" | "side" | "iso"
+const ISO_DIRECTION = new THREE.Vector3(1.35, 0.9, 1.15).normalize()
 
 type Pose =
   | { kind: "cyl"; origin: THREE.Vector3; axis: THREE.Vector3; length: number; diameter: number; centered: boolean }
@@ -113,7 +121,7 @@ function applyView(camera: THREE.PerspectiveCamera, controls: any, box: THREE.Bo
   const size = box.getSize(new THREE.Vector3())
   const maxDim = Math.max(size.x, size.y, size.z, 1)
   const fov = (camera.fov * Math.PI) / 180
-  const dist = ((maxDim / 2) / Math.tan(fov / 2)) * 1.4
+  const dist = ((maxDim / 2) / Math.tan(fov / 2)) * 1.75
   let dir: THREE.Vector3
   if (view === "fit") {
     dir = camera.position.clone().sub(controls?.target || center)
@@ -122,7 +130,7 @@ function applyView(camera: THREE.PerspectiveCamera, controls: any, box: THREE.Bo
   } else if (view === "front") dir = new THREE.Vector3(0, 0, 1)
   else if (view === "top") dir = new THREE.Vector3(0, 1, 0)
   else if (view === "side") dir = new THREE.Vector3(1, 0, 0)
-  else dir = new THREE.Vector3(1, 0.85, 1).normalize()
+  else dir = ISO_DIRECTION.clone()
 
   camera.up.set(0, 1, 0)
   if (view === "top") camera.up.set(0, 0, -1)
@@ -162,15 +170,19 @@ function CadBody({
       o.castShadow = true
       o.receiveShadow = true
       o.material = new THREE.MeshStandardMaterial({
-        color: 0x9aa4ae,
-        metalness: 0.04,
-        roughness: 0.72,
+        color: 0x98a2ad,
+        metalness: 0.08,
+        roughness: 0.62,
         side: THREE.DoubleSide,
       })
-      const edges = new THREE.EdgesGeometry(o.geometry, 18)
+      const edges = new THREE.EdgesGeometry(o.geometry, 32)
       const lines = new THREE.LineSegments(
         edges,
-        new THREE.LineBasicMaterial({ color: 0x111827 }),
+        new THREE.LineBasicMaterial({
+          color: 0x475569,
+          transparent: true,
+          opacity: 0.24,
+        }),
       )
       lines.raycast = () => {}
       o.add(lines)
@@ -351,31 +363,45 @@ function ViewerToolbar({
   onSection: (on: boolean) => void
   onSectionT: (t: number) => void
 }) {
-  const btn = (id: ViewName, label: string) => (
+  const btn = (id: ViewName, label: string, title: string) => (
     <button
       type="button"
-      className={`h-7 rounded border px-2 text-[11px] ${view === id ? "border-blue-600 bg-blue-50 text-blue-700" : "border-[#e2e8f0] bg-white text-slate-700"}`}
+      className={`flex h-7 min-w-7 items-center justify-center rounded-md px-2 text-[11px] font-medium transition-colors ${view === id ? "bg-blue-600 text-white" : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"}`}
       onClick={() => onView(id)}
+      aria-label={title}
+      title={title}
     >
       {label}
     </button>
   )
   return (
     <div
-      className="absolute left-2 top-2 z-10 flex flex-wrap items-center gap-1"
+      className="absolute left-3 top-3 z-10 flex items-center gap-0.5 rounded-lg border border-white/80 bg-white/90 p-1 shadow-md shadow-slate-900/10 backdrop-blur"
       onPointerDown={(e) => e.stopPropagation()}
     >
-      {btn("fit", "适应")}
-      {btn("front", "前")}
-      {btn("top", "顶")}
-      {btn("side", "侧")}
-      {btn("iso", "ISO")}
       <button
         type="button"
-        className={`h-7 rounded border px-2 text-[11px] ${section ? "border-blue-600 bg-blue-50 text-blue-700" : "border-[#e2e8f0] bg-white text-slate-700"}`}
-        onClick={() => onSection(!section)}
+        className="flex size-7 items-center justify-center rounded-md text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900"
+        onClick={() => onView("fit")}
+        aria-label="适应窗口"
+        title="适应窗口"
       >
-        剖切
+        <Maximize2 size={14} strokeWidth={1.8} />
+      </button>
+      <span className="mx-0.5 h-4 w-px bg-slate-200" aria-hidden />
+      {btn("front", "前", "前视图")}
+      {btn("top", "顶", "顶视图")}
+      {btn("side", "侧", "侧视图")}
+      {btn("iso", "ISO", "等轴视图")}
+      <span className="mx-0.5 h-4 w-px bg-slate-200" aria-hidden />
+      <button
+        type="button"
+        className={`flex size-7 items-center justify-center rounded-md transition-colors ${section ? "bg-blue-600 text-white" : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"}`}
+        onClick={() => onSection(!section)}
+        aria-label="剖切"
+        title="剖切"
+      >
+        <Scissors size={14} strokeWidth={1.8} />
       </button>
       {section && (
         <input
@@ -384,7 +410,7 @@ function ViewerToolbar({
           max={100}
           value={Math.round(sectionT * 100)}
           onChange={(e) => onSectionT(Number(e.target.value) / 100)}
-          className="h-7 w-20 accent-blue-600"
+          className="mx-1 h-7 w-16 accent-blue-600"
           aria-label="剖切位置"
         />
       )}
@@ -508,8 +534,13 @@ export function FeatureReview({
     const size = box.getSize(new THREE.Vector3())
     const center = box.getCenter(new THREE.Vector3())
     return {
-      position: [center.x, box.min.y - 0.15, center.z] as [number, number, number],
-      scale: Math.max(size.x, size.z, 1) * 2.2,
+      position: [
+        center.x,
+        box.min.y - Math.max(size.y * 0.015, 0.08),
+        center.z,
+      ] as [number, number, number],
+      scale: Math.max(size.x, size.z, 1) * 2.1,
+      far: Math.max(size.y * 1.5, 10),
     }
   }, [box])
 
@@ -549,7 +580,7 @@ export function FeatureReview({
         </div>
       </section>
 
-      <section className="relative h-[360px] w-full touch-none rounded border border-[#e2e8f0] bg-[#f8fafc] lg:h-auto lg:min-h-[420px]">
+      <section className="relative h-[360px] w-full touch-none overflow-hidden rounded border border-[#e2e8f0] bg-[radial-gradient(circle_at_46%_38%,#ffffff_0%,#f5f7fa_48%,#e8edf3_100%)] lg:h-auto lg:min-h-[420px]">
         <div className="pointer-events-none absolute bottom-2 left-2 z-10 rounded bg-white/85 px-2 py-1 text-[10px] text-slate-500">
           3D 预览
         </div>
@@ -557,14 +588,15 @@ export function FeatureReview({
           <>
             <Canvas
               shadows
-              camera={{ position: [80, 60, 80], fov: 45, near: 0.1, far: 4000 }}
-              gl={{ antialias: true, localClippingEnabled: true }}
+              camera={{ position: [72, 48, 62], fov: 42, near: 0.1, far: 4000 }}
+              gl={{ antialias: true, alpha: true, localClippingEnabled: true }}
               onPointerMissed={() => setPicked(null)}
             >
-              <ambientLight intensity={0.22} />
-              <directionalLight position={[90, 140, 80]} intensity={1.15} />
-              <directionalLight position={[-70, 40, 30]} intensity={0.35} />
-              <directionalLight position={[20, 50, -90]} intensity={0.28} />
+              <ambientLight color="#f8fafc" intensity={0.62} />
+              <hemisphereLight args={["#ffffff", "#cbd5e1", 1.15]} />
+              <directionalLight color="#fffdf8" position={[90, 140, 80]} intensity={1.25} />
+              <directionalLight color="#dbeafe" position={[-70, 45, 35]} intensity={0.42} />
+              <directionalLight color="#ffffff" position={[20, 55, -90]} intensity={0.32} />
               <Suspense fallback={null}>
                 <CadBody url={meshUrl} clipPlane={clipPlane} onBox={onBox} />
                 <group
@@ -586,15 +618,43 @@ export function FeatureReview({
                 {shadow && (
                   <ContactShadows
                     position={shadow.position}
-                    opacity={0.38}
+                    opacity={0.3}
                     scale={shadow.scale}
-                    blur={2.1}
-                    far={40}
+                    blur={2.6}
+                    far={shadow.far}
+                    color="#64748b"
+                    resolution={512}
                   />
                 )}
               </Suspense>
-              <OrbitControls makeDefault enablePan enableRotate enableZoom />
+              <OrbitControls
+                makeDefault
+                enablePan
+                enableRotate
+                enableZoom
+                dampingFactor={0.08}
+                enableDamping
+              />
               <ViewRig box={box} request={viewReq} />
+              <GizmoHelper alignment="top-right" margin={[62, 62]} renderPriority={1}>
+                <GizmoViewcube
+                  color="#f8fafc"
+                  hoverColor="#dbeafe"
+                  textColor="#475569"
+                  strokeColor="#cbd5e1"
+                  opacity={0.96}
+                  faces={["RIGHT", "LEFT", "TOP", "BOTTOM", "FRONT", "BACK"]}
+                  font="bold 17px Inter, Arial, sans-serif"
+                />
+              </GizmoHelper>
+              <GizmoHelper alignment="top-right" margin={[54, 132]} renderPriority={2}>
+                <GizmoViewport
+                  axisColors={["#ef4444", "#22c55e", "#3b82f6"]}
+                  labelColor="#ffffff"
+                  axisHeadScale={0.82}
+                  hideNegativeAxes
+                />
+              </GizmoHelper>
             </Canvas>
             <ViewerToolbar
               view={view}
