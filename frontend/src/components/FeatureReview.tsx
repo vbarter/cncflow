@@ -140,11 +140,12 @@ function CadAxesGizmo() {
 }
 
 function CadBody({
-  url, clipPlane, onBox,
+  url, clipPlane, onBox, onPick,
 }: {
   url: string
   clipPlane: THREE.Plane | null
   onBox: (box: THREE.Box3) => void
+  onPick: (point: THREE.Vector3) => void
 }) {
   const scene = useGltfScene(url)
   const root = useMemo(() => {
@@ -198,7 +199,15 @@ function CadBody({
   }, [root, clipPlane])
 
   if (!root) return null
-  return <primitive object={root} />
+  return (
+    <primitive
+      object={root}
+      onClick={(event: any) => {
+        event.stopPropagation()
+        onPick(event.point)
+      }}
+    />
+  )
 }
 
 function SectionHelper({ box, t }: { box: THREE.Box3; t: number }) {
@@ -234,6 +243,58 @@ function pickBestFeature(intersections: any[]): string | null {
         break
       }
       o = o.parent
+    }
+  }
+  return best?.id || null
+}
+
+function distanceOutside(value: number, min: number, max: number) {
+  return value < min ? min - value : value > max ? value - max : 0
+}
+
+function distanceToPose(point: THREE.Vector3, pose: Pose) {
+  const rel = point.clone().sub(pose.origin)
+  if (pose.kind === "cyl") {
+    const axial = rel.dot(pose.axis)
+    const radial = rel.addScaledVector(pose.axis, -axial).length()
+    const min = pose.centered ? -pose.length / 2 : 0
+    const max = pose.centered ? pose.length / 2 : pose.length
+    return Math.hypot(
+      Math.max(0, radial - pose.diameter / 2),
+      distanceOutside(axial, min, max),
+    )
+  }
+
+  if (pose.kind === "surface") {
+    return Math.hypot(
+      distanceOutside(rel.x, -4, 4),
+      distanceOutside(rel.y, -4, 4),
+      distanceOutside(rel.z, -4, 4),
+    )
+  }
+
+  rel.applyQuaternion(quatFromAxis(pose.axis).invert())
+  return Math.hypot(
+    distanceOutside(rel.x, -pose.size[0] / 2, pose.size[0] / 2),
+    distanceOutside(rel.y, -pose.size[1] / 2, pose.size[1] / 2),
+    distanceOutside(rel.z, -pose.size[2] / 2, pose.size[2] / 2),
+  )
+}
+
+export function pickFeatureAtPoint(features: Feat[], point: THREE.Vector3): string | null {
+  let best: { id: string; rank: number; distance: number } | null = null
+  for (const feature of features) {
+    const pose = poseOf(feature)
+    const id = feature?.feature_id
+    if (!pose || !id) continue
+    const distance = distanceToPose(point, pose)
+    const rank = pickRank(pose.kind)
+    if (
+      !best
+      || distance < best.distance - 1e-6
+      || (Math.abs(distance - best.distance) <= 1e-6 && rank < best.rank)
+    ) {
+      best = { id, rank, distance }
     }
   }
   return best?.id || null
@@ -442,6 +503,10 @@ export function FeatureReview({
     () => visibleFeatures.filter((f) => poseOf(f)),
     [visibleFeatures],
   )
+  const pickSurface = useCallback((point: THREE.Vector3) => {
+    const id = pickFeatureAtPoint(pickables, point)
+    if (id) setPicked(id)
+  }, [pickables])
   const fields = selected ? inspectorFields(selected) : null
   const dimensions = selected ? editableDimensions(selected) : []
   const selectedSteps = useMemo(
@@ -570,7 +635,12 @@ export function FeatureReview({
               <directionalLight color="#dbeafe" position={[-70, 45, 35]} intensity={0.42} />
               <directionalLight color="#ffffff" position={[20, 55, -90]} intensity={0.32} />
               <Suspense fallback={null}>
-                <CadBody url={meshUrl} clipPlane={clipPlane} onBox={onBox} />
+                <CadBody
+                  url={meshUrl}
+                  clipPlane={clipPlane}
+                  onBox={onBox}
+                  onPick={pickSurface}
+                />
                 <group
                   onClick={(e) => {
                     e.stopPropagation()
