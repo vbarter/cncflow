@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises"
 import test from "node:test"
 import * as THREE from "three"
 import {
+  featureHighlightSignature,
   featureUnitScaleForBox,
   pickFeatureAtPoint,
 } from "../src/components/FeatureReview.tsx"
@@ -132,11 +133,12 @@ test("CAD 表面点击可选择最近的槽代理，并忽略无 pose 特征", (
 
 test("CAD 实体统一负责拾取；树、参数和高亮共享 picked 状态", () => {
   assert.match(source, /<primitive[\s\S]*onClick=\{\(event: any\)/)
+  assert.match(source, /if \(event\.delta > 2\) return/)
   assert.match(source, /onPick\(event\.point\)/)
   assert.match(source, /onClick=\{\(\) => setPicked\(f\.feature_id\)\}/)
   assert.doesNotMatch(source, /pickBestFeature/)
   assert.match(source, /selected=\{f\.feature_id === picked\}/)
-  assert.match(source, /color="#f97316"[\s\S]*depthTest/)
+  assert.match(source, /color: "#f97316"[\s\S]*depthTest: true/)
   assert.match(source, /<group scale=\{unitScale\}>/)
   assert.match(source, /t === "outer_cylinder"/)
   assert.match(source, /new THREE\.ExtrudeGeometry/)
@@ -144,4 +146,37 @@ test("CAD 实体统一负责拾取；树、参数和高亮共享 picked 状态",
   assert.match(source, /new THREE\.PlaneGeometry/)
   assert.match(source, /Boolean\(pose\.shell\)/)
   assert.doesNotMatch(source, /BoxGeometry/)
+})
+
+test("等价 feature clone 共享高亮签名，几何变化才触发资源重建", () => {
+  const slot = {
+    feature_id: "slot-stable",
+    type: "slot",
+    location: { x: 20, y: 4, z: -2 },
+    axis: { x: 0, y: 0, z: 1 },
+    x_dir: { x: 1, y: 0, z: 0 },
+    length: 16,
+    width: 6,
+    depth: 4,
+    corner_radius: 2,
+  }
+  const cloned = structuredClone(slot)
+  assert.equal(featureHighlightSignature(cloned), featureHighlightSignature(slot))
+  assert.notEqual(
+    featureHighlightSignature({ ...cloned, depth: 5 }),
+    featureHighlightSignature(slot),
+  )
+  assert.match(source, /useMemo\(\(\) => makeHighlightResources\(pose\), \[signature\]\)/)
+  assert.match(source, /const FeatureMark = React\.memo/)
+  assert.doesNotMatch(source, /makeFeatureGeometry\(pose\), \[pose\]/)
+})
+
+test("高亮填充避开共面 depth fighting，几何、边线和材质统一释放", () => {
+  assert.match(source, /polygonOffset: true/)
+  assert.match(source, /polygonOffsetFactor: -2/)
+  assert.match(source, /polygonOffsetUnits: -2/)
+  assert.match(source, /resources\.geometry\.dispose\(\)/)
+  assert.match(source, /resources\.edges\.dispose\(\)/)
+  assert.match(source, /resources\.fill\.dispose\(\)/)
+  assert.match(source, /resources\.outline\.dispose\(\)/)
 })
