@@ -128,7 +128,7 @@ function ViewRig({ box, request }: { box: THREE.Box3 | null; request: { view: Vi
 
 function CadAxesGizmo() {
   return (
-    <GizmoHelper alignment="top-right" margin={[48, 48]} renderPriority={1}>
+    <GizmoHelper alignment="top-right" margin={[64, 64]} renderPriority={1}>
       <GizmoViewport
         axisColors={["#ef4444", "#22c55e", "#3b82f6"]}
         labelColor="#ffffff"

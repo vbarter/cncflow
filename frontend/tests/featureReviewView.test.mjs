@@ -71,7 +71,7 @@ test("contactShadow 贴在 bbox 底面，far/scale 跟零件尺度走（米/毫�
   assert.ok(mm.far > 40 && mm.far < 55, `mm far=${mm.far}`)
   assert.ok(meters.far > 0.04 && meters.far < 0.055, `m far=${meters.far}`)
   assert.ok(Math.abs(mm.scale / meters.scale - 1000) < 1e-6)
-  assert.ok(mm.far < 10, "must not floor far at 10 (washes out meter GLBs)")
+  assert.ok(meters.far < 0.1, `meter far must stay << 10, got ${meters.far}`)
 })
 
 test("FeatureReview 视口 chrome：去掉 ViewCube，只留右上 RGB 轴 + 贴地 ContactShadows", () => {
