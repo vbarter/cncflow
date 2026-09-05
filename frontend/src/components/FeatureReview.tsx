@@ -3,7 +3,6 @@ import { Canvas, useThree } from "@react-three/fiber"
 import {
   ContactShadows,
   GizmoHelper,
-  GizmoViewcube,
   GizmoViewport,
   OrbitControls,
 } from "@react-three/drei"
@@ -12,7 +11,7 @@ import * as THREE from "three"
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js"
 import { API } from "../api"
 import { ProcessStepParameters } from "./ProcessSequenceEditor"
-import { applyView, type ViewName } from "./featureReviewView"
+import { applyView, contactShadowFromBox, type ViewName } from "./featureReviewView"
 
 type Feat = any
 
@@ -127,27 +126,13 @@ function ViewRig({ box, request }: { box: THREE.Box3 | null; request: { view: Vi
   return null
 }
 
-function CadNavGizmo() {
+function CadAxesGizmo() {
   return (
-    <GizmoHelper alignment="top-right" margin={[38, 40]} renderPriority={1}>
-      <group scale={0.7}>
-        <GizmoViewcube
-          color="#f8fafc"
-          hoverColor="#dbeafe"
-          textColor="#334155"
-          strokeColor="#94a3b8"
-          opacity={0.96}
-          faces={["RIGHT", "LEFT", "TOP", "BOTTOM", "FRONT", "BACK"]}
-          font="600 22px Inter, Arial, sans-serif"
-        />
-      </group>
+    <GizmoHelper alignment="top-right" margin={[64, 64]} renderPriority={1}>
       <GizmoViewport
-        position={[0, -30, 0]}
-        scale={8}
         axisColors={["#ef4444", "#22c55e", "#3b82f6"]}
         labelColor="#ffffff"
-        axisScale={[0.5, 0.014, 0.014]}
-        axisHeadScale={0.36}
+        axisHeadScale={0.82}
         hideNegativeAxes
       />
     </GizmoHelper>
@@ -529,20 +514,7 @@ export function FeatureReview({
     })
   }
 
-  const shadow = useMemo(() => {
-    if (!box) return null
-    const size = box.getSize(new THREE.Vector3())
-    const center = box.getCenter(new THREE.Vector3())
-    return {
-      position: [
-        center.x,
-        box.min.y - Math.max(size.y * 0.015, 0.08),
-        center.z,
-      ] as [number, number, number],
-      scale: Math.max(size.x, size.z, 1e-4) * 2.1,
-      far: Math.max(size.y * 1.5, 10),
-    }
-  }, [box])
+  const shadow = useMemo(() => (box ? contactShadowFromBox(box) : null), [box])
 
   return (
     <div className="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)_280px] xl:grid-cols-[240px_minmax(0,1fr)_300px]">
@@ -618,12 +590,12 @@ export function FeatureReview({
                 {shadow && (
                   <ContactShadows
                     position={shadow.position}
-                    opacity={0.3}
+                    opacity={0.48}
                     scale={shadow.scale}
-                    blur={2.6}
+                    blur={2}
                     far={shadow.far}
-                    color="#64748b"
-                    resolution={512}
+                    color="#334155"
+                    resolution={1024}
                   />
                 )}
               </Suspense>
@@ -636,7 +608,7 @@ export function FeatureReview({
                 enableDamping
               />
               <ViewRig box={box} request={viewReq} />
-              <CadNavGizmo />
+              <CadAxesGizmo />
             </Canvas>
             <ViewerToolbar
               view={view}
