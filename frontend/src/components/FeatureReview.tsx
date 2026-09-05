@@ -460,41 +460,108 @@ function makeFeatureGeometry(pose: Pose) {
   return new THREE.SphereGeometry(Math.min(pose.radius, 16), 24, 16)
 }
 
-function FeatureHighlight({ pose }: { pose: Pose }) {
-  const geometry = useMemo(() => makeFeatureGeometry(pose), [pose])
-  useEffect(() => () => geometry.dispose(), [geometry])
+function vectorSignature(vector: THREE.Vector3 | null | undefined) {
+  return vector ? `${vector.x},${vector.y},${vector.z}` : "-"
+}
+
+function poseSignature(pose: Pose) {
+  const base = `${pose.kind}|${vectorSignature(pose.origin)}`
+  if (pose.kind === "cyl") {
+    return `${base}|${vectorSignature(pose.axis)}|${pose.length}|${pose.diameter}|${pose.centered}|${Boolean(pose.shell)}`
+  }
+  if (pose.kind === "surface") return `${base}|${pose.radius}`
+  const oriented = `${base}|${vectorSignature(pose.axis)}|${vectorSignature(pose.xDir)}|${pose.size.join(",")}`
+  if (pose.kind === "box") {
+    return `${oriented}|${pose.cornerRadius}|${pose.depthFromOrigin}`
+  }
+  return oriented
+}
+
+export function featureHighlightSignature(feature: Feat) {
+  const pose = poseOf(feature)
+  return pose ? `${String(feature?.feature_id || "")}|${poseSignature(pose)}` : null
+}
+
+type HighlightResources = {
+  geometry: THREE.BufferGeometry
+  edges: THREE.EdgesGeometry
+  fill: THREE.MeshBasicMaterial
+  outline: THREE.LineBasicMaterial
+}
+
+function makeHighlightResources(pose: Pose): HighlightResources {
+  const geometry = makeFeatureGeometry(pose)
+  return {
+    geometry,
+    edges: new THREE.EdgesGeometry(geometry, 20),
+    fill: new THREE.MeshBasicMaterial({
+      color: "#f97316",
+      transparent: true,
+      opacity: pose.kind === "plate" ? 0.3 : pose.kind === "cyl" && pose.shell ? 0.34 : 0.4,
+      depthTest: true,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      toneMapped: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+      polygonOffsetUnits: -2,
+    }),
+    outline: new THREE.LineBasicMaterial({
+      color: "#ea580c",
+      transparent: true,
+      opacity: 0.9,
+      depthTest: true,
+      toneMapped: false,
+    }),
+  }
+}
+
+function disposeHighlightResources(resources: HighlightResources) {
+  resources.geometry.dispose()
+  resources.edges.dispose()
+  resources.fill.dispose()
+  resources.outline.dispose()
+}
+
+const FeatureHighlight = React.memo(function FeatureHighlight({
+  pose,
+  signature,
+}: {
+  pose: Pose
+  signature: string
+}) {
+  const resources = useMemo(() => makeHighlightResources(pose), [signature])
+  useEffect(
+    () => () => disposeHighlightResources(resources),
+    [resources],
+  )
   return (
     <>
       <mesh renderOrder={20} raycast={() => {}}>
-        <primitive object={geometry} attach="geometry" />
-        <meshBasicMaterial
-          color="#f97316"
-          transparent
-          opacity={pose.kind === "plate" ? 0.3 : pose.kind === "cyl" && pose.shell ? 0.34 : 0.4}
-          depthTest
-          depthWrite={false}
-          side={THREE.DoubleSide}
-          toneMapped={false}
-        />
+        <primitive object={resources.geometry} attach="geometry" />
+        <primitive object={resources.fill} attach="material" />
       </mesh>
       <lineSegments renderOrder={21} raycast={() => {}}>
-        <edgesGeometry args={[geometry, 20]} />
-        <lineBasicMaterial color="#ea580c" transparent opacity={0.9} depthTest toneMapped={false} />
+        <primitive object={resources.edges} attach="geometry" />
+        <primitive object={resources.outline} attach="material" />
       </lineSegments>
     </>
   )
-}
+})
 
-function FeatureMark({
-  feat,
-  selected,
-  unitScale,
-}: {
+type FeatureMarkProps = {
   feat: Feat
   selected: boolean
   unitScale: number
-}) {
-  const pose = poseOf(feat)
+}
+
+const FeatureMark = React.memo(function FeatureMark({
+  feat,
+  selected,
+  unitScale,
+}: FeatureMarkProps) {
+  const signature = featureHighlightSignature(feat)
+  const pose = useMemo(() => poseOf(feat), [signature])
   if (!pose || !selected) return null
   const q = pose.kind === "surface"
     ? undefined
@@ -508,11 +575,17 @@ function FeatureMark({
   return (
     <group scale={unitScale}>
       <group position={mid} quaternion={q}>
-        <FeatureHighlight pose={pose} />
+        <FeatureHighlight pose={pose} signature={signature!} />
       </group>
     </group>
   )
-}
+}, (previous, next) => (
+  previous.selected === next.selected
+  && (!next.selected || (
+    previous.unitScale === next.unitScale
+    && featureHighlightSignature(previous.feat) === featureHighlightSignature(next.feat)
+  ))
+))
 
 function inspectorFields(f: Feat) {
   const dim = f.dimensions || {}
