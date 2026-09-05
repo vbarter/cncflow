@@ -87,3 +87,14 @@ test("FeatureReview 视口 chrome：去掉 ViewCube，只留右上 RGB 轴 + 贴
   assert.doesNotMatch(source, /Math\.max\(size\.y \* 1\.5, 10\)/)
   assert.doesNotMatch(source, /<GizmoHelper[\s\S]*<GizmoHelper/)
 })
+
+test("FeatureReview 阴影/Gizmo 不抢拾取，mesh onClick 仍走 pickBestFeature", () => {
+  assert.match(source, /from "\.\/featureReviewPick"/)
+  assert.match(source, /disableRaycast/)
+  assert.match(source, /raycast=\{\(\) => null\}/)
+  assert.match(source, /<FeaturePickRoot/)
+  assert.match(source, /pickBestFeature\(event\.intersections\)/)
+  assert.match(source, /<FeatureMark/)
+  assert.match(source, /onClick=\{\(\) => setPicked\(f\.feature_id\)\}/)
+  assert.doesNotMatch(source, /onPointerMissed/)
+})

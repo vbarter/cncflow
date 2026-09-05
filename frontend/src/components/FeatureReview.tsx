@@ -11,6 +11,7 @@ import * as THREE from "three"
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js"
 import { API } from "../api"
 import { ProcessStepParameters } from "./ProcessSequenceEditor"
+import { disableRaycast, pickBestFeature } from "./featureReviewPick"
 import { applyView, contactShadowFromBox, type ViewName } from "./featureReviewView"
 
 type Feat = any
@@ -127,15 +128,98 @@ function ViewRig({ box, request }: { box: THREE.Box3 | null; request: { view: Vi
 }
 
 function CadAxesGizmo() {
+  const root = useRef<THREE.Group>(null)
+  useLayoutEffect(() => {
+    let node: THREE.Object3D | null = root.current
+    while (node?.parent) node = node.parent
+    disableRaycast(node)
+  })
   return (
     <GizmoHelper alignment="top-right" margin={[64, 64]} renderPriority={1}>
-      <GizmoViewport
-        axisColors={["#ef4444", "#22c55e", "#3b82f6"]}
-        labelColor="#ffffff"
-        axisHeadScale={0.82}
-        hideNegativeAxes
-      />
+      <group ref={root} raycast={() => null}>
+        <GizmoViewport
+          disabled
+          axisColors={["#ef4444", "#22c55e", "#3b82f6"]}
+          labelColor="#ffffff"
+          axisHeadScale={0.82}
+          hideNegativeAxes
+        />
+      </group>
     </GizmoHelper>
+  )
+}
+
+function ContactShadowFloor(props: React.ComponentProps<typeof ContactShadows>) {
+  const root = useRef<THREE.Group>(null)
+  useLayoutEffect(() => {
+    disableRaycast(root.current)
+  })
+  return <ContactShadows ref={root} {...props} />
+}
+
+function FeaturePickRoot({
+  onPick,
+  onMiss,
+  children,
+}: {
+  onPick: (id: string) => void
+  onMiss: () => void
+  children: React.ReactNode
+}) {
+  const group = useRef<THREE.Group>(null)
+  const camera = useThree((state) => state.camera)
+  const gl = useThree((state) => state.gl)
+  const picker = useMemo(() => new THREE.Raycaster(), [])
+
+  useEffect(() => {
+    const el = gl.domElement
+    const drag = { x: 0, y: 0, moved: false, onCanvas: false }
+    const ndc = new THREE.Vector2()
+    const down = (event: PointerEvent) => {
+      drag.x = event.clientX
+      drag.y = event.clientY
+      drag.moved = false
+      drag.onCanvas = true
+    }
+    const move = (event: PointerEvent) => {
+      if (Math.hypot(event.clientX - drag.x, event.clientY - drag.y) > 5) drag.moved = true
+    }
+    const up = (event: PointerEvent) => {
+      if (!drag.onCanvas) return
+      drag.onCanvas = false
+      if (event.button !== 0 || drag.moved) return
+      const rect = el.getBoundingClientRect()
+      if (rect.width < 1 || rect.height < 1) return
+      ndc.set(
+        ((event.clientX - rect.left) / rect.width) * 2 - 1,
+        -((event.clientY - rect.top) / rect.height) * 2 + 1,
+      )
+      picker.setFromCamera(ndc, camera)
+      const id = group.current ? pickBestFeature(picker.intersectObject(group.current, true)) : null
+      if (id) onPick(id)
+      else onMiss()
+    }
+    el.addEventListener("pointerdown", down)
+    window.addEventListener("pointermove", move)
+    window.addEventListener("pointerup", up)
+    return () => {
+      el.removeEventListener("pointerdown", down)
+      window.removeEventListener("pointermove", move)
+      window.removeEventListener("pointerup", up)
+    }
+  }, [camera, gl, onMiss, onPick, picker])
+
+  return (
+    <group
+      ref={group}
+      onClick={(event) => {
+        event.stopPropagation()
+        const id = pickBestFeature(event.intersections)
+        if (id) onPick(id)
+      }}
+    >
+      {children}
+    </group>
   )
 }
 
@@ -218,25 +302,6 @@ function pickRank(kind: Pose["kind"]) {
   if (kind === "box") return 1
   if (kind === "surface") return 2
   return 3
-}
-
-function pickBestFeature(intersections: any[]): string | null {
-  let best: { id: string; rank: number; dist: number } | null = null
-  for (const hit of intersections || []) {
-    let o = hit.object as THREE.Object3D | null
-    while (o) {
-      const id = o.userData?.featureId
-      if (id) {
-        const rank = Number(o.userData.pickRank ?? 9)
-        if (!best || rank < best.rank || (rank === best.rank && hit.distance < best.dist)) {
-          best = { id, rank, dist: hit.distance }
-        }
-        break
-      }
-      o = o.parent
-    }
-  }
-  return best?.id || null
 }
 
 function FeatureMark({ feat, selected }: { feat: Feat; selected: boolean }) {
@@ -515,6 +580,8 @@ export function FeatureReview({
   }
 
   const shadow = useMemo(() => (box ? contactShadowFromBox(box) : null), [box])
+  const pickFeature = useCallback((id: string) => setPicked(id), [])
+  const clearPick = useCallback(() => setPicked(null), [])
 
   return (
     <div className="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)_280px] xl:grid-cols-[240px_minmax(0,1fr)_300px]">
@@ -562,7 +629,6 @@ export function FeatureReview({
               shadows
               camera={{ position: [72, 48, 62], fov: 42, near: 0.1, far: 4000 }}
               gl={{ antialias: true, alpha: true, localClippingEnabled: true }}
-              onPointerMissed={() => setPicked(null)}
             >
               <ambientLight color="#f8fafc" intensity={0.62} />
               <hemisphereLight args={["#ffffff", "#cbd5e1", 1.15]} />
@@ -571,13 +637,7 @@ export function FeatureReview({
               <directionalLight color="#ffffff" position={[20, 55, -90]} intensity={0.32} />
               <Suspense fallback={null}>
                 <CadBody url={meshUrl} clipPlane={clipPlane} onBox={onBox} />
-                <group
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    const id = pickBestFeature(e.intersections)
-                    if (id) setPicked(id)
-                  }}
-                >
+                <FeaturePickRoot onPick={pickFeature} onMiss={clearPick}>
                   {pickables.map((f) => (
                     <FeatureMark
                       key={f.feature_id}
@@ -585,10 +645,10 @@ export function FeatureReview({
                       selected={f.feature_id === picked}
                     />
                   ))}
-                </group>
+                </FeaturePickRoot>
                 {section && box && <SectionHelper box={box} t={sectionT} />}
                 {shadow && (
-                  <ContactShadows
+                  <ContactShadowFloor
                     position={shadow.position}
                     opacity={0.48}
                     scale={shadow.scale}
