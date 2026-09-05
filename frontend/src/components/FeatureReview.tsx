@@ -1,4 +1,4 @@
-import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import React, { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { Canvas, useThree } from "@react-three/fiber"
 import {
   ContactShadows,
@@ -122,7 +122,7 @@ function ViewRig({ box, request }: { box: THREE.Box3 | null; request: { view: Vi
   useLayoutEffect(() => {
     if (!box || !request.n) return
     if (size.width > 0 && size.height > 0) camera.aspect = size.width / size.height
-    applyView(camera, controls as { target: THREE.Vector3; update: () => void } | undefined, box, request.view)
+    applyView(camera, controls, box, request.view)
   }, [box, request, camera, controls, size])
   return null
 }

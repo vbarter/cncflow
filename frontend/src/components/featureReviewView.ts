@@ -90,7 +90,7 @@ export function viewFillHeight(
 
 export function applyView(
   camera: THREE.PerspectiveCamera,
-  controls: { target: THREE.Vector3; update: () => void } | null | undefined,
+  controls: any,
   box: THREE.Box3,
   view: ViewName,
 ) {
@@ -104,8 +104,8 @@ export function applyView(
   camera.near = Math.max(dist / 150, dist / 250, 1e-4)
   camera.far = Math.max(dist * 24, 10)
   camera.updateProjectionMatrix()
-  if (controls) {
+  if (controls?.target) {
     controls.target.copy(center)
-    controls.update()
+    controls.update?.()
   }
 }
