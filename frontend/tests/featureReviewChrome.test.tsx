@@ -87,9 +87,17 @@ test("特征树连续选择 hole/face 时右侧参数跟随同一 feature id", (
   assert.ok(inspector)
 
   fireEvent.click(screen.getByRole("button", { name: /hole-8/ }))
-  assert.match(inspector.textContent || "", /hole-8.*hole.*Ø.*8.*H.*12/s)
+  assert.match(inspector.textContent || "", /hole-8.*hole.*D.*Ø.*H/s)
+  assert.deepEqual(
+    [...inspector.querySelectorAll("input")].map((input) => input.value),
+    ["8", "12"],
+  )
 
   fireEvent.click(screen.getByRole("button", { name: /face-local/ }))
-  assert.match(inspector.textContent || "", /face-local.*face.*L.*18.*W.*9/s)
+  assert.match(inspector.textContent || "", /face-local.*face.*L.*W/s)
+  assert.deepEqual(
+    [...inspector.querySelectorAll("input")].map((input) => input.value),
+    ["18", "9"],
+  )
   assert.doesNotMatch(inspector.textContent || "", /hole-8/)
 })
