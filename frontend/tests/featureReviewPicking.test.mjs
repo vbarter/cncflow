@@ -133,6 +133,7 @@ test("CAD 表面点击可选择最近的槽代理，并忽略无 pose 特征", (
 
 test("CAD 实体统一负责拾取；树、参数和高亮共享 picked 状态", () => {
   assert.match(source, /<primitive[\s\S]*onClick=\{\(event: any\)/)
+  assert.match(source, /if \(event\.delta > 2\) return/)
   assert.match(source, /onPick\(event\.point\)/)
   assert.match(source, /onClick=\{\(\) => setPicked\(f\.feature_id\)\}/)
   assert.doesNotMatch(source, /pickBestFeature/)

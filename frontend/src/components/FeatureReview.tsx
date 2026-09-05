@@ -244,6 +244,7 @@ function CadBody({
     <primitive
       object={root}
       onClick={(event: any) => {
+        if (event.delta > 2) return
         event.stopPropagation()
         onPick(event.point)
       }}
