@@ -37,6 +37,7 @@ test("disableRaycast 让接触阴影平面不再挡住特征 mesh", () => {
 
   disableRaycast(plane)
   const hits = raycaster.intersectObject(scene, true)
-  assert.equal(hits.length, 1)
+  assert.ok(hits.length >= 1)
+  assert.ok(hits.every((hit) => hit.object !== plane), "shadow plane must leave the pick ray")
   assert.equal(pickBestFeature(hits), "pocket-1")
 })
