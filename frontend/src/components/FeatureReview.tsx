@@ -222,32 +222,6 @@ function SectionHelper({ box, t }: { box: THREE.Box3; t: number }) {
   )
 }
 
-function pickRank(kind: Pose["kind"]) {
-  if (kind === "cyl") return 0
-  if (kind === "box") return 1
-  if (kind === "surface") return 2
-  return 3
-}
-
-function pickBestFeature(intersections: any[]): string | null {
-  let best: { id: string; rank: number; dist: number } | null = null
-  for (const hit of intersections || []) {
-    let o = hit.object as THREE.Object3D | null
-    while (o) {
-      const id = o.userData?.featureId
-      if (id) {
-        const rank = Number(o.userData.pickRank ?? 9)
-        if (!best || rank < best.rank || (rank === best.rank && hit.distance < best.dist)) {
-          best = { id, rank, dist: hit.distance }
-        }
-        break
-      }
-      o = o.parent
-    }
-  }
-  return best?.id || null
-}
-
 function distanceOutside(value: number, min: number, max: number) {
   return value < min ? min - value : value > max ? value - max : 0
 }
@@ -281,55 +255,160 @@ function distanceToPose(point: THREE.Vector3, pose: Pose) {
   )
 }
 
-export function pickFeatureAtPoint(features: Feat[], point: THREE.Vector3): string | null {
-  let best: { id: string; rank: number; distance: number } | null = null
+function poseSpan(pose: Pose) {
+  if (pose.kind === "cyl") return Math.max(pose.length, pose.diameter)
+  if (pose.kind === "surface") return Math.min(pose.radius * 2, 32)
+  return Math.max(...pose.size)
+}
+
+/**
+ * cascadio follows glTF's metre convention while analysis coordinates are mm.
+ * The fallback exporter currently keeps mm. Match their extents instead of
+ * hard-coding either exporter, so marks and mesh hit points share one space.
+ */
+export function featureUnitScaleForBox(features: Feat[], box: THREE.Box3 | null) {
+  if (!box || box.isEmpty()) return 1
+  const meshSize = box.getSize(new THREE.Vector3())
+  const meshSpan = Math.max(meshSize.x, meshSize.y, meshSize.z)
+  const featureSpan = features.reduce((largest, feature) => {
+    const pose = poseOf(feature)
+    return pose ? Math.max(largest, poseSpan(pose)) : largest
+  }, 0)
+  if (!(meshSpan > 0) || !(featureSpan > 0)) return 1
+
+  const observed = meshSpan / featureSpan
+  const candidates = [0.001, 1, 1000]
+  return candidates.reduce((best, candidate) => (
+    Math.abs(Math.log(observed / candidate)) < Math.abs(Math.log(observed / best))
+      ? candidate
+      : best
+  ), 1)
+}
+
+function featurePickRank(feature: Feat) {
+  const type = featType(feature)
+  if (type === "thread") return 0
+  if (type === "hole") return 1
+  if (type === "slot" || type === "pocket") return 2
+  if (type === "step") return 3
+  if (type === "surface") return 4
+  return 5
+}
+
+function poseFootprint(pose: Pose) {
+  if (pose.kind === "cyl") return Math.PI * (pose.diameter / 2) ** 2
+  if (pose.kind === "surface") return Math.PI * Math.min(pose.radius, 16) ** 2
+  return pose.size[0] * pose.size[2]
+}
+
+function posePickTolerance(pose: Pose) {
+  if (pose.kind === "cyl") return Math.max(0.5, pose.diameter * 0.35)
+  if (pose.kind === "box") return Math.max(0.5, Math.min(pose.size[0], pose.size[2]) * 0.25)
+  if (pose.kind === "surface") return Math.max(0.5, Math.min(pose.radius, 16) * 0.15)
+  return Math.max(0.25, Math.min(pose.size[0], pose.size[2]) * 0.01)
+}
+
+type PickCandidate = {
+  id: string
+  rank: number
+  distance: number
+  normalizedDistance: number
+  footprint: number
+}
+
+function betterPick(candidate: PickCandidate, best: PickCandidate | null) {
+  if (!best) return true
+  if (candidate.rank !== best.rank) return candidate.rank < best.rank
+  if (Math.abs(candidate.normalizedDistance - best.normalizedDistance) > 1e-6) {
+    return candidate.normalizedDistance < best.normalizedDistance
+  }
+  if (Math.abs(candidate.footprint - best.footprint) > 1e-6) {
+    return candidate.footprint < best.footprint
+  }
+  return candidate.distance < best.distance
+}
+
+export function pickFeatureAtPoint(
+  features: Feat[],
+  meshPoint: THREE.Vector3,
+  featureUnitScale = 1,
+): string | null {
+  const point = meshPoint.clone().divideScalar(featureUnitScale || 1)
+  let snapped: PickCandidate | null = null
+  let nearest: PickCandidate | null = null
   for (const feature of features) {
     const pose = poseOf(feature)
     const id = feature?.feature_id
     if (!pose || !id) continue
     const distance = distanceToPose(point, pose)
-    const rank = pickRank(pose.kind)
-    if (
-      !best
-      || distance < best.distance - 1e-6
-      || (Math.abs(distance - best.distance) <= 1e-6 && rank < best.rank)
-    ) {
-      best = { id, rank, distance }
+    const tolerance = posePickTolerance(pose)
+    const candidate = {
+      id,
+      rank: featurePickRank(feature),
+      distance,
+      normalizedDistance: distance / tolerance,
+      footprint: poseFootprint(pose),
     }
+    if (
+      !nearest
+      || distance < nearest.distance - 1e-6
+      || (Math.abs(distance - nearest.distance) <= 1e-6 && betterPick(candidate, nearest))
+    ) {
+      nearest = candidate
+    }
+    if (distance <= tolerance && betterPick(candidate, snapped)) snapped = candidate
   }
-  return best?.id || null
+  return snapped?.id || nearest?.id || null
 }
 
-function FeatureMark({ feat, selected }: { feat: Feat; selected: boolean }) {
+function FeatureGeometry({ pose }: { pose: Pose }) {
+  if (pose.kind === "cyl") {
+    return <cylinderGeometry args={[pose.diameter / 2, pose.diameter / 2, pose.length, 32]} />
+  }
+  if (pose.kind === "plate" || pose.kind === "box") {
+    return <boxGeometry args={pose.size} />
+  }
+  return <sphereGeometry args={[Math.min(pose.radius, 16), 24, 16]} />
+}
+
+function FeatureMark({
+  feat,
+  selected,
+  unitScale,
+}: {
+  feat: Feat
+  selected: boolean
+  unitScale: number
+}) {
   const pose = poseOf(feat)
-  if (!pose) return null
-  const rank = pickRank(pose.kind)
-  const data = { featureId: feat.feature_id, pickRank: rank }
-  const order = 3 - rank
+  if (!pose || !selected) return null
   const q = pose.kind === "surface" ? undefined : quatFromAxis(pose.axis)
   const mid = pose.kind === "cyl"
     ? (pose.centered ? pose.origin : pose.origin.clone().add(pose.axis.clone().multiplyScalar(pose.length / 2)))
     : pose.kind === "surface" ? pose.origin : pose.origin
 
-  let geo = null
-  if (pose.kind === "cyl") geo = <cylinderGeometry args={[pose.diameter / 2, pose.diameter / 2, pose.length, 24]} />
-  else if (pose.kind === "plate" || pose.kind === "box") geo = <boxGeometry args={pose.size} />
-  else geo = <boxGeometry args={[8, 8, 8]} />
-
   return (
-    <group position={mid} quaternion={q} userData={data}>
-      <mesh userData={data} renderOrder={order}>
-        {geo}
-        <meshBasicMaterial transparent opacity={0} depthWrite={false} />
-      </mesh>
-      {selected && (
-        <lineSegments renderOrder={8} raycast={() => {}}>
-          {pose.kind === "cyl" && <edgesGeometry args={[new THREE.CylinderGeometry(pose.diameter / 2, pose.diameter / 2, pose.length, 24), 20]} />}
+    <group scale={unitScale}>
+      <group position={mid} quaternion={q}>
+        <mesh renderOrder={20} raycast={() => {}}>
+          <FeatureGeometry pose={pose} />
+          <meshBasicMaterial
+            color="#f97316"
+            transparent
+            opacity={pose.kind === "plate" ? 0.28 : 0.42}
+            depthTest={false}
+            depthWrite={false}
+            side={THREE.DoubleSide}
+            toneMapped={false}
+          />
+        </mesh>
+        <lineSegments renderOrder={21} raycast={() => {}}>
+          {pose.kind === "cyl" && <edgesGeometry args={[new THREE.CylinderGeometry(pose.diameter / 2, pose.diameter / 2, pose.length, 32), 20]} />}
           {(pose.kind === "plate" || pose.kind === "box") && <edgesGeometry args={[new THREE.BoxGeometry(...pose.size), 15]} />}
-          {pose.kind === "surface" && <edgesGeometry args={[new THREE.SphereGeometry(Math.min(pose.radius, 16), 16, 12), 15]} />}
-          <lineBasicMaterial color="#2563eb" />
+          {pose.kind === "surface" && <edgesGeometry args={[new THREE.SphereGeometry(Math.min(pose.radius, 16), 24, 16), 15]} />}
+          <lineBasicMaterial color="#ea580c" depthTest={false} toneMapped={false} />
         </lineSegments>
-      )}
+      </group>
     </group>
   )
 }
@@ -503,10 +582,14 @@ export function FeatureReview({
     () => visibleFeatures.filter((f) => poseOf(f)),
     [visibleFeatures],
   )
+  const featureUnitScale = useMemo(
+    () => featureUnitScaleForBox(pickables, box),
+    [pickables, box],
+  )
   const pickSurface = useCallback((point: THREE.Vector3) => {
-    const id = pickFeatureAtPoint(pickables, point)
+    const id = pickFeatureAtPoint(pickables, point, featureUnitScale)
     if (id) setPicked(id)
-  }, [pickables])
+  }, [pickables, featureUnitScale])
   const fields = selected ? inspectorFields(selected) : null
   const dimensions = selected ? editableDimensions(selected) : []
   const selectedSteps = useMemo(
@@ -641,18 +724,13 @@ export function FeatureReview({
                   onBox={onBox}
                   onPick={pickSurface}
                 />
-                <group
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    const id = pickBestFeature(e.intersections)
-                    if (id) setPicked(id)
-                  }}
-                >
+                <group>
                   {pickables.map((f) => (
                     <FeatureMark
                       key={f.feature_id}
                       feat={f}
                       selected={f.feature_id === picked}
+                      unitScale={featureUnitScale}
                     />
                   ))}
                 </group>

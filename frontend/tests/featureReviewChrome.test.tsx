@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import test, { afterEach } from "node:test"
 import { JSDOM } from "jsdom"
 import React from "react"
-import { ViewerToolbar } from "../src/components/FeatureReview"
+import { FeatureReview, ViewerToolbar } from "../src/components/FeatureReview"
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", {
   url: "http://localhost/",
@@ -50,4 +50,54 @@ test("审查视口工具条保留适应/前/顶/侧/ISO/剖切，默认 ISO 高�
   fireEvent.click(screen.getByRole("button", { name: "前视图" }))
   fireEvent.click(screen.getByRole("button", { name: "适应窗口" }))
   assert.deepEqual(views, ["front", "fit"])
+})
+
+test("特征树连续选择 hole/face 时右侧参数跟随同一 feature id", () => {
+  render(
+    <FeatureReview
+      partId="part-pick"
+      features={[
+        {
+          feature_id: "hole-8",
+          type: "hole",
+          diameter_mm: 8,
+          depth_mm: 12,
+          location: { x: 0, y: 0, z: 0 },
+          axis: { x: 0, y: 0, z: 1 },
+        },
+        {
+          feature_id: "face-local",
+          type: "face",
+          length: 18,
+          width: 9,
+          location: { x: 20, y: 0, z: 0 },
+          axis: { x: 0, y: 0, z: 1 },
+        },
+      ]}
+      processSequence={[]}
+      meshAvailable={false}
+      locked={false}
+      busy={false}
+      onToggle={() => {}}
+      onPatchFeature={async () => {}}
+      onPatchProcess={async () => {}}
+    />,
+  )
+  const inspector = screen.getByText("特征详细参数").closest("section")
+  assert.ok(inspector)
+
+  fireEvent.click(screen.getByRole("button", { name: /hole-8/ }))
+  assert.match(inspector.textContent || "", /hole-8.*hole.*D.*Ø.*H/s)
+  assert.deepEqual(
+    [...inspector.querySelectorAll("input")].map((input) => input.value),
+    ["8", "12"],
+  )
+
+  fireEvent.click(screen.getByRole("button", { name: /face-local/ }))
+  assert.match(inspector.textContent || "", /face-local.*face.*L.*W/s)
+  assert.deepEqual(
+    [...inspector.querySelectorAll("input")].map((input) => input.value),
+    ["18", "9"],
+  )
+  assert.doesNotMatch(inspector.textContent || "", /hole-8/)
 })
