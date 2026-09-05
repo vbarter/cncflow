@@ -129,23 +129,25 @@ function ViewRig({ box, request }: { box: THREE.Box3 | null; request: { view: Vi
 
 function CadNavGizmo() {
   return (
-    <GizmoHelper alignment="top-right" margin={[52, 58]} renderPriority={1}>
-      <GizmoViewcube
-        color="#f8fafc"
-        hoverColor="#dbeafe"
-        textColor="#334155"
-        strokeColor="#94a3b8"
-        opacity={0.96}
-        faces={["RIGHT", "LEFT", "TOP", "BOTTOM", "FRONT", "BACK"]}
-        font="600 18px Inter, Arial, sans-serif"
-      />
+    <GizmoHelper alignment="top-right" margin={[38, 40]} renderPriority={1}>
+      <group scale={0.7}>
+        <GizmoViewcube
+          color="#f8fafc"
+          hoverColor="#dbeafe"
+          textColor="#334155"
+          strokeColor="#94a3b8"
+          opacity={0.96}
+          faces={["RIGHT", "LEFT", "TOP", "BOTTOM", "FRONT", "BACK"]}
+          font="600 22px Inter, Arial, sans-serif"
+        />
+      </group>
       <GizmoViewport
-        position={[0, -52, 0]}
-        scale={16}
+        position={[0, -30, 0]}
+        scale={8}
         axisColors={["#ef4444", "#22c55e", "#3b82f6"]}
         labelColor="#ffffff"
-        axisScale={[0.55, 0.018, 0.018]}
-        axisHeadScale={0.48}
+        axisScale={[0.5, 0.014, 0.014]}
+        axisHeadScale={0.36}
         hideNegativeAxes
       />
     </GizmoHelper>

@@ -4,8 +4,8 @@ export type ViewName = "fit" | "front" | "top" | "side" | "iso"
 
 export const ISO_DIRECTION = new THREE.Vector3(1.35, 0.9, 1.15).normalize()
 
-/** Projected AABB height as a fraction of the viewport. Padding still leaves ~40–60%. */
-export const VIEW_FILL = 0.52
+/** Initial / fit framing: ~half the viewport height, padding on all sides. */
+export const VIEW_FILL = 0.5
 
 const _center = new THREE.Vector3()
 const _rel = new THREE.Vector3()

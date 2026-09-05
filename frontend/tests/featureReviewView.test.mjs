@@ -32,9 +32,9 @@ function fillAfter(view, size, aspect = 16 / 9) {
   return viewFillHeight(cam, box, cam.position.clone().sub(box.getCenter(new THREE.Vector3())).normalize())
 }
 
-test("ISO 默认是 3/4 等轴，fill 目标落在 40–60%", () => {
+test("ISO 默认是 3/4 等轴，初次 fit 目标半屏", () => {
   assert.ok(ISO_DIRECTION.x > 0 && ISO_DIRECTION.y > 0 && ISO_DIRECTION.z > 0)
-  assert.ok(VIEW_FILL >= 0.4 && VIEW_FILL <= 0.6)
+  assert.equal(VIEW_FILL, 0.5)
 })
 
 test("applyView 让 mm 级零件占视口高度约 40–60%", () => {
@@ -61,14 +61,16 @@ test("front/top/side/fit 同样按投影框适配，ISO 仍是默认方向", () 
   }
 })
 
-test("FeatureReview 视口 chrome：单颗集成 ViewCube，细 RGB 轴贴在立方体下方", () => {
+test("FeatureReview 视口 chrome：单颗集成 ViewCube，细 RGB 轴贴在立方体下沿", () => {
   assert.match(source, /<GizmoViewcube/)
   assert.match(source, /faces=\{\["RIGHT", "LEFT", "TOP", "BOTTOM", "FRONT", "BACK"\]\}/)
   assert.equal([...source.matchAll(/<GizmoHelper/g)].length, 1)
   assert.doesNotMatch(source, /margin=\{\[54,\s*132\]\}/)
   assert.match(source, /<GizmoViewport/)
-  assert.match(source, /scale=\{16\}/)
-  assert.match(source, /axisScale=\{\[0\.55,\s*0\.018,\s*0\.018\]\}/)
-  assert.match(source, /position=\{\[0,\s*-52,\s*0\]\}/)
+  assert.match(source, /<group scale=\{0\.7\}>/)
+  assert.match(source, /scale=\{8\}/)
+  assert.match(source, /axisScale=\{\[0\.5,\s*0\.014,\s*0\.014\]\}/)
+  assert.match(source, /position=\{\[0,\s*-30,\s*0\]\}/)
   assert.match(source, /from "\.\/featureReviewView"/)
+  assert.doesNotMatch(source, /<GizmoHelper[\s\S]*<GizmoHelper/)
 })
