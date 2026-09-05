@@ -148,13 +148,23 @@ function useGltfScene(url: string) {
   return scene
 }
 
-function ViewRig({ box, request }: { box: THREE.Box3 | null; request: { view: ViewName; n: number } }) {
+type ViewRequest = { view: ViewName; n: number }
+
+function ViewRig({
+  box,
+  request,
+  onApplied,
+}: {
+  box: THREE.Box3 | null
+  request: ViewRequest | null
+  onApplied: (n: number) => void
+}) {
   const camera = useThree((s) => s.camera) as THREE.PerspectiveCamera
   const controls = useThree((s) => s.controls)
   const size = useThree((s) => s.size)
   const appliedRequest = useRef(0)
   useLayoutEffect(() => {
-    if (!controls || !shouldApplyRequestedView({
+    if (!controls || !request || !shouldApplyRequestedView({
       appliedN: appliedRequest.current,
       requestN: request.n,
       hasBox: Boolean(box),
@@ -163,7 +173,8 @@ function ViewRig({ box, request }: { box: THREE.Box3 | null; request: { view: Vi
     camera.aspect = size.width / size.height
     applyView(camera, controls, box!, request.view)
     appliedRequest.current = request.n
-  }, [box, request.n, request.view, camera, controls, size.width, size.height])
+    onApplied(request.n)
+  }, [box, request, camera, controls, size.width, size.height, onApplied])
   return null
 }
 
@@ -656,7 +667,7 @@ function processName(step: any) {
 export function ViewerToolbar({
   view, section, sectionT, onView, onSection, onSectionT,
 }: {
-  view: ViewName
+  view: ViewName | null
   section: boolean
   sectionT: number
   onView: (v: ViewName) => void
@@ -742,11 +753,13 @@ export function FeatureReview({
   const [picked, setPicked] = useState<string | null>(null)
   const [dimensionDrafts, setDimensionDrafts] = useState<Record<string, string>>({})
   const [box, setBox] = useState<THREE.Box3 | null>(null)
-  const [view, setView] = useState<ViewName>("iso")
-  const [viewReq, setViewReq] = useState({ view: "iso" as ViewName, n: 0 })
+  const [view, setView] = useState<ViewName | null>("iso")
+  const [viewReq, setViewReq] = useState<ViewRequest | null>(null)
   const [section, setSection] = useState(false)
   const [sectionT, setSectionT] = useState(0.5)
   const fitted = useRef(false)
+  const viewRequestN = useRef(0)
+  const orbitTarget = useMemo(() => new THREE.Vector3(), [])
   const meshUrl = `${API}/parts/${partId}/mesh`
   const visibleFeatures = useMemo(
     () => features.filter(isReviewTreeFeature),
@@ -772,6 +785,17 @@ export function FeatureReview({
     [processSequence, picked],
   )
   const onBox = useCallback((b: THREE.Box3) => setBox(b.clone()), [])
+  const requestView = useCallback((nextView: ViewName) => {
+    setView(nextView)
+    setViewReq({ view: nextView, n: ++viewRequestN.current })
+  }, [])
+  const clearAppliedView = useCallback((n: number) => {
+    setViewReq((current) => current?.n === n ? null : current)
+  }, [])
+  const rememberOrbitTarget = useCallback((event: any) => {
+    if (event?.target?.target) orbitTarget.copy(event.target.target)
+  }, [orbitTarget])
+  const markCustomView = useCallback(() => setView(null), [])
 
   useEffect(() => {
     fitted.current = false
@@ -792,20 +816,14 @@ export function FeatureReview({
   useEffect(() => {
     if (!box || fitted.current) return
     fitted.current = true
-    setView("iso")
-    setViewReq((s) => ({ view: "iso", n: s.n + 1 }))
-  }, [box])
+    requestView("iso")
+  }, [box, requestView])
 
   const clipPlane = useMemo(() => {
     if (!section || !box) return null
     const x = box.min.x + (box.max.x - box.min.x) * sectionT
     return new THREE.Plane(new THREE.Vector3(1, 0, 0), -x)
   }, [section, box, sectionT])
-
-  const requestView = (v: ViewName) => {
-    setView(v)
-    setViewReq((s) => ({ view: v, n: s.n + 1 }))
-  }
 
   async function commitDimension(field: DimensionField) {
     if (!selected) return
@@ -929,8 +947,11 @@ export function FeatureReview({
                 enableZoom
                 dampingFactor={0.08}
                 enableDamping
+                target={orbitTarget}
+                onChange={rememberOrbitTarget}
+                onEnd={markCustomView}
               />
-              <ViewRig box={box} request={viewReq} />
+              <ViewRig box={box} request={viewReq} onApplied={clearAppliedView} />
               <CadAxesGizmo />
             </Canvas>
             <ViewerToolbar
