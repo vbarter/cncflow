@@ -16,7 +16,7 @@ import { applyView, contactShadowFromBox, type ViewName } from "./featureReviewV
 type Feat = any
 
 type Pose =
-  | { kind: "cyl"; origin: THREE.Vector3; axis: THREE.Vector3; length: number; diameter: number; centered: boolean }
+  | { kind: "cyl"; origin: THREE.Vector3; axis: THREE.Vector3; length: number; diameter: number; centered: boolean; shell?: boolean }
   | { kind: "plate"; origin: THREE.Vector3; axis: THREE.Vector3; size: [number, number, number] }
   | { kind: "box"; origin: THREE.Vector3; axis: THREE.Vector3; size: [number, number, number] }
   | { kind: "surface"; origin: THREE.Vector3; radius: number }
@@ -58,11 +58,19 @@ function poseOf(f: Feat): Pose | null {
   const axisRaw = xyz(f.pose?.axis) || xyz(f.axis)
   const axis = (axisRaw || new THREE.Vector3(0, 0, 1)).clone().normalize()
 
-  if (t === "hole" || t === "thread") {
+  if (t === "hole" || t === "thread" || t === "outer_cylinder") {
     if (!origin) return null
     const diameter = num(f.pose?.diameter_mm, f.diameter_mm, f.nominal_d, dim.diameter_mm) || 1
     const length = num(f.pose?.length_mm, f.depth_mm, f.thread_length, dim.thread_length, dim.depth_mm) || 1
-    return { kind: "cyl", origin, axis, length, diameter, centered: !f.pose?.origin }
+    return {
+      kind: "cyl",
+      origin,
+      axis,
+      length,
+      diameter,
+      centered: !f.pose?.origin,
+      shell: t === "outer_cylinder",
+    }
   }
 
   if (t === "face") {
@@ -234,7 +242,9 @@ function distanceToPose(point: THREE.Vector3, pose: Pose) {
     const min = pose.centered ? -pose.length / 2 : 0
     const max = pose.centered ? pose.length / 2 : pose.length
     return Math.hypot(
-      Math.max(0, radial - pose.diameter / 2),
+      pose.shell
+        ? Math.abs(radial - pose.diameter / 2)
+        : Math.max(0, radial - pose.diameter / 2),
       distanceOutside(axial, min, max),
     )
   }
@@ -291,7 +301,7 @@ function featurePickRank(feature: Feat) {
   if (type === "hole") return 1
   if (type === "slot" || type === "pocket") return 2
   if (type === "step") return 3
-  if (type === "surface") return 4
+  if (type === "surface" || type === "outer_cylinder") return 4
   return 5
 }
 
@@ -302,7 +312,11 @@ function poseFootprint(pose: Pose) {
 }
 
 function posePickTolerance(pose: Pose) {
-  if (pose.kind === "cyl") return Math.max(0.5, pose.diameter * 0.35)
+  if (pose.kind === "cyl") {
+    return pose.shell
+      ? Math.max(0.5, pose.diameter * 0.02)
+      : Math.max(0.5, pose.diameter * 0.35)
+  }
   if (pose.kind === "box") return Math.max(0.5, Math.min(pose.size[0], pose.size[2]) * 0.25)
   if (pose.kind === "surface") return Math.max(0.5, Math.min(pose.radius, 16) * 0.15)
   return Math.max(0.25, Math.min(pose.size[0], pose.size[2]) * 0.01)
