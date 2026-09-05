@@ -1,4 +1,4 @@
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { Canvas, useThree } from "@react-three/fiber"
 import {
   ContactShadows,
@@ -12,10 +12,9 @@ import * as THREE from "three"
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js"
 import { API } from "../api"
 import { ProcessStepParameters } from "./ProcessSequenceEditor"
+import { applyView, type ViewName } from "./featureReviewView"
 
 type Feat = any
-type ViewName = "fit" | "front" | "top" | "side" | "iso"
-const ISO_DIRECTION = new THREE.Vector3(1.35, 0.9, 1.15).normalize()
 
 type Pose =
   | { kind: "cyl"; origin: THREE.Vector3; axis: THREE.Vector3; length: number; diameter: number; centered: boolean }
@@ -116,42 +115,41 @@ function useGltfScene(url: string) {
   return scene
 }
 
-function applyView(camera: THREE.PerspectiveCamera, controls: any, box: THREE.Box3, view: ViewName) {
-  const center = box.getCenter(new THREE.Vector3())
-  const size = box.getSize(new THREE.Vector3())
-  const maxDim = Math.max(size.x, size.y, size.z, 1)
-  const fov = (camera.fov * Math.PI) / 180
-  const dist = ((maxDim / 2) / Math.tan(fov / 2)) * 1.75
-  let dir: THREE.Vector3
-  if (view === "fit") {
-    dir = camera.position.clone().sub(controls?.target || center)
-    if (dir.lengthSq() < 1e-8) dir.set(1, 0.85, 1)
-    dir.normalize()
-  } else if (view === "front") dir = new THREE.Vector3(0, 0, 1)
-  else if (view === "top") dir = new THREE.Vector3(0, 1, 0)
-  else if (view === "side") dir = new THREE.Vector3(1, 0, 0)
-  else dir = ISO_DIRECTION.clone()
-
-  camera.up.set(0, 1, 0)
-  if (view === "top") camera.up.set(0, 0, -1)
-  camera.position.copy(center).add(dir.multiplyScalar(dist))
-  camera.near = Math.max(dist / 120, 0.05)
-  camera.far = Math.max(dist * 24, 2000)
-  camera.updateProjectionMatrix()
-  if (controls) {
-    controls.target.copy(center)
-    controls.update()
-  }
-}
-
 function ViewRig({ box, request }: { box: THREE.Box3 | null; request: { view: ViewName; n: number } }) {
   const camera = useThree((s) => s.camera) as THREE.PerspectiveCamera
   const controls = useThree((s) => s.controls)
-  useEffect(() => {
+  const size = useThree((s) => s.size)
+  useLayoutEffect(() => {
     if (!box || !request.n) return
-    applyView(camera, controls, box, request.view)
-  }, [box, request, camera, controls])
+    if (size.width > 0 && size.height > 0) camera.aspect = size.width / size.height
+    applyView(camera, controls as { target: THREE.Vector3; update: () => void } | undefined, box, request.view)
+  }, [box, request, camera, controls, size])
   return null
+}
+
+function CadNavGizmo() {
+  return (
+    <GizmoHelper alignment="top-right" margin={[52, 58]} renderPriority={1}>
+      <GizmoViewcube
+        color="#f8fafc"
+        hoverColor="#dbeafe"
+        textColor="#334155"
+        strokeColor="#94a3b8"
+        opacity={0.96}
+        faces={["RIGHT", "LEFT", "TOP", "BOTTOM", "FRONT", "BACK"]}
+        font="600 18px Inter, Arial, sans-serif"
+      />
+      <GizmoViewport
+        position={[0, -52, 0]}
+        scale={16}
+        axisColors={["#ef4444", "#22c55e", "#3b82f6"]}
+        labelColor="#ffffff"
+        axisScale={[0.55, 0.018, 0.018]}
+        axisHeadScale={0.48}
+        hideNegativeAxes
+      />
+    </GizmoHelper>
+  )
 }
 
 function CadBody({
@@ -353,7 +351,7 @@ function processName(step: any) {
   return step.name || step.process || step.op || step.step_id || "工序"
 }
 
-function ViewerToolbar({
+export function ViewerToolbar({
   view, section, sectionT, onView, onSection, onSectionT,
 }: {
   view: ViewName
@@ -539,7 +537,7 @@ export function FeatureReview({
         box.min.y - Math.max(size.y * 0.015, 0.08),
         center.z,
       ] as [number, number, number],
-      scale: Math.max(size.x, size.z, 1) * 2.1,
+      scale: Math.max(size.x, size.z, 1e-4) * 2.1,
       far: Math.max(size.y * 1.5, 10),
     }
   }, [box])
@@ -636,25 +634,7 @@ export function FeatureReview({
                 enableDamping
               />
               <ViewRig box={box} request={viewReq} />
-              <GizmoHelper alignment="top-right" margin={[62, 62]} renderPriority={1}>
-                <GizmoViewcube
-                  color="#f8fafc"
-                  hoverColor="#dbeafe"
-                  textColor="#475569"
-                  strokeColor="#cbd5e1"
-                  opacity={0.96}
-                  faces={["RIGHT", "LEFT", "TOP", "BOTTOM", "FRONT", "BACK"]}
-                  font="bold 17px Inter, Arial, sans-serif"
-                />
-              </GizmoHelper>
-              <GizmoHelper alignment="top-right" margin={[54, 132]} renderPriority={2}>
-                <GizmoViewport
-                  axisColors={["#ef4444", "#22c55e", "#3b82f6"]}
-                  labelColor="#ffffff"
-                  axisHeadScale={0.82}
-                  hideNegativeAxes
-                />
-              </GizmoHelper>
+              <CadNavGizmo />
             </Canvas>
             <ViewerToolbar
               view={view}
