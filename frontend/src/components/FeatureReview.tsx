@@ -119,9 +119,11 @@ function useGltfScene(url: string) {
 function applyView(camera: THREE.PerspectiveCamera, controls: any, box: THREE.Box3, view: ViewName) {
   const center = box.getCenter(new THREE.Vector3())
   const size = box.getSize(new THREE.Vector3())
-  const maxDim = Math.max(size.x, size.y, size.z, 1)
+  // Meshes may arrive in metres or millimetres. An absolute lower bound here
+  // makes metre-scale parts render as a speck even though their bounds are valid.
+  const maxDim = Math.max(size.x, size.y, size.z, Number.EPSILON)
   const fov = (camera.fov * Math.PI) / 180
-  const dist = ((maxDim / 2) / Math.tan(fov / 2)) * 1.75
+  const dist = ((maxDim / 2) / Math.tan(fov / 2)) * 1.55
   let dir: THREE.Vector3
   if (view === "fit") {
     dir = camera.position.clone().sub(controls?.target || center)
@@ -418,6 +420,35 @@ function ViewerToolbar({
   )
 }
 
+function OrientationGizmo() {
+  return (
+    <GizmoHelper alignment="top-right" margin={[52, 52]} renderPriority={1}>
+      <group>
+        <group scale={0.82}>
+          <GizmoViewcube
+            color="#f1f5f9"
+            hoverColor="#dbeafe"
+            textColor="#64748b"
+            strokeColor="#d8dee7"
+            opacity={0.94}
+            faces={["RIGHT", "LEFT", "TOP", "BOTTOM", "FRONT", "BACK"]}
+            font="600 14px Inter, Arial, sans-serif"
+          />
+        </group>
+        <group scale={0.86}>
+          <GizmoViewport
+            axisColors={["#dc5a5a", "#4ba66a", "#4f7fd7"]}
+            labelColor="#ffffff"
+            axisScale={[0.72, 0.035, 0.035]}
+            axisHeadScale={0.54}
+            hideNegativeAxes
+          />
+        </group>
+      </group>
+    </GizmoHelper>
+  )
+}
+
 export function FeatureReview({
   partId,
   features,
@@ -533,14 +564,15 @@ export function FeatureReview({
     if (!box) return null
     const size = box.getSize(new THREE.Vector3())
     const center = box.getCenter(new THREE.Vector3())
+    const maxDim = Math.max(size.x, size.y, size.z, Number.EPSILON)
     return {
       position: [
         center.x,
-        box.min.y - Math.max(size.y * 0.015, 0.08),
+        box.min.y - Math.max(size.y * 0.015, maxDim * 0.002),
         center.z,
       ] as [number, number, number],
-      scale: Math.max(size.x, size.z, 1) * 2.1,
-      far: Math.max(size.y * 1.5, 10),
+      scale: Math.max(size.x, size.z, maxDim * 0.15) * 2.1,
+      far: Math.max(size.y * 1.5, maxDim * 0.5),
     }
   }, [box])
 
@@ -636,25 +668,7 @@ export function FeatureReview({
                 enableDamping
               />
               <ViewRig box={box} request={viewReq} />
-              <GizmoHelper alignment="top-right" margin={[62, 62]} renderPriority={1}>
-                <GizmoViewcube
-                  color="#f8fafc"
-                  hoverColor="#dbeafe"
-                  textColor="#475569"
-                  strokeColor="#cbd5e1"
-                  opacity={0.96}
-                  faces={["RIGHT", "LEFT", "TOP", "BOTTOM", "FRONT", "BACK"]}
-                  font="bold 17px Inter, Arial, sans-serif"
-                />
-              </GizmoHelper>
-              <GizmoHelper alignment="top-right" margin={[54, 132]} renderPriority={2}>
-                <GizmoViewport
-                  axisColors={["#ef4444", "#22c55e", "#3b82f6"]}
-                  labelColor="#ffffff"
-                  axisHeadScale={0.82}
-                  hideNegativeAxes
-                />
-              </GizmoHelper>
+              <OrientationGizmo />
             </Canvas>
             <ViewerToolbar
               view={view}
