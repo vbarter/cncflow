@@ -61,16 +61,23 @@ test("front/top/side/fit 同样按投影框适配，ISO 仍是默认方向", () 
   }
 })
 
-test("FeatureReview 视口 chrome：单颗集成 ViewCube，细 RGB 轴贴在立方体下沿", () => {
-  assert.match(source, /<GizmoViewcube/)
-  assert.match(source, /faces=\{\["RIGHT", "LEFT", "TOP", "BOTTOM", "FRONT", "BACK"\]\}/)
+test("FeatureReview 视口 chrome：右上角仅保留紧凑 RGB 坐标轴", () => {
+  assert.doesNotMatch(source, /GizmoViewcube/)
   assert.equal([...source.matchAll(/<GizmoHelper/g)].length, 1)
-  assert.doesNotMatch(source, /margin=\{\[54,\s*132\]\}/)
   assert.match(source, /<GizmoViewport/)
-  assert.match(source, /<group scale=\{0\.7\}>/)
-  assert.match(source, /scale=\{8\}/)
-  assert.match(source, /axisScale=\{\[0\.5,\s*0\.014,\s*0\.014\]\}/)
-  assert.match(source, /position=\{\[0,\s*-30,\s*0\]\}/)
+  assert.match(source, /axisColors=\{\["#ef4444",\s*"#22c55e",\s*"#3b82f6"\]\}/)
+  assert.match(source, /axisScale=\{\[0\.72,\s*0\.035,\s*0\.035\]\}/)
+  assert.match(source, /hideNegativeAxes/)
   assert.match(source, /from "\.\/featureReviewView"/)
   assert.doesNotMatch(source, /<GizmoHelper[\s\S]*<GizmoHelper/)
+})
+
+test("FeatureReview 地面阴影按 bbox 比例贴住零件，兼容 mm 与 m 单位", () => {
+  assert.match(source, /<ContactShadows/)
+  assert.match(source, /box\.min\.y - offset/)
+  assert.match(source, /width=\{shadow\.width\}/)
+  assert.match(source, /height=\{shadow\.height\}/)
+  assert.match(source, /opacity=\{0\.48\}/)
+  assert.doesNotMatch(source, /Math\.max\(size\.y \* 0\.015,\s*0\.08\)/)
+  assert.doesNotMatch(source, /Math\.max\(size\.y \* 1\.5,\s*10\)/)
 })

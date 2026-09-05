@@ -3,7 +3,6 @@ import { Canvas, useThree } from "@react-three/fiber"
 import {
   ContactShadows,
   GizmoHelper,
-  GizmoViewcube,
   GizmoViewport,
   OrbitControls,
 } from "@react-three/drei"
@@ -127,27 +126,14 @@ function ViewRig({ box, request }: { box: THREE.Box3 | null; request: { view: Vi
   return null
 }
 
-function CadNavGizmo() {
+function CadAxesGizmo() {
   return (
-    <GizmoHelper alignment="top-right" margin={[38, 40]} renderPriority={1}>
-      <group scale={0.7}>
-        <GizmoViewcube
-          color="#f8fafc"
-          hoverColor="#dbeafe"
-          textColor="#334155"
-          strokeColor="#94a3b8"
-          opacity={0.96}
-          faces={["RIGHT", "LEFT", "TOP", "BOTTOM", "FRONT", "BACK"]}
-          font="600 22px Inter, Arial, sans-serif"
-        />
-      </group>
+    <GizmoHelper alignment="top-right" margin={[46, 46]} renderPriority={1}>
       <GizmoViewport
-        position={[0, -30, 0]}
-        scale={8}
         axisColors={["#ef4444", "#22c55e", "#3b82f6"]}
         labelColor="#ffffff"
-        axisScale={[0.5, 0.014, 0.014]}
-        axisHeadScale={0.36}
+        axisScale={[0.72, 0.035, 0.035]}
+        axisHeadScale={0.75}
         hideNegativeAxes
       />
     </GizmoHelper>
@@ -533,14 +519,17 @@ export function FeatureReview({
     if (!box) return null
     const size = box.getSize(new THREE.Vector3())
     const center = box.getCenter(new THREE.Vector3())
+    const footprint = Math.max(size.x, size.z, 1e-6)
+    const offset = Math.max(size.y * 0.015, footprint * 0.002, 1e-6)
     return {
       position: [
         center.x,
-        box.min.y - Math.max(size.y * 0.015, 0.08),
+        box.min.y - offset,
         center.z,
       ] as [number, number, number],
-      scale: Math.max(size.x, size.z, 1e-4) * 2.1,
-      far: Math.max(size.y * 1.5, 10),
+      width: Math.max(size.x * 1.35, footprint * 0.3),
+      height: Math.max(size.z * 1.35, footprint * 0.3),
+      far: Math.max(size.y * 1.5 + offset, footprint * 0.12, 1e-4),
     }
   }, [box])
 
@@ -618,9 +607,10 @@ export function FeatureReview({
                 {shadow && (
                   <ContactShadows
                     position={shadow.position}
-                    opacity={0.3}
-                    scale={shadow.scale}
-                    blur={2.6}
+                    opacity={0.48}
+                    width={shadow.width}
+                    height={shadow.height}
+                    blur={2.4}
                     far={shadow.far}
                     color="#64748b"
                     resolution={512}
@@ -636,7 +626,7 @@ export function FeatureReview({
                 enableDamping
               />
               <ViewRig box={box} request={viewReq} />
-              <CadNavGizmo />
+              <CadAxesGizmo />
             </Canvas>
             <ViewerToolbar
               view={view}
