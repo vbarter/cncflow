@@ -88,6 +88,23 @@ export function viewFillHeight(
   return halfH / (dist * Math.tan((camera.fov * Math.PI) / 360))
 }
 
+/** Soft floor under the mesh. Offsets/far follow bbox so meter GLBs do not vanish. */
+export function contactShadowFromBox(box: THREE.Box3) {
+  const size = box.getSize(new THREE.Vector3())
+  const center = box.getCenter(new THREE.Vector3())
+  const span = Math.max(size.x, size.y, size.z, 1e-6)
+  const footprint = Math.max(size.x, size.z, span * 0.35)
+  return {
+    position: [
+      center.x,
+      box.min.y - span * 0.004,
+      center.z,
+    ] as [number, number, number],
+    scale: footprint * 2.6,
+    far: size.y + span * 0.08,
+  }
+}
+
 export function applyView(
   camera: THREE.PerspectiveCamera,
   controls: any,

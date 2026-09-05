@@ -6,6 +6,7 @@ import {
   ISO_DIRECTION,
   VIEW_FILL,
   applyView,
+  contactShadowFromBox,
   fitViewDistance,
   viewFillHeight,
 } from "../src/components/featureReviewView.ts"
@@ -61,16 +62,28 @@ test("front/top/side/fit 同样按投影框适配，ISO 仍是默认方向", () 
   }
 })
 
-test("FeatureReview 视口 chrome：单颗集成 ViewCube，细 RGB 轴贴在立方体下沿", () => {
-  assert.match(source, /<GizmoViewcube/)
-  assert.match(source, /faces=\{\["RIGHT", "LEFT", "TOP", "BOTTOM", "FRONT", "BACK"\]\}/)
+test("contactShadow 贴在 bbox 底面，far/scale 跟零件尺度走（米/毫米同形）", () => {
+  const mm = contactShadowFromBox(boxFromSize(50, 40, 80))
+  const meters = contactShadowFromBox(boxFromSize(0.05, 0.04, 0.08))
+
+  assert.ok(mm.position[1] < -20 && mm.position[1] > -20.5, `mm y=${mm.position[1]}`)
+  assert.ok(meters.position[1] < -0.02 && meters.position[1] > -0.0205, `m y=${meters.position[1]}`)
+  assert.ok(mm.far > 40 && mm.far < 55, `mm far=${mm.far}`)
+  assert.ok(meters.far > 0.04 && meters.far < 0.055, `m far=${meters.far}`)
+  assert.ok(Math.abs(mm.scale / meters.scale - 1000) < 1e-6)
+  assert.ok(mm.far < 10, "must not floor far at 10 (washes out meter GLBs)")
+})
+
+test("FeatureReview 视口 chrome：去掉 ViewCube，只留右上 RGB 轴 + 贴地 ContactShadows", () => {
+  assert.doesNotMatch(source, /GizmoViewcube/)
+  assert.doesNotMatch(source, /faces=\{\["RIGHT", "LEFT", "TOP", "BOTTOM", "FRONT", "BACK"\]\}/)
   assert.equal([...source.matchAll(/<GizmoHelper/g)].length, 1)
-  assert.doesNotMatch(source, /margin=\{\[54,\s*132\]\}/)
   assert.match(source, /<GizmoViewport/)
-  assert.match(source, /<group scale=\{0\.7\}>/)
-  assert.match(source, /scale=\{8\}/)
-  assert.match(source, /axisScale=\{\[0\.5,\s*0\.014,\s*0\.014\]\}/)
-  assert.match(source, /position=\{\[0,\s*-30,\s*0\]\}/)
+  assert.match(source, /axisColors=\{\["#ef4444", "#22c55e", "#3b82f6"\]\}/)
+  assert.match(source, /hideNegativeAxes/)
+  assert.match(source, /<ContactShadows/)
+  assert.match(source, /contactShadowFromBox/)
   assert.match(source, /from "\.\/featureReviewView"/)
+  assert.doesNotMatch(source, /Math\.max\(size\.y \* 1\.5, 10\)/)
   assert.doesNotMatch(source, /<GizmoHelper[\s\S]*<GizmoHelper/)
 })
