@@ -59,6 +59,10 @@ def test_run_slot_rectangular_pocket_min_fields():
         assert slot["width"] == pytest.approx(12, abs=1.5)
         assert slot["depth"] == pytest.approx(8, abs=1.5)
         assert slot["corner_radius"] is not None
+        assert set(slot["x_dir"]) == {"x", "y", "z"}
+        assert abs(slot["x_dir"]["x"]) == pytest.approx(1, abs=1e-6)
+        assert slot["x_dir"]["y"] == pytest.approx(0, abs=1e-6)
+        assert slot["x_dir"]["z"] == pytest.approx(0, abs=1e-6)
     finally:
         os.unlink(path)
 

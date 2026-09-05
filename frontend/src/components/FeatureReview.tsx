@@ -11,15 +11,34 @@ import * as THREE from "three"
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js"
 import { API } from "../api"
 import { ProcessStepParameters } from "./ProcessSequenceEditor"
-import { applyView, contactShadowFromBox, type ViewName } from "./featureReviewView"
+import {
+  applyView,
+  contactShadowFromBox,
+  orientedQuat,
+  shouldApplyRequestedView,
+  type ViewName,
+} from "./featureReviewView"
 
 type Feat = any
 
 type Pose =
   | { kind: "cyl"; origin: THREE.Vector3; axis: THREE.Vector3; length: number; diameter: number; centered: boolean; shell?: boolean }
-  | { kind: "plate"; origin: THREE.Vector3; axis: THREE.Vector3; size: [number, number, number] }
-  | { kind: "box"; origin: THREE.Vector3; axis: THREE.Vector3; size: [number, number, number] }
+  | { kind: "plate"; origin: THREE.Vector3; axis: THREE.Vector3; xDir: THREE.Vector3 | null; size: [number, number, number] }
+  | { kind: "box"; origin: THREE.Vector3; axis: THREE.Vector3; xDir: THREE.Vector3 | null; size: [number, number, number]; cornerRadius: number; depthFromOrigin: boolean }
   | { kind: "surface"; origin: THREE.Vector3; radius: number }
+
+const INITIAL_CAMERA = {
+  position: [72, 48, 62] as [number, number, number],
+  fov: 42,
+  near: 0.1,
+  far: 4000,
+}
+
+const CANVAS_GL = {
+  antialias: true,
+  alpha: true,
+  localClippingEnabled: true,
+}
 
 function holeLabel(ht: string | undefined) {
   if (ht === "through" || ht === "通孔") return "通孔"
@@ -46,6 +65,16 @@ function featType(f: Feat): string {
   return String(f.type || f.kind || f.feature_type || "").toLowerCase()
 }
 
+function featureXDir(f: Feat) {
+  return (
+    xyz(f.pose?.x_dir)
+    || xyz(f.pose?.x_axis)
+    || xyz(f.x_dir)
+    || xyz(f.x_axis)
+    || xyz(f.length_axis)
+  )
+}
+
 export function isReviewTreeFeature(feature: Feat): boolean {
   const id = String(feature?.feature_id || feature?.id || "")
   return feature?.subtype !== "cylindrical_candidate" && !id.startsWith("cylinder-")
@@ -57,6 +86,7 @@ function poseOf(f: Feat): Pose | null {
   const origin = xyz(f.pose?.origin) || xyz(f.location) || xyz(f.center) || xyz(f.position)
   const axisRaw = xyz(f.pose?.axis) || xyz(f.axis)
   const axis = (axisRaw || new THREE.Vector3(0, 0, 1)).clone().normalize()
+  const xDir = featureXDir(f)
 
   if (t === "hole" || t === "thread" || t === "outer_cylinder") {
     if (!origin) return null
@@ -77,7 +107,8 @@ function poseOf(f: Feat): Pose | null {
     if (!origin) return null
     const L = num(f.length, dim.length) || 8
     const W = num(f.width, dim.width) || 8
-    return { kind: "plate", origin, axis, size: [L, 1.2, W] }
+    const thickness = Math.max(Math.min(L, W) * 0.008, 0.05)
+    return { kind: "plate", origin, axis, xDir, size: [L, thickness, W] }
   }
 
   if (t === "pocket" || t === "slot") {
@@ -85,7 +116,8 @@ function poseOf(f: Feat): Pose | null {
     const L = num(f.length, dim.length) || 8
     const W = num(f.width, dim.width) || 8
     const H = num(f.depth, dim.depth, f.height, dim.height) || 4
-    return { kind: "box", origin, axis, size: [L, H, W] }
+    const cornerRadius = num(f.corner_radius, dim.corner_radius) ?? 0
+    return { kind: "box", origin, axis, xDir, size: [L, H, W], cornerRadius, depthFromOrigin: true }
   }
 
   if (t === "step") {
@@ -93,7 +125,7 @@ function poseOf(f: Feat): Pose | null {
     const L = num(f.length, dim.length) || 8
     const W = num(f.width, dim.width) || 8
     const H = num(f.height, dim.height, f.depth, dim.depth) || 4
-    return { kind: "box", origin, axis, size: [L, H, W] }
+    return { kind: "box", origin, axis, xDir, size: [L, H, W], cornerRadius: 0, depthFromOrigin: false }
   }
 
   if (t === "surface") {
@@ -103,12 +135,6 @@ function poseOf(f: Feat): Pose | null {
   }
 
   return null
-}
-
-function quatFromAxis(axis: THREE.Vector3) {
-  const q = new THREE.Quaternion()
-  q.setFromUnitVectors(new THREE.Vector3(0, 1, 0), axis)
-  return q
 }
 
 function useGltfScene(url: string) {
@@ -126,11 +152,18 @@ function ViewRig({ box, request }: { box: THREE.Box3 | null; request: { view: Vi
   const camera = useThree((s) => s.camera) as THREE.PerspectiveCamera
   const controls = useThree((s) => s.controls)
   const size = useThree((s) => s.size)
+  const appliedRequest = useRef(0)
   useLayoutEffect(() => {
-    if (!box || !request.n) return
-    if (size.width > 0 && size.height > 0) camera.aspect = size.width / size.height
-    applyView(camera, controls, box, request.view)
-  }, [box, request, camera, controls, size])
+    if (!controls || !shouldApplyRequestedView({
+      appliedN: appliedRequest.current,
+      requestN: request.n,
+      hasBox: Boolean(box),
+      hasViewport: size.width > 0 && size.height > 0,
+    })) return
+    camera.aspect = size.width / size.height
+    applyView(camera, controls, box!, request.view)
+    appliedRequest.current = request.n
+  }, [box, request.n, request.view, camera, controls, size.width, size.height])
   return null
 }
 
@@ -257,10 +290,12 @@ function distanceToPose(point: THREE.Vector3, pose: Pose) {
     )
   }
 
-  rel.applyQuaternion(quatFromAxis(pose.axis).invert())
+  rel.applyQuaternion(orientedQuat(pose.axis, pose.xDir).invert())
+  const minY = pose.kind === "box" && pose.depthFromOrigin ? 0 : -pose.size[1] / 2
+  const maxY = pose.kind === "box" && pose.depthFromOrigin ? pose.size[1] : pose.size[1] / 2
   return Math.hypot(
     distanceOutside(rel.x, -pose.size[0] / 2, pose.size[0] / 2),
-    distanceOutside(rel.y, -pose.size[1] / 2, pose.size[1] / 2),
+    distanceOutside(rel.y, minY, maxY),
     distanceOutside(rel.z, -pose.size[2] / 2, pose.size[2] / 2),
   )
 }
@@ -375,14 +410,79 @@ export function pickFeatureAtPoint(
   return snapped?.id || nearest?.id || null
 }
 
-function FeatureGeometry({ pose }: { pose: Pose }) {
+function roundedRectangle(length: number, width: number, cornerRadius: number) {
+  const hx = length / 2
+  const hz = width / 2
+  const r = Math.max(0, Math.min(cornerRadius, hx, hz))
+  const shape = new THREE.Shape()
+  shape.moveTo(-hx + r, -hz)
+  shape.lineTo(hx - r, -hz)
+  shape.quadraticCurveTo(hx, -hz, hx, -hz + r)
+  shape.lineTo(hx, hz - r)
+  shape.quadraticCurveTo(hx, hz, hx - r, hz)
+  shape.lineTo(-hx + r, hz)
+  shape.quadraticCurveTo(-hx, hz, -hx, hz - r)
+  shape.lineTo(-hx, -hz + r)
+  shape.quadraticCurveTo(-hx, -hz, -hx + r, -hz)
+  return shape
+}
+
+function makeFeatureGeometry(pose: Pose) {
   if (pose.kind === "cyl") {
-    return <cylinderGeometry args={[pose.diameter / 2, pose.diameter / 2, pose.length, 32]} />
+    return new THREE.CylinderGeometry(
+      pose.diameter / 2,
+      pose.diameter / 2,
+      pose.length,
+      48,
+      1,
+      Boolean(pose.shell),
+    )
   }
-  if (pose.kind === "plate" || pose.kind === "box") {
-    return <boxGeometry args={pose.size} />
+  if (pose.kind === "plate") {
+    const geometry = new THREE.PlaneGeometry(pose.size[0], pose.size[2])
+    geometry.rotateX(-Math.PI / 2)
+    return geometry
   }
-  return <sphereGeometry args={[Math.min(pose.radius, 16), 24, 16]} />
+  if (pose.kind === "box") {
+    const geometry = new THREE.ExtrudeGeometry(
+      roundedRectangle(pose.size[0], pose.size[2], pose.cornerRadius),
+      {
+        depth: pose.size[1],
+        bevelEnabled: false,
+        curveSegments: 16,
+        steps: 1,
+      },
+    )
+    geometry.rotateX(-Math.PI / 2)
+    geometry.translate(0, -pose.size[1] / 2, 0)
+    return geometry
+  }
+  return new THREE.SphereGeometry(Math.min(pose.radius, 16), 24, 16)
+}
+
+function FeatureHighlight({ pose }: { pose: Pose }) {
+  const geometry = useMemo(() => makeFeatureGeometry(pose), [pose])
+  useEffect(() => () => geometry.dispose(), [geometry])
+  return (
+    <>
+      <mesh renderOrder={20} raycast={() => {}}>
+        <primitive object={geometry} attach="geometry" />
+        <meshBasicMaterial
+          color="#f97316"
+          transparent
+          opacity={pose.kind === "plate" ? 0.3 : pose.kind === "cyl" && pose.shell ? 0.34 : 0.4}
+          depthTest
+          depthWrite={false}
+          side={THREE.DoubleSide}
+          toneMapped={false}
+        />
+      </mesh>
+      <lineSegments renderOrder={21} raycast={() => {}}>
+        <edgesGeometry args={[geometry, 20]} />
+        <lineBasicMaterial color="#ea580c" transparent opacity={0.9} depthTest toneMapped={false} />
+      </lineSegments>
+    </>
+  )
 }
 
 function FeatureMark({
@@ -396,32 +496,19 @@ function FeatureMark({
 }) {
   const pose = poseOf(feat)
   if (!pose || !selected) return null
-  const q = pose.kind === "surface" ? undefined : quatFromAxis(pose.axis)
+  const q = pose.kind === "surface"
+    ? undefined
+    : orientedQuat(pose.axis, "xDir" in pose ? pose.xDir : null)
   const mid = pose.kind === "cyl"
     ? (pose.centered ? pose.origin : pose.origin.clone().add(pose.axis.clone().multiplyScalar(pose.length / 2)))
-    : pose.kind === "surface" ? pose.origin : pose.origin
+    : pose.kind === "box" && pose.depthFromOrigin
+      ? pose.origin.clone().add(pose.axis.clone().multiplyScalar(pose.size[1] / 2))
+      : pose.origin
 
   return (
     <group scale={unitScale}>
       <group position={mid} quaternion={q}>
-        <mesh renderOrder={20} raycast={() => {}}>
-          <FeatureGeometry pose={pose} />
-          <meshBasicMaterial
-            color="#f97316"
-            transparent
-            opacity={pose.kind === "plate" ? 0.28 : 0.42}
-            depthTest={false}
-            depthWrite={false}
-            side={THREE.DoubleSide}
-            toneMapped={false}
-          />
-        </mesh>
-        <lineSegments renderOrder={21} raycast={() => {}}>
-          {pose.kind === "cyl" && <edgesGeometry args={[new THREE.CylinderGeometry(pose.diameter / 2, pose.diameter / 2, pose.length, 32), 20]} />}
-          {(pose.kind === "plate" || pose.kind === "box") && <edgesGeometry args={[new THREE.BoxGeometry(...pose.size), 15]} />}
-          {pose.kind === "surface" && <edgesGeometry args={[new THREE.SphereGeometry(Math.min(pose.radius, 16), 24, 16), 15]} />}
-          <lineBasicMaterial color="#ea580c" depthTest={false} toneMapped={false} />
-        </lineSegments>
+        <FeatureHighlight pose={pose} />
       </group>
     </group>
   )
@@ -722,8 +809,8 @@ export function FeatureReview({
           <>
             <Canvas
               shadows
-              camera={{ position: [72, 48, 62], fov: 42, near: 0.1, far: 4000 }}
-              gl={{ antialias: true, alpha: true, localClippingEnabled: true }}
+              camera={INITIAL_CAMERA}
+              gl={CANVAS_GL}
               onPointerMissed={() => setPicked(null)}
             >
               <ambientLight color="#f8fafc" intensity={0.62} />
