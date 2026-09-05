@@ -121,7 +121,7 @@ function applyView(camera: THREE.PerspectiveCamera, controls: any, box: THREE.Bo
   const size = box.getSize(new THREE.Vector3())
   const maxDim = Math.max(size.x, size.y, size.z, 1)
   const fov = (camera.fov * Math.PI) / 180
-  const dist = ((maxDim / 2) / Math.tan(fov / 2)) * 1.4
+  const dist = ((maxDim / 2) / Math.tan(fov / 2)) * 1.75
   let dir: THREE.Vector3
   if (view === "fit") {
     dir = camera.position.clone().sub(controls?.target || center)
@@ -618,9 +618,9 @@ export function FeatureReview({
                 {shadow && (
                   <ContactShadows
                     position={shadow.position}
-                    opacity={0.24}
+                    opacity={0.3}
                     scale={shadow.scale}
-                    blur={3}
+                    blur={2.6}
                     far={shadow.far}
                     color="#64748b"
                     resolution={512}
