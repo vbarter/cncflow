@@ -105,6 +105,37 @@ export function contactShadowFromBox(box: THREE.Box3) {
   }
 }
 
+/**
+ * Selection / layout resize must not re-frame. Only an explicit view request
+ * (toolbar or the first successful fit) may move OrbitControls.
+ */
+export function shouldApplyRequestedView(args: {
+  appliedN: number
+  requestN: number
+  hasBox: boolean
+  hasViewport: boolean
+}) {
+  return Boolean(args.hasBox && args.hasViewport && args.requestN > 0 && args.requestN !== args.appliedN)
+}
+
+/** Y = feature axis, X = length/u direction in the feature plane. */
+export function orientedQuat(axis: THREE.Vector3, xDir?: THREE.Vector3 | null) {
+  const y = axis.clone().normalize()
+  const x = new THREE.Vector3()
+  if (xDir && xDir.lengthSq() > 1e-12) {
+    x.copy(xDir).addScaledVector(y, -xDir.dot(y))
+  }
+  if (x.lengthSq() < 1e-12) {
+    x.set(1, 0, 0)
+    if (Math.abs(y.dot(x)) > 0.9) x.set(0, 0, 1)
+    x.addScaledVector(y, -y.dot(x))
+  }
+  x.normalize()
+  const z = new THREE.Vector3().crossVectors(x, y).normalize()
+  x.crossVectors(y, z).normalize()
+  return new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(x, y, z))
+}
+
 export function applyView(
   camera: THREE.PerspectiveCamera,
   controls: any,

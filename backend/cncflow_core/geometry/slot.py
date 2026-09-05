@@ -350,6 +350,47 @@ def _measure(bottom, walls):
     return length, width, depth, t_slot, pairs
 
 
+def _length_direction(bottom, pairs, length, width):
+    """L 沿对壁法向（或底面 bbox 最长轴），给前端定向棱柱用。"""
+    n = bottom["n"]
+    if len(pairs) >= 2:
+        axis, mag = _norm(max(pairs, key=lambda item: item[2])[0]["n"])
+        return axis if mag else None
+    if len(pairs) == 1:
+        wall_n = pairs[0][0]["n"]
+        dist = pairs[0][2]
+        pair_axis, pair_mag = _norm(wall_n)
+        along = (
+            wall_n[1] * n[2] - wall_n[2] * n[1],
+            wall_n[2] * n[0] - wall_n[0] * n[2],
+            wall_n[0] * n[1] - wall_n[1] * n[0],
+        )
+        along_axis, along_mag = _norm(along)
+        if abs(dist - width) <= abs(dist - length) + 1e-9:
+            return along_axis if along_mag else pair_axis
+        return pair_axis if pair_mag else along_axis
+    fb = bottom["fb"]
+    best = None
+    best_ext = -1.0
+    for axis, ext in (
+        ((1.0, 0.0, 0.0), fb.xlen),
+        ((0.0, 1.0, 0.0), fb.ylen),
+        ((0.0, 0.0, 1.0), fb.zlen),
+    ):
+        if abs(_dot(axis, n)) > 0.7:
+            continue
+        if ext > best_ext:
+            best_ext = ext
+            best = axis
+    return best
+
+
+def _dir_point(vec):
+    if not vec:
+        return None
+    return {"x": round(vec[0], 6), "y": round(vec[1], 6), "z": round(vec[2], 6)}
+
+
 def detect_slots(path: str) -> list:
     try:
         import cadquery as cq
@@ -432,6 +473,7 @@ def detect_slots(path: str) -> list:
         radius = found_r if found_r is not None else 1.0
         ptype = _pocket_type(length, width, len(walls), t_slot, opens)
         loc = _point(bottom["c"])
+        x_dir = _dir_point(_length_direction(bottom, pairs, length, width))
         found.append({
             "feature_id": "slot-%d" % len(found),
             "type": "pocket",
@@ -450,6 +492,7 @@ def detect_slots(path: str) -> list:
             },
             "location": loc,
             "axis": {"x": round(bottom["n"][0], 6), "y": round(bottom["n"][1], 6), "z": round(bottom["n"][2], 6)},
+            **({"x_dir": x_dir} if x_dir else {}),
             "occurrences": 1,
             "confidence": 0.82,
             "evidence": [

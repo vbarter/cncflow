@@ -8,6 +8,8 @@ import {
   applyView,
   contactShadowFromBox,
   fitViewDistance,
+  orientedQuat,
+  shouldApplyRequestedView,
   viewFillHeight,
 } from "../src/components/featureReviewView.ts"
 
@@ -62,6 +64,66 @@ test("front/top/side/fit 同样按投影框适配，ISO 仍是默认方向", () 
   }
 })
 
+test("只有首次 fit 或显式工具栏请求能改相机，选中导致的 resize 不重复应用", () => {
+  const cam = camera()
+  const box = boxFromSize(80, 50, 20)
+  const controls = { target: new THREE.Vector3(), update() {} }
+  let appliedN = 0
+  const initialRequest = {
+    appliedN: 0,
+    requestN: 1,
+    hasBox: true,
+    hasViewport: true,
+  }
+  assert.equal(shouldApplyRequestedView(initialRequest), true)
+  applyView(cam, controls, box, "iso")
+  appliedN = initialRequest.requestN
+
+  cam.position.set(123, -45, 67)
+  cam.quaternion.setFromEuler(new THREE.Euler(0.31, -0.72, 0.18))
+  cam.zoom = 2.4
+  controls.target.set(9, 8, 7)
+  const customView = {
+    position: cam.position.clone(),
+    quaternion: cam.quaternion.clone(),
+    zoom: cam.zoom,
+    target: controls.target.clone(),
+  }
+
+  // Simulates selecting hole, then slot while the inspector changes Canvas size.
+  for (const _featureId of ["hole-8", "slot-2"]) {
+    if (shouldApplyRequestedView({
+      appliedN,
+      requestN: 1,
+      hasBox: true,
+      hasViewport: true,
+    })) {
+      applyView(cam, controls, box, "iso")
+    }
+  }
+  assert.ok(cam.position.equals(customView.position))
+  assert.ok(cam.quaternion.equals(customView.quaternion))
+  assert.equal(cam.zoom, customView.zoom)
+  assert.ok(controls.target.equals(customView.target))
+
+  assert.equal(shouldApplyRequestedView({
+    appliedN,
+    requestN: 2,
+    hasBox: true,
+    hasViewport: true,
+  }), true)
+})
+
+test("定向特征坐标系严格映射 axis 和 x_dir，不退化成世界 AABB", () => {
+  const axis = new THREE.Vector3(0, 0, 1)
+  const xDir = new THREE.Vector3(Math.SQRT1_2, Math.SQRT1_2, 0)
+  const q = orientedQuat(axis, xDir)
+  const localX = new THREE.Vector3(1, 0, 0).applyQuaternion(q)
+  const localY = new THREE.Vector3(0, 1, 0).applyQuaternion(q)
+  assert.ok(localX.distanceTo(xDir) < 1e-9)
+  assert.ok(localY.distanceTo(axis) < 1e-9)
+})
+
 test("contactShadow 贴在 bbox 底面，far/scale 跟零件尺度走（米/毫米同形）", () => {
   const mm = contactShadowFromBox(boxFromSize(50, 40, 80))
   const meters = contactShadowFromBox(boxFromSize(0.05, 0.04, 0.08))
@@ -84,6 +146,9 @@ test("FeatureReview 视口 chrome：去掉 ViewCube，只留右上 RGB 轴 + 贴
   assert.match(source, /<ContactShadows/)
   assert.match(source, /contactShadowFromBox/)
   assert.match(source, /from "\.\/featureReviewView"/)
+  assert.match(source, /camera=\{INITIAL_CAMERA\}/)
+  assert.match(source, /appliedRequest\.current = request\.n/)
+  assert.doesNotMatch(source, /camera=\{\{\s*position:/)
   assert.doesNotMatch(source, /Math\.max\(size\.y \* 1\.5, 10\)/)
   assert.doesNotMatch(source, /<GizmoHelper[\s\S]*<GizmoHelper/)
 })
