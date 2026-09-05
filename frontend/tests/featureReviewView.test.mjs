@@ -65,20 +65,49 @@ test("front/top/side/fit 同样按投影框适配，ISO 仍是默认方向", () 
 })
 
 test("只有首次 fit 或显式工具栏请求能改相机，选中导致的 resize 不重复应用", () => {
-  assert.equal(shouldApplyRequestedView({
+  const cam = camera()
+  const box = boxFromSize(80, 50, 20)
+  const controls = { target: new THREE.Vector3(), update() {} }
+  let appliedN = 0
+  const initialRequest = {
     appliedN: 0,
     requestN: 1,
     hasBox: true,
     hasViewport: true,
-  }), true)
+  }
+  assert.equal(shouldApplyRequestedView(initialRequest), true)
+  applyView(cam, controls, box, "iso")
+  appliedN = initialRequest.requestN
+
+  cam.position.set(123, -45, 67)
+  cam.quaternion.setFromEuler(new THREE.Euler(0.31, -0.72, 0.18))
+  cam.zoom = 2.4
+  controls.target.set(9, 8, 7)
+  const customView = {
+    position: cam.position.clone(),
+    quaternion: cam.quaternion.clone(),
+    zoom: cam.zoom,
+    target: controls.target.clone(),
+  }
+
+  // Simulates selecting hole, then slot while the inspector changes Canvas size.
+  for (const _featureId of ["hole-8", "slot-2"]) {
+    if (shouldApplyRequestedView({
+      appliedN,
+      requestN: 1,
+      hasBox: true,
+      hasViewport: true,
+    })) {
+      applyView(cam, controls, box, "iso")
+    }
+  }
+  assert.ok(cam.position.equals(customView.position))
+  assert.ok(cam.quaternion.equals(customView.quaternion))
+  assert.equal(cam.zoom, customView.zoom)
+  assert.ok(controls.target.equals(customView.target))
+
   assert.equal(shouldApplyRequestedView({
-    appliedN: 1,
-    requestN: 1,
-    hasBox: true,
-    hasViewport: true,
-  }), false)
-  assert.equal(shouldApplyRequestedView({
-    appliedN: 1,
+    appliedN,
     requestN: 2,
     hasBox: true,
     hasViewport: true,
