@@ -64,20 +64,22 @@ test("front/top/side/fit 同样按投影框适配，ISO 仍是默认方向", () 
   }
 })
 
-test("只有首次 fit 或显式工具栏请求能改相机，选中导致的 resize 不重复应用", () => {
+test("视图请求应用后立即消费，选中即使重建 ViewRig 也不能重放 ISO", () => {
   const cam = camera()
   const box = boxFromSize(80, 50, 20)
   const controls = { target: new THREE.Vector3(), update() {} }
   let appliedN = 0
+  let requestN = 1
   const initialRequest = {
     appliedN: 0,
-    requestN: 1,
+    requestN,
     hasBox: true,
     hasViewport: true,
   }
   assert.equal(shouldApplyRequestedView(initialRequest), true)
   applyView(cam, controls, box, "iso")
   appliedN = initialRequest.requestN
+  requestN = 0
 
   cam.position.set(123, -45, 67)
   cam.quaternion.setFromEuler(new THREE.Euler(0.31, -0.72, 0.18))
@@ -91,10 +93,12 @@ test("只有首次 fit 或显式工具栏请求能改相机，选中导致的 re
   }
 
   // Simulates selecting hole, then slot while the inspector changes Canvas size.
+  // appliedN=0 deliberately models a remounted ViewRig: the consumed request
+  // still cannot be replayed.
   for (const _featureId of ["hole-8", "slot-2"]) {
     if (shouldApplyRequestedView({
-      appliedN,
-      requestN: 1,
+      appliedN: 0,
+      requestN,
       hasBox: true,
       hasViewport: true,
     })) {
@@ -148,6 +152,10 @@ test("FeatureReview 视口 chrome：去掉 ViewCube，只留右上 RGB 轴 + 贴
   assert.match(source, /from "\.\/featureReviewView"/)
   assert.match(source, /camera=\{INITIAL_CAMERA\}/)
   assert.match(source, /appliedRequest\.current = request\.n/)
+  assert.match(source, /useState<ViewRequest \| null>\(null\)/)
+  assert.match(source, /current\?\.n === n \? null : current/)
+  assert.match(source, /target=\{orbitTarget\}/)
+  assert.match(source, /onEnd=\{markCustomView\}/)
   assert.doesNotMatch(source, /camera=\{\{\s*position:/)
   assert.doesNotMatch(source, /Math\.max\(size\.y \* 1\.5, 10\)/)
   assert.doesNotMatch(source, /<GizmoHelper[\s\S]*<GizmoHelper/)
