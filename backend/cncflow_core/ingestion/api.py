@@ -25,6 +25,8 @@ def capabilities():
         "formats": ["step", "stp", "pdf"], "max_file_mb": 100, "max_job_mb": 150,
         "max_files": 2,
         "pdf_backfill_provider": "tu-zi",
+        "feature_parser": os.environ.get("CNCFLOW_FEATURE_PARSER") or "llm",
+        "feature_llm_model": os.environ.get("TUZI_FEATURE_MODEL") or "gpt-6-astra",
         "external_ai_available": bool(
             os.environ.get("TUZI_API_KEY") or os.environ.get("VISION_API_KEY")
         ),

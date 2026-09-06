@@ -47,7 +47,7 @@ UI 成本栏：`ui_cost` = 材料 / 加工 / 装夹(setup) / 夹具 / 编程 / �
 | surface | `features/surface/pipeline.py` |
 | step | `features/step/pipeline.py` |
 
-几何识别在 `backend/cncflow_core/geometry/`（STEP 插件）。报价吃的是确认后的 feature 列表，不是 chat。
+几何识别主路径：`backend/cncflow_core/geometry/llm.py`（tu-zi `gpt-6-astra`，STEP ASCII 进 `chat/completions`）。CadQuery 插件是 `CNCFLOW_FEATURE_PARSER=geometry` / `dual` 回退。报价吃的是确认后的 feature 列表，不是 chat。
 
 去重：`quoting/dedup.py`（孔吸收、台阶面吸收、同孔工步合并、倒角合并）。
 

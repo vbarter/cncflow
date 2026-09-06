@@ -10,16 +10,25 @@ Uploads keep a local content-addressed cache. `storage_path` becomes `r2://cncfl
 
 `max_instances` is 1 (SQLite single writer). `min_instances` is 1 so the parser keeps polling.
 
-Required Worker secrets: R2 account, access key, secret, bucket; `CNCFLOW_CORS_ORIGINS` for the Pages origin; `TUZI_API_KEY` for PDF field extraction and the read-only chat widget via `https://api.tu-zi.com/v1`. `TUZI_MODEL` defaults to `gpt-4.1-mini`; the legacy `VISION_API_KEY` name remains accepted during migration.
+Required Worker secrets: R2 account, access key, secret, bucket; `CNCFLOW_CORS_ORIGINS` for the Pages origin; `TUZI_API_KEY` for PDF field extraction, STEP 特征识别（`gpt-6-astra`），and the read-only chat widget via `https://api.tu-zi.com/v1`. `TUZI_MODEL` (chat/PDF) defaults to `gpt-4.1-mini`; `TUZI_FEATURE_MODEL` defaults to `gpt-6-astra`. The legacy `VISION_API_KEY` name remains accepted during migration.
 
-Set the Worker secret (never a Pages/browser env):
+Set the Worker secret (never a Pages/browser env, never commit it):
 
 ```
 cd cloudflare
 npx wrangler secret put TUZI_API_KEY
 ```
 
-Optional: `npx wrangler secret put TUZI_MODEL` (default `gpt-4.1-mini`). The Worker forwards `POST /api/v1/chat` to the container Node process on port 3002 without buffering. Chat jail is `/app/chat-jail` (`docs/knowledge-base`, `backend/cncflow_core`, `frontend/src`). The only registered tools are `read` and read-only `bash`; `write` / `edit` and all other tools are disabled.
+Optional:
+
+```
+npx wrangler secret put TUZI_MODEL            # chat/PDF, default gpt-4.1-mini
+npx wrangler secret put TUZI_FEATURE_MODEL    # STEP features, default gpt-6-astra
+```
+
+`CNCFLOW_FEATURE_PARSER` defaults to `llm` (STEP ASCII → `POST https://api.tu-zi.com/v1/chat/completions`). Set `geometry` to force CadQuery plugins, or `dual` to fall back to plugins if the LLM call fails. Failures raise; they do not return an empty feature list as success.
+
+The Worker forwards `POST /api/v1/chat` to the container Node process on port 3002 without buffering. Chat jail is `/app/chat-jail` (`docs/knowledge-base`, `backend/cncflow_core`, `frontend/src`). The only registered tools are `read` and read-only `bash`; `write` / `edit` and all other tools are disabled.
 
 Frontend production build uses `VITE_BASE=/` and `VITE_API_URL` pointing at the `cncflow-api` Worker origin. The Cloudflare workflow publishes `frontend/dist` to Pages project `cncflow` on every main push. VPS SSH publish remains as a fallback.
 

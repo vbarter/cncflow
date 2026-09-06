@@ -101,9 +101,11 @@ def process_claimed(conn, job):
         suffix = ".step" if file["detected_type"] == "step" else ".pdf"
         if file["detected_type"] == "step":
             names = ",".join(plugin_names())
+            from ..geometry.llm import feature_model, feature_parser_mode
+            mode = feature_parser_mode()
             update_job(
                 conn, job["job_id"], stage="geometry_parse", progress=20,
-                message=f"geometry-service {FEATURE_SCHEMA} plugins={names}",
+                message=f"geometry-service {FEATURE_SCHEMA} plugins={names} parser={mode} model={feature_model()}",
                 **claim,
             )
             step_path = materialize(file["storage_path"], suffix=suffix)

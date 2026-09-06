@@ -10,6 +10,8 @@ interface Env {
   CNCFLOW_R2_BUCKET?: string;
   TUZI_API_KEY?: string;
   TUZI_MODEL?: string;
+  TUZI_FEATURE_MODEL?: string;
+  CNCFLOW_FEATURE_PARSER?: string;
   // Legacy secret name kept so existing deployments continue to work.
   VISION_API_KEY?: string;
 }
@@ -39,7 +41,9 @@ export class CncflowContainer extends Container<Env> {
       CNCFLOW_R2_BUCKET: env.CNCFLOW_R2_BUCKET || "cncflow-files",
       TUZI_API_KEY: env.TUZI_API_KEY || env.VISION_API_KEY || "",
       TUZI_MODEL: env.TUZI_MODEL || "gpt-4.1-mini",
+      TUZI_FEATURE_MODEL: env.TUZI_FEATURE_MODEL || "gpt-6-astra",
       TUZI_BASE_URL: "https://api.tu-zi.com/v1",
+      CNCFLOW_FEATURE_PARSER: env.CNCFLOW_FEATURE_PARSER || "llm",
       CHAT_JAIL: "/app/chat-jail",
       CHAT_PORT: "3002",
       CHAT_HOST: "0.0.0.0",
