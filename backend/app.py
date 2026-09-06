@@ -27,6 +27,7 @@ from data.seed_tool_specs import seed_tool_specs
 from data.seed_tools import seed as seed_tools
 from cncflow_core.ingestion.api import bp as ingestion_bp
 from cncflow_core.geometry.api import bp as geometry_bp
+from cncflow_core.geometry.llm import feature_model, feature_parser_mode
 
 
 def _install_cors(app: Flask) -> None:
@@ -166,6 +167,8 @@ def create_app(db_path=None) -> Flask:
                                    "worker_id": worker["worker_id"] if worker else None,
                                    "version": worker["parser_version"] if worker else None,
                                    "last_heartbeat": worker["heartbeat_at"] if worker else None,
+                                   "feature_parser": feature_parser_mode(),
+                                   "feature_llm_model": feature_model(),
                                    "mesh_export": True},
                         "persist": persist_info})
 

@@ -220,7 +220,13 @@ def test_geometry_contract_lists_llm_primary(client):
 
 
 @pytest.mark.llm_features
-def test_capabilities_default_llm(client):
+def test_capabilities_and_health_default_llm(client, monkeypatch):
+    monkeypatch.delenv("CNCFLOW_FEATURE_PARSER", raising=False)
+    monkeypatch.delenv("TUZI_FEATURE_MODEL", raising=False)
+
     body = client.get("/api/v1/parse-capabilities").get_json()
     assert body["feature_parser"] == "llm"
     assert body["feature_llm_model"] == "gpt-6-astra"
+    parser = client.get("/api/v1/health").get_json()["parser"]
+    assert parser["feature_parser"] == "llm"
+    assert parser["feature_llm_model"] == "gpt-6-astra"
