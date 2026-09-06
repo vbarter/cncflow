@@ -75,7 +75,7 @@ export function featureTreeTitle(feature: Feat): string {
       : type === "hole"
         ? holeLabel(feature?.hole_type)
         : ""
-  return extra ? `${label} · ${extra}` : label
+  return extra && extra !== "—" ? `${label} · ${extra}` : label
 }
 
 function xyz(v: any): THREE.Vector3 | null {
