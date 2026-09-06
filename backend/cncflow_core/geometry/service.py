@@ -357,6 +357,35 @@ def _run_geometry_plugins(path, cadquery_features):
     return features
 
 
+def _repair_missing_open_slots(path, features):
+    """LLM 漏槽时仅补确定性拓扑已确认的开放槽；封闭腔和通窗不补。"""
+    if any(
+        feat.get("subtype") == "recognized_slot"
+        or feat.get("type") in {"pocket", "slot"}
+        for feat in features
+    ):
+        return features, 0
+
+    detected = [
+        feat
+        for feat in run_slot(path)
+        if feat.get("subtype") == "recognized_slot"
+        and feat.get("pocket_type") == "开放"
+    ]
+    if not detected:
+        return features, 0
+
+    repaired = []
+    for feature in detected:
+        feature = dict(feature)
+        feature["source"] = "geometry-rescue"
+        feature["evidence"] = list(feature.get("evidence") or []) + [
+            "deterministic-open-slot-rescue",
+        ]
+        repaired.append(feature)
+    return list(features) + repaired, len(repaired)
+
+
 def _select_stock_top_face(features, geometry):
     """LLM 平面默认未勾；盖住毛坯 XY 的最大水平面勾上，对齐几何插件。"""
     box = (geometry or {}).get("bounding_box_mm") or {}
@@ -405,11 +434,17 @@ def parse_step_file(path, include_mesh=True):
             extracted = extract_step_features(path, geometry=result.get("geometry"))
             features = extracted["features"]
             warnings.extend(extracted.get("warnings") or [])
+            features, repaired_open_slots = _repair_missing_open_slots(path, features)
+            if repaired_open_slots:
+                warnings.append(
+                    f"LLM 漏识别开放槽，已由确定性 STEP 拓扑补入 {repaired_open_slots} 个"
+                )
             llm_meta.update({
                 "called": True,
                 "ok": True,
                 "model": extracted.get("model") or feature_model(),
                 "truncated": extracted.get("truncated", False),
+                "repaired_open_slots": repaired_open_slots,
             })
             source = PARSER_LLM
         except Exception as exc:

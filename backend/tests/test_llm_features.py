@@ -15,6 +15,7 @@ from cncflow_core.inquiries.api import _review_and_quote_features
 FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures")
 LLM_D8 = os.path.join(FIXTURES, "llm_plate_hole_d8.json")
 STEP_D8 = os.path.join(FIXTURES, "plate_hole_d8.step")
+OPEN_SLOT_STEP = os.path.join(FIXTURES, "rect_open_slot.step")
 
 
 def _fixture_payload():
@@ -127,6 +128,9 @@ def test_read_step_ascii_and_messages_use_text_not_files():
     assert "ISO-10303-21" in blob
     assert "bbox_mm=80×60×12" in blob
     assert "孔" in blob and "滑轴" in blob and "槽腔" in blob
+    assert "两侧壁平行" in blob
+    assert "deterministic-open-slot-rescue" not in blob
+    assert '"pocket_type":"开放"' in blob
 
 
 @pytest.mark.llm_features
@@ -155,6 +159,167 @@ def test_parse_step_file_llm_primary_maps_fixture(monkeypatch, tmp_path):
     assert hole["cut_depth_mm"] == pytest.approx(14.4)
     ods = [feat for feat in result["features"] if feat["type"] == "outer_cylinder"]
     assert ods and ods[0]["selected"] is False
+
+
+@pytest.mark.llm_features
+def test_parse_step_file_llm_open_slot_fixture_maps_slot_v1(monkeypatch):
+    from cncflow_core.geometry import llm as llm_mod
+    from cncflow_core.geometry import service as service_mod
+    from cncflow_core.ingestion import step_parser
+
+    monkeypatch.setattr(step_parser, "parse_step", lambda path: {
+        "geometry": {
+            "volume_cm3": 53.6,
+            "bounding_box_mm": {"x": 80, "y": 60, "z": 12},
+            "face_count": 16,
+        },
+        "features": [],
+        "warnings": [],
+    })
+    monkeypatch.setattr(llm_mod, "_tuzi_chat", lambda messages, model=None: {
+        "features": [
+            {
+                "type": "face",
+                "length": 80,
+                "width": 60,
+                "face_position": "水平",
+            },
+            {
+                "type": "slot",
+                "pocket_type": "开放",
+                "length": 40.1,
+                "width": 10,
+                "depth": 8,
+                "corner_radius": 3,
+                "location": {"x": -20, "y": 0, "z": 4},
+                "axis": {"x": 0, "y": 0, "z": 1},
+            },
+        ],
+    })
+    monkeypatch.setattr(
+        service_mod,
+        "run_slot",
+        lambda path: (_ for _ in ()).throw(AssertionError("已有槽时不应运行修复")),
+    )
+
+    result = service_mod.parse_step_file(OPEN_SLOT_STEP)
+
+    slot = next(
+        feat for feat in result["features"]
+        if feat.get("subtype") == "recognized_slot"
+    )
+    assert slot["type"] == "slot"
+    assert slot["pocket_type"] == "开放"
+    assert slot["length"] == pytest.approx(40, abs=1.5)
+    assert slot["width"] == pytest.approx(10, abs=1.5)
+    assert slot["depth"] == pytest.approx(8, abs=1.5)
+    assert slot["corner_radius"] == pytest.approx(3, abs=0.6)
+    assert slot["location"] == {"x": -20, "y": 0, "z": 4}
+    assert result["llm"]["repaired_open_slots"] == 0
+
+
+@pytest.mark.llm_features
+@pytest.mark.parametrize(
+    "wrong_feature",
+    [
+        {"type": "surface", "surface_type": "B_SPLINE_SURFACE", "position": "顶面"},
+        {"type": "outer_cylinder", "diameter_mm": 6, "depth_mm": 10},
+    ],
+)
+def test_parse_step_file_repairs_previous_open_slot_failure_modes(
+    monkeypatch,
+    wrong_feature,
+):
+    from cncflow_core.geometry import llm as llm_mod
+    from cncflow_core.geometry import service as service_mod
+    from cncflow_core.ingestion import step_parser
+
+    monkeypatch.setattr(step_parser, "parse_step", lambda path: {
+        "geometry": {
+            "volume_cm3": 53.6,
+            "bounding_box_mm": {"x": 80, "y": 60, "z": 12},
+        },
+        "features": [],
+        "warnings": [],
+    })
+    monkeypatch.setattr(llm_mod, "_tuzi_chat", lambda messages, model=None: {
+        "features": [
+            {"type": "face", "length": 80, "width": 60},
+            wrong_feature,
+        ],
+    })
+    monkeypatch.setattr(service_mod, "run_slot", lambda path: [{
+        "feature_id": "slot-0",
+        "type": "pocket",
+        "subtype": "recognized_slot",
+        "selected": True,
+        "pocket_type": "开放",
+        "length": 40,
+        "width": 10,
+        "depth": 8,
+        "corner_radius": 3,
+        "location": {"x": -20, "y": 0, "z": 4},
+        "axis": {"x": 0, "y": 0, "z": 1},
+        "evidence": ["inner-walls x3"],
+    }])
+
+    result = service_mod.parse_step_file(OPEN_SLOT_STEP)
+
+    slots = [
+        feat for feat in result["features"]
+        if feat.get("subtype") == "recognized_slot"
+    ]
+    assert len(slots) == 1
+    assert slots[0]["pocket_type"] == "开放"
+    assert slots[0]["source"] == "geometry-rescue"
+    assert "deterministic-open-slot-rescue" in slots[0]["evidence"]
+    assert result["llm"]["repaired_open_slots"] == 1
+    assert any("确定性 STEP 拓扑" in warning for warning in result["warnings"])
+
+
+def test_open_slot_repair_ignores_closed_pocket(monkeypatch):
+    from cncflow_core.geometry import service as service_mod
+
+    features = [{"type": "face", "subtype": "recognized_face"}]
+    monkeypatch.setattr(service_mod, "run_slot", lambda path: [{
+        "type": "pocket",
+        "subtype": "recognized_slot",
+        "pocket_type": "封闭",
+    }])
+
+    repaired, count = service_mod._repair_missing_open_slots("part.step", features)
+
+    assert repaired == features
+    assert count == 0
+
+
+@pytest.mark.llm_features
+def test_extract_step_features_retries_one_timeout(monkeypatch):
+    from cncflow_core.geometry import llm as llm_mod
+
+    calls = []
+
+    def fake_chat(messages, model=None):
+        calls.append(messages)
+        if len(calls) == 1:
+            raise TimeoutError("read timed out")
+        return {
+            "features": [{
+                "type": "slot",
+                "pocket_type": "开放",
+                "length": 40,
+                "width": 10,
+                "depth": 8,
+                "corner_radius": 3,
+            }],
+        }
+
+    monkeypatch.setattr(llm_mod, "_tuzi_chat", fake_chat)
+
+    extracted = llm_mod.extract_step_features(OPEN_SLOT_STEP)
+
+    assert len(calls) == 2
+    assert extracted["features"][0]["subtype"] == "recognized_slot"
 
 
 @pytest.mark.llm_features

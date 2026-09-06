@@ -20,6 +20,7 @@ PARSER_LLM = "llm"
 PARSER_GEOMETRY = "geometry"
 PARSER_DUAL = "dual"
 MAX_STEP_CHARS_DEFAULT = 800_000
+TIMEOUT_RETRIES_DEFAULT = 1
 
 _TYPE_ALIASES = {
     "hole": "hole",
@@ -142,6 +143,20 @@ SYSTEM_PROMPT = """你是 CNC 制造特征识别器。根据 ISO-10303-21 STEP �
    必填: type(pocket|slot), length, width, depth
    选填: corner_radius, pocket_type(开放|封闭|键槽|T型)
 
+开放槽判定优先级（必须遵守）：
+- 内凹底面 + 两个平行侧壁 + 一个封闭端，另一端延伸到毛坯外边界 = 开放槽。
+- 缺少第四面侧壁是“开放”的证据，不代表它不是槽；必须输出一个 slot（或 pocket_type=开放 的 pocket）。
+- 封闭端圆角可能在 STEP 中表现为 B_SPLINE_SURFACE、圆柱面或多段曲面；这些面属于槽的端部/圆角。
+  不得只输出 surface，也不得把槽端圆角输出成 outer_cylinder；输出槽后可省略这些附属面。
+- outer_cylinder 只用于实体最外侧的完整回转外圆，绝不能用于内凹槽壁或槽端圆角。
+
+开放槽示例（尺寸来自底面、侧壁及深度，不从整板 bbox 猜）：
+输入拓扑：矩形毛坯内有长 40、宽 10、深 8、封闭端 R3 的凹槽；两侧壁平行，另一端到达毛坯边界。
+正确输出：
+{"features":[{"type":"slot","pocket_type":"开放","length":40,"width":10,"depth":8,"corner_radius":3,
+"location":{"x":-20,"y":0,"z":4},"axis":{"x":0,"y":0,"z":1}}]}
+错误输出：只有 face + surface，或 face + outer_cylinder。以上两种都漏掉了主要加工特征。
+
 坐标单位 mm，与 STEP CARTESIAN_POINT 一致。每个特征给 location 和 axis（法向或孔轴）。
 feature_id 可省略，下游按类型编号。
 """
@@ -255,8 +270,7 @@ def _geometry_hint(geometry):
 
 def build_messages(step_text, geometry=None, images=None):
     prompt = (
-        SYSTEM_PROMPT
-        + _geometry_hint(geometry)
+        _geometry_hint(geometry)
         + "\nSTEP:\n"
         + step_text
     )
@@ -265,7 +279,7 @@ def build_messages(step_text, geometry=None, images=None):
         if image:
             content.append({"type": "image_url", "image_url": {"url": image}})
     return [
-        {"role": "system", "content": "只输出 JSON 对象 {\"features\":[...]}。"},
+        {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": content},
     ]
 
@@ -593,13 +607,44 @@ def map_llm_features(payload):
     return {"features": features, "errors": errors}
 
 
+def _is_timeout_error(exc):
+    if isinstance(exc, TimeoutError):
+        return True
+    return exc.__class__.__name__ in {
+        "APITimeoutError",
+        "ConnectTimeout",
+        "ReadTimeout",
+        "TimeoutException",
+    }
+
+
+def _timeout_retries():
+    raw = os.environ.get("TUZI_FEATURE_TIMEOUT_RETRIES")
+    if raw in (None, ""):
+        return TIMEOUT_RETRIES_DEFAULT
+    try:
+        return max(0, min(int(raw), 2))
+    except ValueError:
+        return TIMEOUT_RETRIES_DEFAULT
+
+
+def _chat_with_timeout_retry(messages):
+    retries = _timeout_retries()
+    for attempt in range(retries + 1):
+        try:
+            return _tuzi_chat(messages)
+        except Exception as exc:
+            if attempt >= retries or not _is_timeout_error(exc):
+                raise
+
+
 def extract_step_features(path, geometry=None, images=None):
     """读 STEP 文本 → tu-zi gpt-6-astra → 映射后的 features。失败抛错。"""
     step_text, truncated = read_step_ascii(path)
     warnings = []
     if truncated:
         warnings.append(f"STEP 超过 {os.environ.get('TUZI_FEATURE_MAX_STEP_CHARS') or MAX_STEP_CHARS_DEFAULT} 字符，已截断后送模型")
-    raw = _tuzi_chat(build_messages(step_text, geometry=geometry, images=images))
+    raw = _chat_with_timeout_retry(build_messages(step_text, geometry=geometry, images=images))
     mapped = map_llm_features(raw)
     warnings.extend(f"LLM 跳过: {err}" for err in mapped["errors"])
     return {
