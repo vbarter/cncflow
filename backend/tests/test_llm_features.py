@@ -9,7 +9,7 @@ from cncflow_core.geometry.llm import (
     map_llm_features,
     read_step_ascii,
 )
-from cncflow_core.inquiries.api import _review_and_quote_features
+from cncflow_core.inquiries.api import _review_and_quote_features, _sanitize_review_features
 
 
 FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures")
@@ -95,6 +95,7 @@ def test_map_llm_fixture_review_and_quote_pins(client):
         ({"type": "台阶轮廓", "length": 80, "height": 8, "width": 25}, "step", "step-0"),
         ({"type": "曲面", "surface_type": "凸面", "curvature_radius": 20, "position": "顶面"}, "surface", "surface-0"),
         ({"type": "pocket", "length": 24, "width": 12, "depth": 6, "pocket_type": "封闭"}, "pocket", "slot-0"),
+        ({"type": "pocket_or_step", "length": 24, "width": 12, "depth": 6, "pocket_type": "封闭"}, "pocket", "slot-0"),
     ],
 )
 def test_map_handbook_type_aliases(raw, expect_type, expect_id):
@@ -114,6 +115,16 @@ def test_map_llm_empty_or_garbage_is_visible_failure():
     with pytest.raises(ValueError, match="不是 JSON"):
         from cncflow_core.geometry.llm import _json_object
         _json_object("not-json")
+
+
+def test_sanitize_drops_pocket_or_step_leftover():
+    cleaned = _sanitize_review_features([
+        {"type": "pocket", "feature_id": "slot-0", "subtype": "recognized_slot"},
+        {"type": "surface", "feature_id": "surface-0", "subtype": "recognized_surface"},
+        {"type": "pocket_or_step", "feature_id": "prismatic-region-0", "subtype": "planar_region"},
+        {"type": "hole", "feature_id": "cylinder-0", "subtype": "cylindrical_candidate"},
+    ])
+    assert [feat["feature_id"] for feat in cleaned] == ["slot-0", "surface-0"]
 
 
 def test_map_llm_skips_unknown_keeps_valid():

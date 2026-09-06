@@ -40,10 +40,42 @@ const CANVAS_GL = {
   localClippingEnabled: true,
 }
 
+/** 与 quoting/engine.py FEATURE_NAME 对齐；树/工时用同一套中文。 */
+const FEATURE_LABEL: Record<string, string> = {
+  hole: "孔",
+  face: "面",
+  pocket: "型腔",
+  slot: "槽",
+  thread: "螺纹",
+  surface: "曲面",
+  step: "台阶",
+  outer_cylinder: "外圆",
+  chamfer: "倒角",
+  fillet: "圆角",
+}
+
 function holeLabel(ht: string | undefined) {
   if (ht === "through" || ht === "通孔") return "通孔"
   if (ht === "blind" || ht === "盲孔") return "盲孔"
   return ht || "—"
+}
+
+export function featureTypeLabel(feature: Feat): string {
+  const type = featType(feature)
+  return FEATURE_LABEL[type] || (feature?.type ? String(feature.type) : "特征")
+}
+
+export function featureTreeTitle(feature: Feat): string {
+  const label = featureTypeLabel(feature)
+  const type = featType(feature)
+  const extra = type === "pocket" || type === "slot"
+    ? feature?.pocket_type || feature?.dimensions?.pocket_type
+    : type === "surface"
+      ? feature?.surface_type || feature?.dimensions?.surface_type
+      : type === "hole"
+        ? holeLabel(feature?.hole_type)
+        : ""
+  return extra && extra !== "—" ? `${label} · ${extra}` : label
 }
 
 function xyz(v: any): THREE.Vector3 | null {
@@ -77,7 +109,14 @@ function featureXDir(f: Feat) {
 
 export function isReviewTreeFeature(feature: Feat): boolean {
   const id = String(feature?.feature_id || feature?.id || "")
-  return feature?.subtype !== "cylindrical_candidate" && !id.startsWith("cylinder-")
+  const type = featType(feature)
+  return (
+    feature?.subtype !== "cylindrical_candidate"
+    && feature?.subtype !== "planar_region"
+    && type !== "pocket_or_step"
+    && !id.startsWith("cylinder-")
+    && !id.startsWith("prismatic-region-")
+  )
 }
 
 function poseOf(f: Feat): Pose | null {
@@ -882,8 +921,8 @@ export function FeatureReview({
                     onChange={(event) => onToggle(f.feature_id, event.target.checked)}
                   />
                   <span className="min-w-0">
-                    <span className="block truncate font-mono text-xs">{f.feature_id}</span>
-                    <span className="block truncate text-[11px] text-slate-500">{f.type || "特征"}</span>
+                    <span className="block truncate text-xs">{featureTreeTitle(f)}</span>
+                    <span className="block truncate font-mono text-[11px] text-slate-500">{f.feature_id}</span>
                   </span>
                 </span>
                 {!on && <span className="shrink-0 text-[10px] text-slate-400">未选</span>}
@@ -981,7 +1020,7 @@ export function FeatureReview({
                   <dt className="text-slate-500">id</dt>
                   <dd className="truncate font-mono" title={selected.feature_id}>{selected.feature_id}</dd>
                   <dt className="text-slate-500">类型</dt>
-                  <dd>{selected.type || "—"}</dd>
+                  <dd>{featureTypeLabel(selected)}</dd>
                 </dl>
                 {!!dimensions.length && (
                   <div className="mt-3 grid grid-cols-2 gap-2">

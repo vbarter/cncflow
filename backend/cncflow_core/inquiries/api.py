@@ -400,13 +400,15 @@ def _review_and_quote_features(parsed_feats, selected_ids, L, W, H=0):
 
 
 def _sanitize_review_features(features):
-    """Raw B-Rep cylinders are parser internals, never review-tree features."""
+    """Parser leftovers (raw cylinders, pocket_or_step hints) never enter the review tree."""
     return [
         feature
         for feature in features or []
         if isinstance(feature, dict)
-        and feature.get("subtype") != "cylindrical_candidate"
+        and feature.get("subtype") not in {"cylindrical_candidate", "planar_region"}
+        and feature.get("type") != "pocket_or_step"
         and not str(feature.get("feature_id") or feature.get("id") or "").startswith("cylinder-")
+        and not str(feature.get("feature_id") or feature.get("id") or "").startswith("prismatic-region-")
     ]
 
 
