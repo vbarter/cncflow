@@ -1,5 +1,6 @@
 """几何特征服务：询价 parse-job 进程内调用；孔字段与 hole-v4 现网一致。"""
 from . import FEATURE_SCHEMA, FACE_FEATURE_FIELDS, FACE_SCHEMA, HOLE_FEATURE_FIELDS, SERVICE_NAME, SLOT_FEATURE_FIELDS, SLOT_SCHEMA, STEP_FEATURE_FIELDS, STEP_SCHEMA, SURFACE_FEATURE_FIELDS, SURFACE_SCHEMA, THREAD_FEATURE_FIELDS, THREAD_SCHEMA
+from .llm import PARSER_GEOMETRY, PARSER_LLM, feature_model, feature_parser_mode, llm_fallback_enabled
 from .plugins import list_plugins, plugin_names, run_face, run_slot, run_step, run_surface, run_thread
 
 
@@ -11,6 +12,12 @@ def contract():
     return {
         "service": SERVICE_NAME,
         "endpoint": "POST /api/v1/geometry/parse",
+        "feature_parser": feature_parser_mode(),
+        "feature_llm": {
+            "provider": "tu-zi",
+            "model": feature_model(),
+            "path": "chat/completions STEP-as-text",
+        },
         "input": {"multipart": ["step_file"], "formats": ["step", "stp"]},
         "output": {
             "feature_schema": FEATURE_SCHEMA,
@@ -60,6 +67,7 @@ def contract():
             "Ø8 / ZN-010 hole-v4 不得回退",
             "台阶本轮验收；孔五字段、槽腔、平面、螺纹不回退",
             "曲面最小集 surface_type/R/position 本轮验收；孔/槽/面/螺纹/台阶不回退",
+            "特征主路径 tu-zi gpt-6-astra（STEP 文本）；CNCFLOW_FEATURE_PARSER=geometry 回退插件",
         ],
     }
 
@@ -339,27 +347,90 @@ def _drop_hole_as_surfaces(features):
     return kept
 
 
-def parse_step_file(path):
-    """STEP → features。hole/slot/face/thread/step/surface。"""
-    from cncflow_core.ingestion.step_parser import parse_step
-
-    result = parse_step(path)
-    features = list(result.get("features") or [])
+def _run_geometry_plugins(path, cadquery_features):
+    features = list(cadquery_features or [])
     features.extend(run_slot(path))
     features.extend(run_face(path))
     features.extend(run_thread(path))
     features.extend(run_step(path))
     features.extend(run_surface(path))
+    return features
+
+
+def _select_stock_top_face(features, geometry):
+    """LLM 平面默认未勾；盖住毛坯 XY 的最大水平面勾上，对齐几何插件。"""
+    box = (geometry or {}).get("bounding_box_mm") or {}
+    stock_l, stock_w = box.get("x") or 0, box.get("y") or 0
+    if not stock_l or not stock_w:
+        return features
+    if any(feat.get("selected") and _is_horizontal_face(feat) for feat in features):
+        return features
+    covering = []
+    for feat in features:
+        if not _is_horizontal_face(feat):
+            continue
+        length = _feat_num(feat, "length")
+        width = _feat_num(feat, "width")
+        if _covers_stock_lw(length, width, stock_l, stock_w):
+            covering.append(feat)
+    if covering:
+        max(covering, key=lambda feat: _feat_num(feat, "length") * _feat_num(feat, "width"))["selected"] = True
+    return features
+
+
+def _finalize_features(features, geometry=None, source="geometry"):
     features = _drop_slot_fillet_holes(features)
     features = _drop_slot_as_steps(features)
     features = _drop_threaded_holes(features)
     features = _drop_hole_as_surfaces(features)
-    features = _unselect_step_shoulder_tops(features)
+    if source == PARSER_LLM:
+        features = _select_stock_top_face(features, geometry)
+    return _unselect_step_shoulder_tops(features)
+
+
+def parse_step_file(path):
+    """STEP → features。默认 tu-zi gpt-6-astra；geometry/dual 见 CNCFLOW_FEATURE_PARSER。"""
+    from cncflow_core.ingestion.step_parser import parse_step
+    from .llm import extract_step_features
+
+    result = parse_step(path)
+    mode = feature_parser_mode()
+    warnings = list(result.get("warnings") or [])
+    llm_meta = {"provider": "tu-zi", "called": False, "ok": False, "model": feature_model()}
+    source = PARSER_GEOMETRY
+    features = []
+
+    if mode != PARSER_GEOMETRY:
+        try:
+            extracted = extract_step_features(path, geometry=result.get("geometry"))
+            features = extracted["features"]
+            warnings.extend(extracted.get("warnings") or [])
+            llm_meta.update({
+                "called": True,
+                "ok": True,
+                "model": extracted.get("model") or feature_model(),
+                "truncated": extracted.get("truncated", False),
+            })
+            source = PARSER_LLM
+        except Exception as exc:
+            llm_meta.update({"called": True, "ok": False, "error": str(exc)})
+            if not llm_fallback_enabled():
+                raise RuntimeError(f"LLM 特征识别失败: {exc}") from exc
+            warnings.append(f"LLM 特征识别失败，回退几何插件: {exc}")
+            source = PARSER_GEOMETRY
+
+    if source != PARSER_LLM:
+        features = _run_geometry_plugins(path, result.get("features"))
+
+    features = _finalize_features(features, result.get("geometry"), source)
     result["service"] = SERVICE_NAME
     result["parser"] = "geometry-service"
     result["parser_version"] = FEATURE_SCHEMA
     result["feature_schema"] = FEATURE_SCHEMA
+    result["feature_source"] = source
+    result["llm"] = llm_meta
     result["plugins"] = list_plugins()
     result["plugin_names"] = plugin_names()
     result["features"] = features
+    result["warnings"] = warnings
     return result

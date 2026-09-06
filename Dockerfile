@@ -39,7 +39,9 @@ ENV PYTHONUNBUFFERED=1 \
     CHAT_PORT=3002 \
     CHAT_HOST=0.0.0.0 \
     TUZI_MODEL=gpt-4.1-mini \
-    TUZI_BASE_URL=https://api.tu-zi.com/v1
+    TUZI_FEATURE_MODEL=gpt-6-astra \
+    TUZI_BASE_URL=https://api.tu-zi.com/v1 \
+    CNCFLOW_FEATURE_PARSER=llm
 
 WORKDIR /app/backend
 EXPOSE 5001 3002
