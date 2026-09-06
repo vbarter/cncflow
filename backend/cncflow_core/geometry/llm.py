@@ -68,6 +68,8 @@ _TYPE_ALIASES = {
     "tslot": "slot",
     "pocket_or_slot": "pocket",
     "slot_or_pocket": "slot",
+    "pocket_or_step": "pocket",
+    "step_or_pocket": "pocket",
     "开口槽": "slot",
     "开放槽": "slot",
     "通槽": "slot",
