@@ -10,6 +10,32 @@ from .service import contract
 bp = Blueprint("geometry", __name__)
 
 
+_DROP_FROM_JSON = object()
+
+
+def _public_json_value(value):
+    """递归剔除内部字段和二进制值，避免 HTTP 响应泄漏/序列化失败。"""
+    if isinstance(value, dict):
+        public = {}
+        for key, item in value.items():
+            if str(key).startswith("_"):
+                continue
+            cleaned = _public_json_value(item)
+            if cleaned is not _DROP_FROM_JSON:
+                public[key] = cleaned
+        return public
+    if isinstance(value, (list, tuple)):
+        public = []
+        for item in value:
+            cleaned = _public_json_value(item)
+            if cleaned is not _DROP_FROM_JSON:
+                public.append(cleaned)
+        return public
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return _DROP_FROM_JSON
+    return value
+
+
 @bp.get("/api/v1/geometry/contract")
 def geometry_contract():
     return jsonify(contract())
@@ -29,7 +55,8 @@ def geometry_parse():
     try:
         step.save(path)
         from .service import parse_step_file
-        return jsonify(parse_step_file(path))
+        result = parse_step_file(path, include_mesh=False)
+        return jsonify(_public_json_value(result))
     except RuntimeError as exc:
         return jsonify({
             "error": str(exc),

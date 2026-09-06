@@ -388,12 +388,12 @@ def _finalize_features(features, geometry=None, source="geometry"):
     return _unselect_step_shoulder_tops(features)
 
 
-def parse_step_file(path):
+def parse_step_file(path, include_mesh=True):
     """STEP → features。默认 tu-zi gpt-6-astra；geometry/dual 见 CNCFLOW_FEATURE_PARSER。"""
     from cncflow_core.ingestion.step_parser import parse_step
     from .llm import extract_step_features
 
-    result = parse_step(path)
+    result = parse_step(path) if include_mesh else parse_step(path, include_mesh=False)
     mode = feature_parser_mode()
     warnings = list(result.get("warnings") or [])
     llm_meta = {"provider": "tu-zi", "called": False, "ok": False, "model": feature_model()}

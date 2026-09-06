@@ -1,4 +1,7 @@
 """几何特征服务契约：STEP 进、features 出；询价走 parse-jobs 接线。"""
+import io
+import json
+
 
 HOLE_FIELDS = ("diameter_mm", "depth_mm", "hole_type", "position_type", "cut_depth_mm")
 
@@ -66,3 +69,36 @@ def test_geometry_parse_rejects_non_step(client):
         content_type="multipart/form-data",
     )
     assert r.status_code == 400
+
+
+def test_geometry_parse_disables_mesh_and_strips_binary_private_fields(client, monkeypatch):
+    from cncflow_core.geometry import service
+
+    called = {}
+
+    def fake_parse(path, include_mesh=True):
+        called["include_mesh"] = include_mesh
+        return {
+            "parser": "geometry-service",
+            "_mesh_glb": b"glTF",
+            "geometry": {
+                "volume_cm3": 55.0,
+                "_kernel_shape": b"private",
+                "debug_blob": bytearray(b"binary"),
+            },
+            "features": [],
+        }
+
+    monkeypatch.setattr(service, "parse_step_file", fake_parse)
+    response = client.post(
+        "/api/v1/geometry/parse",
+        data={"step_file": (io.BytesIO(b"ISO-10303-21;"), "part.step")},
+        content_type="multipart/form-data",
+    )
+
+    assert response.status_code == 200
+    assert called["include_mesh"] is False
+    body = response.get_json()
+    assert body["geometry"] == {"volume_cm3": 55.0}
+    assert "_mesh_glb" not in body
+    json.dumps(body)
