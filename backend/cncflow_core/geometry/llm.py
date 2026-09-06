@@ -50,6 +50,38 @@ _TYPE_ALIASES = {
     "腔": "pocket",
     "槽腔": "pocket",
     "型腔": "pocket",
+    "groove": "slot",
+    "channel": "slot",
+    "open_slot": "slot",
+    "openslot": "slot",
+    "rectangular_slot": "slot",
+    "rect_slot": "slot",
+    "rect_open_slot": "slot",
+    "milled_slot": "slot",
+    "u_slot": "slot",
+    "prismatic_slot": "slot",
+    "prismatic_pocket": "pocket",
+    "cavity": "pocket",
+    "recess": "pocket",
+    "keyway": "slot",
+    "t_slot": "slot",
+    "tslot": "slot",
+    "pocket_or_slot": "pocket",
+    "slot_or_pocket": "slot",
+    "开口槽": "slot",
+    "开放槽": "slot",
+    "通槽": "slot",
+    "铣槽": "slot",
+    "矩形槽": "slot",
+    "开槽": "slot",
+    "槽口": "slot",
+    "u形槽": "slot",
+    "u型槽": "slot",
+    "键槽": "slot",
+    "t型槽": "slot",
+    "t型": "slot",
+    "开口型腔": "pocket",
+    "封闭槽": "slot",
 }
 
 _HOLE_TYPE = {
@@ -84,6 +116,10 @@ _FACE_POS = {"水平": "水平", "垂直": "垂直", "倾斜": "倾斜", "horizo
 _POCKET = {
     "开放": "开放", "封闭": "封闭", "键槽": "键槽", "T型": "T型", "T型槽": "T型槽",
     "open": "开放", "closed": "封闭", "keyway": "键槽", "t-slot": "T型",
+    "opened": "开放", "open_slot": "开放", "through_slot": "开放",
+    "side_open": "开放", "开口": "开放", "开口槽": "开放", "通槽": "开放",
+    "enclosed": "封闭", "closed_pocket": "封闭",
+    "t型槽": "T型槽", "t型": "T型",
 }
 _ID_PREFIX = {
     "hole": "hole",
@@ -130,17 +166,23 @@ SYSTEM_PROMPT = """你是 CNC 制造特征识别器。根据 ISO-10303-21 STEP �
    选填: area, face_position(水平|垂直|倾斜)
    整板顶面才默认 selected=true；台阶肩顶不要勾选。
 
-5) surface 曲面 — 自由曲面/凸凹面，不是孔壁。
+5) surface 曲面 — 自由曲面/凸凹面，不是孔壁，也不是槽底。
    必填: type, surface_type
    选填: curvature_radius, position(顶面|底面|侧面)
 
-6) step 台阶轮廓 — 肩台，不是槽底。
+6) step 台阶轮廓 — 肩台，不是槽底。开口槽不要报成台阶。
    必填: type, length, height
    选填: width, profile_type(台阶|外轮廓|侧壁)
 
-7) pocket / slot 槽腔 — 内凹型腔。
+7) pocket / slot 槽腔 — 内凹型腔，含开口矩形槽。漏报比多报更糟。
    必填: type(pocket|slot), length, width, depth
-   选填: corner_radius, pocket_type(开放|封闭|键槽|T型)
+   选填: corner_radius(R), pocket_type(开放|封闭|键槽|T型)
+   开口矩形槽（一边通到毛坯侧面的 U/C 形凹槽）必须出 slot，pocket_type=开放。
+   L=槽长（开口方向），W=槽宽，H/depth=槽深，R=封闭端/底角圆角。
+   例：80×60×12 板、开口 40×10×8 R3 → slot L=40 W=10 depth=8 corner_radius=3 pocket_type=开放。
+   槽底即使是平面也算出槽，不要改成 face 或 surface。
+   槽角圆弧/部分圆柱（D≈2R）不是 hole，也不是 outer_cylinder。
+   严禁只报 face、face+自由曲面、face+outer_cylinder 而漏掉槽腔。
 
 坐标单位 mm，与 STEP CARTESIAN_POINT 一致。每个特征给 location 和 axis（法向或孔轴）。
 feature_id 可省略，下游按类型编号。
@@ -219,10 +261,11 @@ def _xyz(value):
 def _norm_type(raw):
     if raw is None:
         return None
-    key = str(raw).strip().lower()
+    text = str(raw).strip()
+    key = text.lower().replace(" ", "_").replace("-", "_")
     if key in _TYPE_ALIASES:
         return _TYPE_ALIASES[key]
-    return _TYPE_ALIASES.get(str(raw).strip())
+    return _TYPE_ALIASES.get(text)
 
 
 def read_step_ascii(path, max_chars=None):
@@ -253,10 +296,24 @@ def _geometry_hint(geometry):
     )
 
 
+def _step_cavity_hint(step_text):
+    if not step_text:
+        return ""
+    cyl = step_text.count("CYLINDRICAL_SURFACE")
+    circ = len(re.findall(r"\bCIRCLE\s*\(", step_text))
+    if cyl >= 2 or circ >= 2:
+        return (
+            "STEP 含多个圆柱/圆，先检查开口矩形槽的槽角 R（部分圆柱），"
+            "不要报成 outer_cylinder 或 hole；有槽必须输出 slot/pocket。\n"
+        )
+    return ""
+
+
 def build_messages(step_text, geometry=None, images=None):
     prompt = (
         SYSTEM_PROMPT
         + _geometry_hint(geometry)
+        + _step_cavity_hint(step_text)
         + "\nSTEP:\n"
         + step_text
     )
@@ -270,7 +327,27 @@ def build_messages(step_text, geometry=None, images=None):
     ]
 
 
-def _tuzi_chat(messages, model=None):
+def _feature_attempts():
+    try:
+        return max(1, int(os.environ.get("TUZI_FEATURE_ATTEMPTS") or "2"))
+    except (TypeError, ValueError):
+        return 2
+
+
+def _retryable_llm_error(exc):
+    if isinstance(exc, (TimeoutError, ConnectionError)):
+        return True
+    name = type(exc).__name__.lower()
+    if "timeout" in name or "connection" in name:
+        return True
+    msg = str(exc).lower()
+    if "timeout" in msg or "timed out" in msg or "temporar" in msg:
+        return True
+    status = getattr(exc, "status_code", None) or getattr(exc, "status", None)
+    return status in {429, 502, 503, 504}
+
+
+def _tuzi_complete(messages, model=None):
     api_key = tuzi_api_key()
     if not api_key:
         raise RuntimeError("未配置 TUZI_API_KEY，无法进行 LLM 特征识别")
@@ -292,6 +369,20 @@ def _tuzi_chat(messages, model=None):
     if getattr(choice, "refusal", None):
         raise RuntimeError(f"tu-zi 拒绝特征识别: {choice.refusal}")
     return _json_object(choice.content)
+
+
+def _tuzi_chat(messages, model=None):
+    """一次完成；超时/连接类错误默认再打一枪（台阶偶发超时）。"""
+    last = None
+    attempts = _feature_attempts()
+    for index in range(attempts):
+        try:
+            return _tuzi_complete(messages, model)
+        except Exception as exc:
+            last = exc
+            if not _retryable_llm_error(exc) or index + 1 >= attempts:
+                raise
+    raise last
 
 
 def _dim(source, *keys):
@@ -446,15 +537,20 @@ def _map_face(raw, index):
 
 
 def _map_slot(raw, index, feat_type):
-    length = _dim(raw, "length", "L")
-    width = _dim(raw, "width", "W")
-    depth = _dim(raw, "depth", "depth_mm", "height", "H")
+    length = _dim(raw, "length", "L", "slot_length", "l_mm", "length_mm")
+    width = _dim(raw, "width", "W", "slot_width", "w_mm", "width_mm")
+    depth = _dim(raw, "depth", "depth_mm", "height", "H", "slot_depth", "h_mm")
     if not length or length <= 0 or not width or width <= 0 or not depth or depth <= 0:
         raise ValueError("pocket/slot 缺少正数 length / width / depth")
-    corner = _dim(raw, "corner_radius")
+    corner = _dim(raw, "corner_radius", "radius", "R", "fillet", "fillet_radius", "corner_r", "fillet_r", "radius_mm")
     if corner is None:
         corner = 1.0
-    ptype = _POCKET.get(str(raw.get("pocket_type") or ("开放" if feat_type == "slot" else "封闭")), "封闭")
+    dim = raw.get("dimensions") if isinstance(raw.get("dimensions"), dict) else {}
+    raw_ptype = raw.get("pocket_type") or dim.get("pocket_type")
+    if not raw_ptype and (raw.get("open") is True or raw.get("is_open") is True or dim.get("open") is True):
+        raw_ptype = "开放"
+    candidate = str(raw_ptype or ("开放" if feat_type == "slot" else "封闭"))
+    ptype = _POCKET.get(candidate.lower(), _POCKET.get(candidate, "封闭"))
     loc = _xyz(raw.get("location") or (raw.get("pose") or {}).get("origin"))
     axis = _xyz(raw.get("axis") or (raw.get("pose") or {}).get("axis")) or {"x": 0, "y": 0, "z": 1}
     out_type = "slot" if feat_type == "slot" or ptype == "开放" else "pocket"
@@ -553,6 +649,88 @@ _MAPPERS = {
     "surface": _map_surface,
 }
 
+_NESTED_SLOT_KEYS = ("slots", "pockets", "cavities", "槽", "槽腔", "型腔")
+_SLOT_SIGNAL = (
+    "槽", "slot", "pocket", "groove", "channel", "型腔", "recess", "cavity",
+    "keyway", "键槽", "开槽", "通槽",
+)
+_KEEP_TYPE = {"hole", "outer_cylinder", "thread"}
+
+
+def _flatten_feature_items(raw_list):
+    items = []
+    for item in raw_list:
+        if not isinstance(item, dict):
+            items.append(item)
+            continue
+        items.append(item)
+        for key in _NESTED_SLOT_KEYS:
+            nested = item.get(key)
+            if isinstance(nested, dict):
+                children = [nested]
+            elif isinstance(nested, list):
+                children = nested
+            else:
+                continue
+            for child in children:
+                if not isinstance(child, dict):
+                    continue
+                extra = dict(child)
+                default = "slot" if "slot" in key or key == "槽" else "pocket"
+                extra.setdefault("type", extra.get("feature_type") or extra.get("kind") or default)
+                items.append(extra)
+    return items
+
+
+def _slot_signal(item):
+    text = " ".join(
+        str(item.get(key) or "")
+        for key in (
+            "type", "feature_type", "kind", "name", "label", "description",
+            "surface_type", "pocket_type", "subtype", "profile_type",
+        )
+    ).lower()
+    return any(token in text for token in _SLOT_SIGNAL)
+
+
+def _has_slot_lwh(item):
+    length = _dim(item, "length", "L", "slot_length", "l_mm", "length_mm")
+    width = _dim(item, "width", "W", "slot_width", "w_mm", "width_mm")
+    depth = _dim(item, "depth", "depth_mm", "height", "H", "slot_depth", "h_mm")
+    return bool(length and length > 0 and width and width > 0 and depth and depth > 0)
+
+
+def _openish_pocket(item):
+    dim = item.get("dimensions") if isinstance(item.get("dimensions"), dict) else {}
+    raw = item.get("pocket_type") or dim.get("pocket_type")
+    if raw is None and (item.get("open") is True or item.get("is_open") is True):
+        return True
+    mapped = _POCKET.get(str(raw).lower()) if raw is not None else None
+    if mapped is None and raw is not None:
+        mapped = _POCKET.get(str(raw))
+    return mapped in {"开放", "键槽", "T型", "T型槽"}
+
+
+def _maybe_slot_type(item, feat_type):
+    """把漏报成 surface/face/未知名的开口槽拉回 slot/pocket。台阶/孔/外圆不抢。"""
+    if feat_type in {"slot", "pocket"} or feat_type in _KEEP_TYPE:
+        return feat_type
+    signal = _slot_signal(item)
+    openish = _openish_pocket(item)
+    corner = _dim(item, "corner_radius", "radius", "R", "fillet", "fillet_radius")
+    if feat_type == "step" and not (signal or openish):
+        return feat_type
+    if feat_type == "face" and not (signal or openish or corner):
+        return feat_type
+    if not _has_slot_lwh(item):
+        return feat_type
+    if not (signal or openish or corner or feat_type in {None, "surface"}):
+        return feat_type
+    raw = str(item.get("type") or item.get("feature_type") or item.get("kind") or "").lower()
+    if feat_type == "pocket" or "pocket" in raw or "腔" in raw:
+        return "pocket"
+    return "slot"
+
 
 def map_llm_features(payload):
     """把 tu-zi JSON 映射成 FeatureReview / quote 吃的 feature 列表。非法项记入 errors。"""
@@ -569,11 +747,12 @@ def map_llm_features(payload):
     features = []
     errors = []
     counters = {key: 0 for key in _MAPPERS}
-    for item in raw_list:
+    for item in _flatten_feature_items(raw_list):
         if not isinstance(item, dict):
             errors.append("features 中有非对象项")
             continue
         feat_type = _norm_type(item.get("type") or item.get("feature_type") or item.get("kind"))
+        feat_type = _maybe_slot_type(item, feat_type)
         if feat_type not in _MAPPERS:
             errors.append(f"未知特征类型: {item.get('type')!r}")
             continue
@@ -593,6 +772,47 @@ def map_llm_features(payload):
     return {"features": features, "errors": errors}
 
 
+def _has_cavity(features):
+    return any(
+        feat.get("type") in {"slot", "pocket"} or feat.get("subtype") == "recognized_slot"
+        for feat in features or []
+    )
+
+
+def _thin_non_cavity(features):
+    types = {feat.get("type") for feat in features or []}
+    return bool(types) and types <= {"face", "surface", "outer_cylinder"}
+
+
+def _slot_retry_enabled():
+    return (os.environ.get("TUZI_FEATURE_SLOT_RETRY") or "1").strip().lower() not in {"0", "false", "no"}
+
+
+SLOT_RETRY_PROMPT = """上次输出没有 slot/pocket。请复查 STEP。
+若存在开口矩形槽/U 形凹槽（一边通到侧面），必须输出 type=slot 或 pocket，
+pocket_type=开放，并给出 length/width/depth/corner_radius。
+槽底不要报 surface，槽角圆弧不要报 hole 或 outer_cylinder。
+仍输出全部特征（含外轮廓 face），只返回 JSON {\"features\":[...]}。不要报价。
+"""
+
+
+def _slot_retry_messages(step_text, geometry, previous):
+    prev = json.dumps(previous, ensure_ascii=False)[:4000]
+    prompt = (
+        SLOT_RETRY_PROMPT
+        + _geometry_hint(geometry)
+        + _step_cavity_hint(step_text)
+        + "\n上次输出:\n"
+        + prev
+        + "\n\nSTEP:\n"
+        + step_text
+    )
+    return [
+        {"role": "system", "content": "只输出 JSON 对象 {\"features\":[...]}。开口槽必须出 slot/pocket。"},
+        {"role": "user", "content": [{"type": "text", "text": prompt}]},
+    ]
+
+
 def extract_step_features(path, geometry=None, images=None):
     """读 STEP 文本 → tu-zi gpt-6-astra → 映射后的 features。失败抛错。"""
     step_text, truncated = read_step_ascii(path)
@@ -601,6 +821,20 @@ def extract_step_features(path, geometry=None, images=None):
         warnings.append(f"STEP 超过 {os.environ.get('TUZI_FEATURE_MAX_STEP_CHARS') or MAX_STEP_CHARS_DEFAULT} 字符，已截断后送模型")
     raw = _tuzi_chat(build_messages(step_text, geometry=geometry, images=images))
     mapped = map_llm_features(raw)
+    if _slot_retry_enabled() and _thin_non_cavity(mapped["features"]) and not _has_cavity(mapped["features"]):
+        try:
+            retry_raw = _tuzi_chat(_slot_retry_messages(step_text, geometry, raw))
+            retry_mapped = map_llm_features(retry_raw)
+        except Exception as exc:
+            warnings.append(f"LLM 开口槽补询失败（保留首次结果）: {exc}")
+        else:
+            if _has_cavity(retry_mapped["features"]):
+                raw = retry_raw
+                mapped = retry_mapped
+                warnings.append("LLM 首次未出槽腔（仅面/曲面/外圆），补询已补 slot/pocket")
+            else:
+                warnings.append("LLM 补询仍未出槽腔")
+                warnings.extend(f"LLM 跳过: {err}" for err in retry_mapped["errors"])
     warnings.extend(f"LLM 跳过: {err}" for err in mapped["errors"])
     return {
         "raw": raw,

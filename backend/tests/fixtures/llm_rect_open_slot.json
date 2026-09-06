@@ -1,0 +1,24 @@
+{
+  "features": [
+    {
+      "type": "slot",
+      "length": 40,
+      "width": 10,
+      "depth": 8,
+      "corner_radius": 3,
+      "pocket_type": "开放",
+      "location": {"x": 0, "y": 0, "z": 4},
+      "axis": {"x": 0, "y": 0, "z": 1}
+    },
+    {
+      "type": "平面",
+      "length": 80,
+      "width": 60,
+      "area": 4800,
+      "face_position": "水平",
+      "selected": true,
+      "location": {"x": 0, "y": 0, "z": 12},
+      "axis": {"x": 0, "y": 0, "z": 1}
+    }
+  ]
+}

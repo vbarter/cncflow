@@ -14,11 +14,19 @@ from cncflow_core.inquiries.api import _review_and_quote_features
 
 FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures")
 LLM_D8 = os.path.join(FIXTURES, "llm_plate_hole_d8.json")
+LLM_OPEN_SLOT = os.path.join(FIXTURES, "llm_rect_open_slot.json")
 STEP_D8 = os.path.join(FIXTURES, "plate_hole_d8.step")
+STEP_OPEN_SLOT = os.path.join(FIXTURES, "rect_open_slot.step")
+SLOT_TREE_FIELDS = ("pocket_type", "length", "width", "depth", "corner_radius")
 
 
 def _fixture_payload():
     with open(LLM_D8, encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+def _open_slot_payload():
+    with open(LLM_OPEN_SLOT, encoding="utf-8") as fh:
         return json.load(fh)
 
 
@@ -80,6 +88,10 @@ def test_map_llm_fixture_review_and_quote_pins(client):
     [
         ({"type": "螺纹", "diameter_mm": 8, "pitch": 1.25, "thread_length": 12}, "thread", "thread-0"),
         ({"type": "slot", "length": 40, "width": 10, "depth": 8, "corner_radius": 3, "pocket_type": "开放"}, "slot", "slot-0"),
+        ({"type": "开口槽", "L": 40, "W": 10, "H": 8, "R": 3}, "slot", "slot-0"),
+        ({"type": "groove", "length": 40, "width": 10, "depth": 8, "corner_radius": 3, "open": True}, "slot", "slot-0"),
+        ({"type": "矩形槽", "slot_length": 40, "slot_width": 10, "slot_depth": 8, "fillet": 3}, "slot", "slot-0"),
+        ({"type": "open-slot", "length_mm": 40, "width_mm": 10, "depth_mm": 8, "radius_mm": 3}, "slot", "slot-0"),
         ({"type": "台阶轮廓", "length": 80, "height": 8, "width": 25}, "step", "step-0"),
         ({"type": "曲面", "surface_type": "凸面", "curvature_radius": 20, "position": "顶面"}, "surface", "surface-0"),
         ({"type": "pocket", "length": 24, "width": 12, "depth": 6, "pocket_type": "封闭"}, "pocket", "slot-0"),
@@ -127,6 +139,11 @@ def test_read_step_ascii_and_messages_use_text_not_files():
     assert "ISO-10303-21" in blob
     assert "bbox_mm=80×60×12" in blob
     assert "孔" in blob and "滑轴" in blob and "槽腔" in blob
+    assert "开口矩形槽" in blob
+    open_text, _ = read_step_ascii(STEP_OPEN_SLOT)
+    open_blob = json.dumps(build_messages(open_text), ensure_ascii=False)
+    assert "slot/pocket" in open_blob
+    assert "CYLINDRICAL_SURFACE" in open_text or "CIRCLE" in open_text
 
 
 @pytest.mark.llm_features
@@ -230,3 +247,175 @@ def test_capabilities_and_health_default_llm(client, monkeypatch):
     parser = client.get("/api/v1/health").get_json()["parser"]
     assert parser["feature_parser"] == "llm"
     assert parser["feature_llm_model"] == "gpt-6-astra"
+
+
+def _assert_open_slot_tree(slot):
+    assert slot["type"] in {"slot", "pocket"}
+    assert slot["subtype"] == "recognized_slot"
+    assert slot["feature_id"] == "slot-0"
+    assert slot["pocket_type"] == "开放"
+    assert slot["length"] == pytest.approx(40)
+    assert slot["width"] == pytest.approx(10)
+    assert slot["depth"] == pytest.approx(8)
+    assert slot["corner_radius"] == pytest.approx(3)
+    for name in SLOT_TREE_FIELDS:
+        assert name in slot
+    for name in ("length", "width", "depth", "corner_radius"):
+        assert name in slot["dimensions"]
+
+
+def test_map_llm_rect_open_slot_fixture_fields():
+    mapped = map_llm_features(_open_slot_payload())
+    by_type = {feat["type"]: feat for feat in mapped["features"]}
+    _assert_open_slot_tree(by_type["slot"])
+    face = by_type["face"]
+    assert face["feature_id"] == "face-0"
+    assert face["length"] == 80
+    assert face["width"] == 60
+    assert face["selected"] is True
+
+
+def test_map_llm_rect_open_slot_review_and_quote_pin(client):
+    features = map_llm_features(_open_slot_payload())["features"]
+    review, quoted = _review_and_quote_features(features, None, 80, 60, 12)
+    assert {feat["feature_id"] for feat in review} == {"slot-0", "face-0"}
+    assert {feat["type"] for feat in quoted} == {"pocket", "face"}
+    slot = next(feat for feat in review if feat["type"] in {"slot", "pocket"})
+    face = next(feat for feat in review if feat["type"] == "face")
+    _assert_open_slot_tree(slot)
+    assert slot["selected"] is True and face["selected"] is True
+
+    body = client.post("/api/v1/quotes", json={
+        "material": "铝合金",
+        "stock_type": "板材",
+        "length": 80,
+        "width": 60,
+        "height": 12,
+        "v_part_cad": 54.430702,
+        "features": [
+            {
+                "type": "slot",
+                "feature_id": slot["feature_id"],
+                "length": slot["length"],
+                "width": slot["width"],
+                "depth": slot["depth"],
+                "corner_radius": slot["corner_radius"],
+                "pocket_type": slot["pocket_type"],
+            },
+            {"type": "face", "feature_id": face["feature_id"], "length": face["length"], "width": face["width"]},
+        ],
+    }).get_json()
+    assert body["labor_cost_breakdown"]["total"] == pytest.approx(211.59, abs=0.01)
+    assert body["ui_cost"]["inspect"] == body["ui_cost"]["toolwear"] == body["ui_cost"]["scrap"] == 0
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        {"type": "自由曲面", "surface_type": "自由曲面", "length": 40, "width": 10, "depth": 8, "corner_radius": 3},
+        {"type": "face", "length": 40, "width": 10, "depth": 8, "corner_radius": 3, "name": "开口槽"},
+        {"type": "surface", "surface_type": "槽底", "L": 40, "W": 10, "H": 8, "R": 3},
+        {"type": "face", "length": 80, "width": 60, "slots": [
+            {"length": 40, "width": 10, "depth": 8, "corner_radius": 3, "pocket_type": "开放"},
+        ]},
+    ],
+)
+def test_map_llm_recovers_open_slot_from_miss_shapes(raw):
+    mapped = map_llm_features({"features": [raw]})
+    slots = [feat for feat in mapped["features"] if feat["type"] in {"slot", "pocket"}]
+    assert slots, mapped
+    _assert_open_slot_tree(slots[0])
+
+
+def test_map_llm_keeps_real_step_and_hole():
+    mapped = map_llm_features({
+        "features": [
+            {"type": "台阶轮廓", "length": 80, "height": 8, "width": 25},
+            {"type": "hole", "diameter_mm": 8, "depth_mm": 12, "hole_type": "through"},
+        ],
+    })
+    assert [feat["type"] for feat in mapped["features"]] == ["step", "hole"]
+
+
+@pytest.mark.llm_features
+def test_parse_step_file_llm_rect_open_slot_fixture(monkeypatch):
+    from cncflow_core.geometry import llm as llm_mod
+    from cncflow_core.geometry.service import parse_step_file
+    from cncflow_core.ingestion import step_parser
+
+    monkeypatch.setattr(step_parser, "parse_step", lambda path: {
+        "geometry": {"volume_cm3": 54.43, "bounding_box_mm": {"x": 80, "y": 60, "z": 12}},
+        "features": [],
+        "warnings": [],
+    })
+    monkeypatch.setattr(llm_mod, "_tuzi_chat", lambda messages, model=None: _open_slot_payload())
+    result = parse_step_file(STEP_OPEN_SLOT)
+    assert result["feature_source"] == "llm"
+    assert result["llm"]["ok"] is True
+    slot = next(feat for feat in result["features"] if feat["type"] in {"slot", "pocket"})
+    _assert_open_slot_tree(slot)
+
+
+@pytest.mark.llm_features
+@pytest.mark.parametrize(
+    "miss",
+    [
+        {"features": [
+            {"type": "face", "length": 80, "width": 60},
+            {"type": "surface", "surface_type": "自由曲面"},
+        ]},
+        {"features": [
+            {"type": "face", "length": 80, "width": 60},
+            {"type": "outer_cylinder", "diameter_mm": 6, "depth_mm": 8},
+        ]},
+    ],
+)
+def test_extract_retries_thin_miss_as_open_slot(monkeypatch, miss):
+    from cncflow_core.geometry import llm as llm_mod
+
+    calls = []
+
+    def chat(messages, model=None):
+        calls.append(messages)
+        return _open_slot_payload() if len(calls) > 1 else miss
+
+    monkeypatch.setattr(llm_mod, "_tuzi_chat", chat)
+    out = llm_mod.extract_step_features(STEP_OPEN_SLOT)
+    assert len(calls) == 2
+    slot = next(feat for feat in out["features"] if feat["type"] in {"slot", "pocket"})
+    _assert_open_slot_tree(slot)
+    assert any("补询已补" in w for w in out["warnings"])
+    retry_blob = json.dumps(calls[1], ensure_ascii=False)
+    assert "开口槽必须出" in retry_blob
+
+
+def test_tuzi_chat_retries_timeout_once(monkeypatch):
+    from cncflow_core.geometry import llm as llm_mod
+
+    calls = {"n": 0}
+
+    def once_timeout(messages, model=None):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise TimeoutError("read timeout")
+        return {"features": [{"type": "step", "length": 80, "height": 8}]}
+
+    monkeypatch.setattr(llm_mod, "_tuzi_complete", once_timeout)
+    out = llm_mod._tuzi_chat([{"role": "user", "content": "x"}])
+    assert calls["n"] == 2
+    assert out["features"][0]["type"] == "step"
+
+
+def test_tuzi_chat_does_not_retry_hard_failure(monkeypatch):
+    from cncflow_core.geometry import llm as llm_mod
+
+    calls = {"n": 0}
+
+    def boom(messages, model=None):
+        calls["n"] += 1
+        raise RuntimeError("tu-zi 500")
+
+    monkeypatch.setattr(llm_mod, "_tuzi_complete", boom)
+    with pytest.raises(RuntimeError, match="500"):
+        llm_mod._tuzi_chat([])
+    assert calls["n"] == 1
