@@ -8,6 +8,9 @@ from cncflow_core.geometry.service import parse_step_file
 from cncflow_core.inquiries.api import _review_and_quote_features
 
 
+pytestmark = pytest.mark.usefixtures("deterministic_feature_llm")
+
+
 FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures")
 HOLE_D8_STEP = os.path.join(FIXTURES, "plate_hole_d8.step")
 OPEN_SLOT_STEP = os.path.join(FIXTURES, "rect_open_slot.step")

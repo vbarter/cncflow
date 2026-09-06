@@ -6,6 +6,7 @@ import multiprocessing as mp
 
 from ..common.db import get_conn, init_schema
 from ..geometry import FEATURE_SCHEMA
+from ..geometry.llm_recognizer import DEFAULT_MODEL
 from ..geometry.plugins import plugin_names
 from ..geometry.service import parse_step_file
 from ..geometry.mesh import step_to_glb
@@ -103,7 +104,10 @@ def process_claimed(conn, job):
             names = ",".join(plugin_names())
             update_job(
                 conn, job["job_id"], stage="geometry_parse", progress=20,
-                message=f"geometry-service {FEATURE_SCHEMA} plugins={names}",
+                message=(
+                    f"geometry-service {FEATURE_SCHEMA} tu-zi="
+                    f"{os.environ.get('TUZI_MODEL') or DEFAULT_MODEL} features={names}"
+                ),
                 **claim,
             )
             step_path = materialize(file["storage_path"], suffix=suffix)
@@ -115,6 +119,7 @@ def process_claimed(conn, job):
             result["feature_schema"] = parsed.get("feature_schema") or FEATURE_SCHEMA
             result["parser"] = parsed.get("parser") or "geometry-service"
             result["parser_version"] = parsed.get("parser_version") or FEATURE_SCHEMA
+            result["feature_recognition"] = parsed.get("feature_recognition")
             mesh_bytes = parsed.pop("_mesh_glb", None)
             if not mesh_bytes:
                 try:

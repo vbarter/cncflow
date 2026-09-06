@@ -10,6 +10,9 @@ from cncflow_core.geometry.service import parse_step_file
 from cncflow_core.ingestion.jobs import get_job
 
 
+pytestmark = pytest.mark.usefixtures("deterministic_feature_llm")
+
+
 MINIMAL_STEP = (
     b"ISO-10303-21;\nHEADER;\nFILE_SCHEMA(('AUTOMOTIVE_DESIGN'));\n"
     b"ENDSEC;\nDATA;\nENDSEC;\nEND-ISO-10303-21;"

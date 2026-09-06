@@ -38,7 +38,7 @@ export class CncflowContainer extends Container<Env> {
       CNCFLOW_R2_SECRET_ACCESS_KEY: env.CNCFLOW_R2_SECRET_ACCESS_KEY || "",
       CNCFLOW_R2_BUCKET: env.CNCFLOW_R2_BUCKET || "cncflow-files",
       TUZI_API_KEY: env.TUZI_API_KEY || env.VISION_API_KEY || "",
-      TUZI_MODEL: env.TUZI_MODEL || "gpt-4.1-mini",
+      TUZI_MODEL: env.TUZI_MODEL || "gpt-6-astra",
       TUZI_BASE_URL: "https://api.tu-zi.com/v1",
       CHAT_JAIL: "/app/chat-jail",
       CHAT_PORT: "3002",

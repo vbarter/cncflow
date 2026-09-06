@@ -7,6 +7,7 @@ from flask import Blueprint, current_app, jsonify, request
 
 from ..common.db import get_conn
 from ..features.hole import pipeline as hole_pipeline
+from ..geometry.llm_recognizer import DEFAULT_MODEL
 from .jobs import create_job, get_job, retry_job
 from .storage import MAX_JOB_BYTES, store_upload
 from . import r2
@@ -28,6 +29,11 @@ def capabilities():
         "external_ai_available": bool(
             os.environ.get("TUZI_API_KEY") or os.environ.get("VISION_API_KEY")
         ),
+        "feature_recognition": {
+            "provider": "tu-zi",
+            "available": bool(os.environ.get("TUZI_API_KEY")),
+            "model": os.environ.get("TUZI_MODEL") or DEFAULT_MODEL,
+        },
         "retention": "r2" if r2.configured() else "local_archive", "confirmation_required": True,
     })
 

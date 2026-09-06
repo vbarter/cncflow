@@ -1,6 +1,9 @@
-"""几何特征服务：询价 parse-job 进程内调用；孔字段与 hole-v4 现网一致。"""
+"""几何服务：CadQuery 负责度量/网格，tu-zi LLM 负责制造特征。"""
+import os
+
 from . import FEATURE_SCHEMA, FACE_FEATURE_FIELDS, FACE_SCHEMA, HOLE_FEATURE_FIELDS, SERVICE_NAME, SLOT_FEATURE_FIELDS, SLOT_SCHEMA, STEP_FEATURE_FIELDS, STEP_SCHEMA, SURFACE_FEATURE_FIELDS, SURFACE_SCHEMA, THREAD_FEATURE_FIELDS, THREAD_SCHEMA
-from .plugins import list_plugins, plugin_names, run_face, run_slot, run_step, run_surface, run_thread
+from .llm_recognizer import DEFAULT_MODEL, recognize_step_features
+from .plugins import list_plugins, plugin_names
 
 
 def contract():
@@ -11,7 +14,10 @@ def contract():
     return {
         "service": SERVICE_NAME,
         "endpoint": "POST /api/v1/geometry/parse",
-        "input": {"multipart": ["step_file"], "formats": ["step", "stp"]},
+        "input": {
+            "multipart": ["step_file", "drawing_image (optional)"],
+            "formats": ["step", "stp", "png", "jpeg", "webp"],
+        },
         "output": {
             "feature_schema": FEATURE_SCHEMA,
             "feature_fields": hole_fields,
@@ -53,13 +59,18 @@ def contract():
                 },
             },
             "plugins": "hole+slot+face+thread+step+surface active",
+            "recognition": {
+                "provider": "tu-zi",
+                "endpoint": "https://api.tu-zi.com/v1/chat/completions",
+                "model_env": "TUZI_MODEL",
+                "default_model": DEFAULT_MODEL,
+            },
         },
         "plugins": list_plugins(),
         "notes": [
-            "询价 parse-job 进程内调用 geometry service，Ø8/ZN-010 仍走现网 parse-jobs",
-            "Ø8 / ZN-010 hole-v4 不得回退",
-            "台阶本轮验收；孔五字段、槽腔、平面、螺纹不回退",
-            "曲面最小集 surface_type/R/position 本轮验收；孔/槽/面/螺纹/台阶不回退",
+            "询价 parse-job 进程内调用 geometry service",
+            "CadQuery/OCP 仅负责 bbox/体积/表面积/GLB；六类特征由 tu-zi LLM 识别",
+            "TUZI_API_KEY 必填；TUZI_MODEL 默认 gpt-6-astra",
         ],
     }
 
@@ -339,17 +350,37 @@ def _drop_hole_as_surfaces(features):
     return kept
 
 
-def parse_step_file(path):
-    """STEP → features。hole/slot/face/thread/step/surface。"""
+def parse_step_file(path, image_urls=None):
+    """STEP → CadQuery geometry/GLB + tu-zi feature list。"""
     from cncflow_core.ingestion.step_parser import parse_step
 
     result = parse_step(path)
-    features = list(result.get("features") or [])
-    features.extend(run_slot(path))
-    features.extend(run_face(path))
-    features.extend(run_thread(path))
-    features.extend(run_step(path))
-    features.extend(run_surface(path))
+    # 外圆仍用于 FeatureReview 提示，但六类可报价特征只接受 LLM 结果。
+    features = [
+        feature
+        for feature in result.get("features") or []
+        if feature.get("type") == "outer_cylinder"
+    ]
+    model = os.environ.get("TUZI_MODEL") or DEFAULT_MODEL
+    recognition = {
+        "provider": "tu-zi",
+        "model": model,
+        "called": False,
+        "ok": False,
+    }
+    try:
+        recognized = recognize_step_features(path, image_urls=image_urls)
+        features.extend(recognized["features"])
+        result.setdefault("warnings", []).extend(recognized.get("warnings") or [])
+        recognition.update({
+            "called": True,
+            "ok": True,
+            "input_mode": recognized.get("input_mode"),
+        })
+    except Exception as exc:
+        recognition["called"] = bool(os.environ.get("TUZI_API_KEY"))
+        recognition["warning"] = f"tu-zi STEP 特征识别失败: {exc}"
+        result.setdefault("warnings", []).append(recognition["warning"])
     features = _drop_slot_fillet_holes(features)
     features = _drop_slot_as_steps(features)
     features = _drop_threaded_holes(features)
@@ -362,4 +393,5 @@ def parse_step_file(path):
     result["plugins"] = list_plugins()
     result["plugin_names"] = plugin_names()
     result["features"] = features
+    result["feature_recognition"] = recognition
     return result

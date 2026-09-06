@@ -9,6 +9,9 @@ from cncflow_core.geometry.service import parse_step_file
 from cncflow_core.inquiries.api import _review_and_quote_features
 
 
+pytestmark = pytest.mark.usefixtures("deterministic_feature_llm")
+
+
 def _export_step(workplane):
     import cadquery as cq
     fd, path = tempfile.mkstemp(suffix=".step")

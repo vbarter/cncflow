@@ -1,4 +1,5 @@
 """几何特征服务 HTTP 契约。询价本轮不改打此接口。"""
+import base64
 import os
 import tempfile
 
@@ -18,6 +19,7 @@ def geometry_contract():
 @bp.post("/api/v1/geometry/parse")
 def geometry_parse():
     step = request.files.get("step_file")
+    drawing_image = request.files.get("drawing_image")
     if step is None or not step.filename:
         return jsonify({"error": "请上传 step_file（.step/.stp）", "contract": contract()}), 400
     name = step.filename.lower()
@@ -29,7 +31,16 @@ def geometry_parse():
     try:
         step.save(path)
         from .service import parse_step_file
-        return jsonify(parse_step_file(path))
+        image_urls = []
+        if drawing_image is not None and drawing_image.filename:
+            mime = (drawing_image.mimetype or "").lower()
+            if mime not in {"image/png", "image/jpeg", "image/webp"}:
+                return jsonify({"error": "drawing_image 只接受 PNG/JPEG/WebP"}), 400
+            image_urls.append(
+                f"data:{mime};base64,"
+                + base64.b64encode(drawing_image.read()).decode("ascii")
+            )
+        return jsonify(parse_step_file(path, image_urls=image_urls))
     except RuntimeError as exc:
         return jsonify({
             "error": str(exc),

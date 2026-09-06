@@ -38,7 +38,7 @@ ENV PYTHONUNBUFFERED=1 \
     CHAT_JAIL=/app/chat-jail \
     CHAT_PORT=3002 \
     CHAT_HOST=0.0.0.0 \
-    TUZI_MODEL=gpt-4.1-mini \
+    TUZI_MODEL=gpt-6-astra \
     TUZI_BASE_URL=https://api.tu-zi.com/v1
 
 WORKDIR /app/backend

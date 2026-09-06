@@ -16,6 +16,9 @@ from cncflow_core.ingestion.jobs import finish_job
 from cncflow_core.inquiries.api import _review_and_quote_features
 
 
+pytestmark = pytest.mark.usefixtures("deterministic_feature_llm")
+
+
 MINIMAL_STEP = (
     b"ISO-10303-21;\nHEADER;\nFILE_SCHEMA(('AUTOMOTIVE_DESIGN'));\n"
     b"ENDSEC;\nDATA;\nENDSEC;\nEND-ISO-10303-21;"

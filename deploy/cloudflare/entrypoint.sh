@@ -17,7 +17,7 @@ fi
 export CHAT_JAIL="${CHAT_JAIL:-/app/chat-jail}"
 export CHAT_PORT="${CHAT_PORT:-3002}"
 export CHAT_HOST="${CHAT_HOST:-0.0.0.0}"
-export TUZI_MODEL="${TUZI_MODEL:-gpt-4.1-mini}"
+export TUZI_MODEL="${TUZI_MODEL:-gpt-6-astra}"
 export TUZI_BASE_URL="${TUZI_BASE_URL:-https://api.tu-zi.com/v1}"
 
 if [ -f /app/chat/dist/server.js ]; then

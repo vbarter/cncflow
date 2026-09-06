@@ -184,7 +184,7 @@ def _tuzi_extract(text: str, images: list) -> dict:
     content = [{"type": "text", "text": prompt}]
     content.extend({"type": "image_url", "image_url": {"url": image}} for image in images[:5])
     response = client.chat.completions.create(
-        model=os.environ.get("TUZI_MODEL") or os.environ.get("VISION_MODEL", "gpt-4.1-mini"),
+        model=os.environ.get("TUZI_MODEL") or os.environ.get("VISION_MODEL", "gpt-6-astra"),
         messages=[{"role": "user", "content": content}], response_format={"type": "json_object"},
     )
     raw = _json_object(response.choices[0].message.content)
@@ -236,7 +236,7 @@ def parse_pdf(path: str, allow_external_ai=False) -> dict:
         warnings.append(f"PDF页面渲染失败: {exc}")
     try:
         extracted = _tuzi_extract(combined, images)
-        tuzi.update({"called": True, "ok": True, "model": os.environ.get("TUZI_MODEL") or os.environ.get("VISION_MODEL", "gpt-4.1-mini")})
+        tuzi.update({"called": True, "ok": True, "model": os.environ.get("TUZI_MODEL") or os.environ.get("VISION_MODEL", "gpt-6-astra")})
         backfill = extracted["fields"]
         tuzi["raw"] = extracted["raw"]
         if not backfill:
