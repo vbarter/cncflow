@@ -1,0 +1,27 @@
+{
+  "features": [
+    {"type": "hole", "diameter_mm": 2.5, "depth_mm": 3.5, "hole_type": "through", "location": {"x": -130, "y": -50, "z": 0}},
+    {"type": "hole", "diameter_mm": 2.5, "depth_mm": 3.5, "hole_type": "through", "location": {"x": -78, "y": -50, "z": 0}},
+    {"type": "hole", "diameter_mm": 2.5, "depth_mm": 3.5, "hole_type": "through", "location": {"x": -26, "y": -50, "z": 0}},
+    {"type": "hole", "diameter_mm": 2.5, "depth_mm": 3.5, "hole_type": "through", "location": {"x": 26, "y": -50, "z": 0}},
+    {"type": "hole", "diameter_mm": 2.5, "depth_mm": 3.5, "hole_type": "through", "location": {"x": 78, "y": -50, "z": 0}},
+    {"type": "hole", "diameter_mm": 2.5, "depth_mm": 3.5, "hole_type": "through", "location": {"x": 130, "y": -50, "z": 0}},
+    {"type": "hole", "diameter_mm": 2.5, "depth_mm": 3.5, "hole_type": "through", "location": {"x": -130, "y": 50, "z": 0}},
+    {"type": "hole", "diameter_mm": 2.5, "depth_mm": 3.5, "hole_type": "through", "location": {"x": -78, "y": 50, "z": 0}},
+    {"type": "hole", "diameter_mm": 2.5, "depth_mm": 3.5, "hole_type": "through", "location": {"x": -26, "y": 50, "z": 0}},
+    {"type": "hole", "diameter_mm": 2.5, "depth_mm": 3.5, "hole_type": "through", "location": {"x": 26, "y": 50, "z": 0}},
+    {"type": "hole", "diameter_mm": 2.5, "depth_mm": 3.5, "hole_type": "through", "location": {"x": 78, "y": 50, "z": 0}},
+    {"type": "hole", "diameter_mm": 2.5, "depth_mm": 3.5, "hole_type": "through", "location": {"x": 130, "y": 50, "z": 0}},
+    {"type": "hole", "diameter_mm": 2.5, "depth_mm": 3.5, "hole_type": "through", "location": {"x": -130, "y": -25, "z": 0}},
+    {"type": "hole", "diameter_mm": 2.5, "depth_mm": 3.5, "hole_type": "through", "location": {"x": -130, "y": 0, "z": 0}},
+    {"type": "hole", "diameter_mm": 2.5, "depth_mm": 3.5, "hole_type": "through", "location": {"x": -130, "y": 25, "z": 0}},
+    {"type": "hole", "diameter_mm": 2.5, "depth_mm": 3.5, "hole_type": "through", "location": {"x": 130, "y": -25, "z": 0}},
+    {"type": "hole", "diameter_mm": 2.5, "depth_mm": 3.5, "hole_type": "through", "location": {"x": 130, "y": 0, "z": 0}},
+    {"type": "hole", "diameter_mm": 2.5, "depth_mm": 3.5, "hole_type": "through", "location": {"x": 130, "y": 25, "z": 0}},
+    {"type": "face", "length": 285, "width": 128, "area": 36480, "face_position": "水平", "selected": true},
+    {"type": "pocket", "length": 72, "width": 34, "depth": 1.75, "corner_radius": 3, "pocket_type": "封闭"},
+    {"type": "pocket", "length": 64, "width": 30, "depth": 1.75, "corner_radius": 4, "pocket_type": "封闭"},
+    {"type": "pocket", "length": 48, "width": 26, "depth": 1.75, "corner_radius": 2, "pocket_type": "封闭"},
+    {"type": "pocket", "length": 55, "width": 30, "depth": 1.75, "corner_radius": 2.6, "pocket_type": "封闭"}
+  ]
+}

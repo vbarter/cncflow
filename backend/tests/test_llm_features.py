@@ -15,8 +15,10 @@ from cncflow_core.inquiries.api import _review_and_quote_features, _sanitize_rev
 FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures")
 LLM_D8 = os.path.join(FIXTURES, "llm_plate_hole_d8.json")
 LLM_OPEN_SLOT = os.path.join(FIXTURES, "llm_rect_open_slot.json")
+LLM_NUC_WINDOWS_MISS = os.path.join(FIXTURES, "llm_nuc_windows_miss.json")
 STEP_D8 = os.path.join(FIXTURES, "plate_hole_d8.step")
 STEP_OPEN_SLOT = os.path.join(FIXTURES, "rect_open_slot.step")
+STEP_NUC_WINDOWS = os.path.join(FIXTURES, "nuc_plate_windows.step")
 SLOT_TREE_FIELDS = ("pocket_type", "length", "width", "depth", "corner_radius")
 
 
@@ -27,6 +29,11 @@ def _fixture_payload():
 
 def _open_slot_payload():
     with open(LLM_OPEN_SLOT, encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+def _nuc_windows_miss_payload():
+    with open(LLM_NUC_WINDOWS_MISS, encoding="utf-8") as fh:
         return json.load(fh)
 
 
@@ -151,6 +158,8 @@ def test_read_step_ascii_and_messages_use_text_not_files():
     assert "bbox_mm=80×60×12" in blob
     assert "孔" in blob and "滑轴" in blob and "槽腔" in blob
     assert "开口矩形槽" in blob
+    assert "贯穿板厚" in blob and "plate window" in blob
+    assert "pocket_type=封闭" in blob
     open_text, _ = read_step_ascii(STEP_OPEN_SLOT)
     open_blob = json.dumps(build_messages(open_text), ensure_ascii=False)
     assert "slot/pocket" in open_blob
@@ -398,6 +407,67 @@ def test_extract_retries_thin_miss_as_open_slot(monkeypatch, miss):
     assert any("补询已补" in w for w in out["warnings"])
     retry_blob = json.dumps(calls[1], ensure_ascii=False)
     assert "开口槽必须出" in retry_blob
+
+
+@pytest.mark.llm_features
+def test_extract_drops_nuc_window_pockets_but_keeps_mounting_holes(monkeypatch):
+    from cncflow_core.geometry import llm as llm_mod
+
+    raw = _nuc_windows_miss_payload()
+    mapped_miss = map_llm_features(raw)["features"]
+    assert len([
+        feat
+        for feat in mapped_miss
+        if feat["type"] == "pocket" and feat["pocket_type"] == "封闭"
+    ]) == 4
+
+    monkeypatch.setattr(llm_mod, "_tuzi_chat", lambda messages, model=None: raw)
+    out = llm_mod.extract_step_features(
+        STEP_NUC_WINDOWS,
+        geometry={"bounding_box_mm": {"x": 285, "y": 128, "z": 3.5}},
+    )
+
+    assert len([feat for feat in out["features"] if feat["type"] == "hole"]) == 18
+    assert not [
+        feat
+        for feat in out["features"]
+        if feat["type"] in {"slot", "pocket"}
+    ]
+    assert any("已移除 4 个半板厚封闭 pocket" in warning for warning in out["warnings"])
+
+    review, quoted = _review_and_quote_features(
+        out["features"],
+        None,
+        285,
+        128,
+        3.5,
+    )
+    assert len([feat for feat in review if feat["type"] == "hole"]) == 18
+    assert len([feat for feat in quoted if feat["type"] == "hole"]) == 18
+    assert not [feat for feat in quoted if feat["type"] in {"slot", "pocket"}]
+
+
+@pytest.mark.llm_features
+def test_nuc_repair_keeps_single_real_closed_pocket(monkeypatch):
+    from cncflow_core.geometry import llm as llm_mod
+
+    raw = _nuc_windows_miss_payload()
+    raw["features"] = [
+        feat
+        for feat in raw["features"]
+        if feat.get("type") != "pocket"
+    ] + [next(feat for feat in raw["features"] if feat.get("type") == "pocket")]
+    monkeypatch.setattr(llm_mod, "_tuzi_chat", lambda messages, model=None: raw)
+
+    out = llm_mod.extract_step_features(
+        STEP_NUC_WINDOWS,
+        geometry={"bounding_box_mm": {"x": 285, "y": 128, "z": 3.5}},
+    )
+
+    pockets = [feat for feat in out["features"] if feat["type"] == "pocket"]
+    assert len(pockets) == 1
+    assert pockets[0]["pocket_type"] == "封闭"
+    assert not any("窗口修复" in warning for warning in out["warnings"])
 
 
 def test_tuzi_chat_retries_timeout_once(monkeypatch):

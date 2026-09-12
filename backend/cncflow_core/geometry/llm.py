@@ -179,6 +179,10 @@ SYSTEM_PROMPT = """你是 CNC 制造特征识别器。根据 ISO-10303-21 STEP �
 7) pocket / slot 槽腔 — 内凹型腔，含开口矩形槽。漏报比多报更糟。
    必填: type(pocket|slot), length, width, depth
    选填: corner_radius(R), pocket_type(开放|封闭|键槽|T型)
+   贯穿板厚、上下两面都开口的窗/薄板镂空/plate window 不是槽腔，绝不能输出
+   pocket_type=封闭。薄板窗的侧壁常被拆成深度约半板厚的两组面；这种
+   depth≈0.5×板厚且圆角 R 重复的模式仍是贯穿窗，应按真实完整圆柱输出 hole，
+   否则省略该窗，不要把窗编造成 pocket/slot。
    开口矩形槽（一边通到毛坯侧面的 U/C 形凹槽）必须出 slot，pocket_type=开放。
    L=槽长（开口方向），W=槽宽，H/depth=槽深，R=封闭端/底角圆角。
    例：80×60×12 板、开口 40×10×8 R3 → slot L=40 W=10 depth=8 corner_radius=3 pocket_type=开放。
@@ -774,6 +778,82 @@ def map_llm_features(payload):
     return {"features": features, "errors": errors}
 
 
+def _thin_plate_thickness(geometry):
+    box = (geometry or {}).get("bounding_box_mm") or {}
+    dimensions = sorted(
+        value
+        for value in (_num(box.get("x")), _num(box.get("y")), _num(box.get("z")))
+        if value and value > 0
+    )
+    if len(dimensions) != 3:
+        return None
+    thickness, middle, _longest = dimensions
+    if middle / thickness < 8:
+        return None
+    return thickness
+
+
+def _step_cylinder_radius_counts(step_text):
+    number = r"([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?)"
+    pattern = re.compile(
+        rf"\bCYLINDRICAL_SURFACE\s*\(\s*[^,\r\n]*,\s*#[^,\r\n]*,\s*{number}\s*\)",
+        re.I,
+    )
+    counts = {}
+    for match in pattern.finditer(step_text or ""):
+        radius = round(float(match.group(1)), 3)
+        counts[radius] = counts.get(radius, 0) + 1
+    return counts
+
+
+def _drop_suspicious_window_pockets(features, geometry, step_text):
+    """删掉 NUC 类薄板贯穿窗被 LLM 按半板厚误报的封闭 pocket。"""
+    thickness = _thin_plate_thickness(geometry)
+    if thickness is None:
+        return features, None
+
+    through_small_holes = sum(
+        max(1, int(feat.get("occurrences") or 1))
+        for feat in features
+        if feat.get("type") == "hole"
+        and feat.get("hole_type") == "through"
+        and 0.8 * thickness <= (feat.get("depth_mm") or 0) <= 1.2 * thickness
+        and (feat.get("diameter_mm") or 0) <= max(4, 1.25 * thickness)
+    )
+    if through_small_holes < 8:
+        return features, None
+
+    candidates = [
+        feat
+        for feat in features
+        if feat.get("type") == "pocket"
+        and feat.get("pocket_type") == "封闭"
+        and 0.35 * thickness <= (feat.get("depth") or 0) <= 0.65 * thickness
+    ]
+    if len(candidates) < 2:
+        return features, None
+
+    radius_counts = _step_cylinder_radius_counts(step_text)
+    matched = 0
+    for feat in candidates:
+        corner = feat.get("corner_radius") or 0
+        if any(
+            count >= 4 and abs(radius - corner) <= max(0.05, 0.02 * corner)
+            for radius, count in radius_counts.items()
+        ):
+            matched += 1
+    if matched < 2:
+        return features, None
+
+    candidate_ids = {id(feat) for feat in candidates}
+    kept = [feat for feat in features if id(feat) not in candidate_ids]
+    warning = (
+        f"LLM 窗口修复: 薄板厚 {thickness:g}mm、{through_small_holes} 个小通孔，"
+        f"已移除 {len(candidates)} 个半板厚封闭 pocket（判定为贯穿窗）"
+    )
+    return kept, warning
+
+
 def _has_cavity(features):
     return any(
         feat.get("type") in {"slot", "pocket"} or feat.get("subtype") == "recognized_slot"
@@ -823,6 +903,13 @@ def extract_step_features(path, geometry=None, images=None):
         warnings.append(f"STEP 超过 {os.environ.get('TUZI_FEATURE_MAX_STEP_CHARS') or MAX_STEP_CHARS_DEFAULT} 字符，已截断后送模型")
     raw = _tuzi_chat(build_messages(step_text, geometry=geometry, images=images))
     mapped = map_llm_features(raw)
+    mapped["features"], window_warning = _drop_suspicious_window_pockets(
+        mapped["features"],
+        geometry,
+        step_text,
+    )
+    if window_warning:
+        warnings.append(window_warning)
     if _slot_retry_enabled() and _thin_non_cavity(mapped["features"]) and not _has_cavity(mapped["features"]):
         try:
             retry_raw = _tuzi_chat(_slot_retry_messages(step_text, geometry, raw))
