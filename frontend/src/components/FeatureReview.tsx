@@ -40,10 +40,12 @@ const CANVAS_GL = {
   localClippingEnabled: true,
 }
 
-/** 可审查特征；外圆仅展示待手册公式骨架，不参与报价。 */
+/** 可审查特征；外圆及独立倒角/圆角仅展示待手册公式骨架，不参与报价。 */
 const REVIEW_TREE_FEATURE_TYPES = new Set([
   "hole",
   "outer_cylinder",
+  "chamfer",
+  "fillet",
   "face",
   "pocket",
   "slot",
@@ -55,6 +57,8 @@ const REVIEW_TREE_FEATURE_TYPES = new Set([
 const FEATURE_LABEL: Record<string, string> = {
   hole: "孔",
   outer_cylinder: "外圆",
+  chamfer: "倒角",
+  fillet: "圆角",
   face: "面",
   pocket: "型腔",
   slot: "槽",
@@ -100,6 +104,30 @@ export function featureTreeTitle(feature: Feat): string {
       dimension("H", feature?.pose?.length_mm, feature?.depth_mm, feature?.length, dim.depth_mm, dim.length),
     ].filter(Boolean).join("×")
     return details(size)
+  }
+  if (type === "chamfer") {
+    return details(dimension(
+      "C",
+      feature?.C,
+      feature?.chamfer,
+      feature?.chamfer_mm,
+      dim.C,
+      dim.chamfer,
+      dim.chamfer_mm,
+    ))
+  }
+  if (type === "fillet") {
+    return details(dimension(
+      "R",
+      feature?.R,
+      feature?.radius,
+      feature?.fillet,
+      feature?.fillet_radius,
+      dim.R,
+      dim.radius,
+      dim.fillet,
+      dim.fillet_radius,
+    ))
   }
   if (type === "thread") {
     const size = [
@@ -729,6 +757,9 @@ function inspectorFields(f: Feat) {
     w: f.width ?? dim.width,
     h: height,
     r: f.curvature_radius ?? dim.curvature_radius ?? f.radius_mm ?? f.radius ?? f.R ?? dim.R,
+    edge: type === "chamfer"
+      ? f.C ?? f.chamfer ?? f.chamfer_mm ?? dim.C ?? dim.chamfer ?? dim.chamfer_mm
+      : f.R ?? f.radius ?? f.fillet ?? f.fillet_radius ?? dim.R ?? dim.radius ?? dim.fillet ?? dim.fillet_radius,
     orient: f.position_type || f.face_position || dim.face_position || f.position || dim.position,
   }
 }
@@ -911,6 +942,8 @@ export function FeatureReview({
     ? []
     : (Array.isArray(selected?.process_chain) ? selected.process_chain : [])
   const processGaps = Array.isArray(selected?.gaps) ? selected.gaps : []
+  const featureWarnings = Array.isArray(selected?.warnings) ? selected.warnings : []
+  const quoteStatus = selected?.quote_status || "待手册公式"
   const onBox = useCallback((b: THREE.Box3) => setBox(b.clone()), [])
   const requestView = useCallback((nextView: ViewName) => {
     setView(nextView)
@@ -1154,6 +1187,17 @@ export function FeatureReview({
                     <dd>{fields.r != null ? `${fields.r} mm` : "—"}</dd>
                   </dl>
                 )}
+                {(featType(selected) === "chamfer" || featType(selected) === "fillet") && (
+                  <dl className="mt-3 grid grid-cols-[64px_1fr] gap-y-2 text-xs">
+                    <dt className="text-slate-500">{featType(selected) === "chamfer" ? "C" : "R"}</dt>
+                    <dd>{fields.edge != null ? `${fields.edge} mm` : "—"}</dd>
+                  </dl>
+                )}
+                {featureWarnings.length > 0 && (
+                  <ul className="mt-3 list-disc space-y-0.5 pl-4 text-[11px] text-amber-700">
+                    {featureWarnings.map((warning: string) => <li key={warning}>{warning}</li>)}
+                  </ul>
+                )}
               </div>
 
               <div className="border-t border-[#e2e8f0] pt-3">
@@ -1183,12 +1227,12 @@ export function FeatureReview({
                       <div key={step.step_id || step.process} className="rounded border border-amber-200 bg-amber-50 p-2">
                         <div className="flex items-center justify-between gap-2 text-xs">
                           <span className="truncate font-medium text-slate-800">{processName(step)}</span>
-                          <span className="shrink-0 text-amber-700">待手册公式</span>
+                          <span className="shrink-0 text-amber-700">{step.status || quoteStatus}</span>
                         </div>
                       </div>
                     ))}
                     <div className="rounded border border-amber-200 bg-white p-2 text-[11px] text-amber-800">
-                      <div className="font-medium">待手册公式 · 不计入报价</div>
+                      <div className="font-medium">{quoteStatus} · 不计入报价</div>
                       {processGaps.length > 0 && (
                         <ul className="mt-1 list-disc space-y-0.5 pl-4">
                           {processGaps.map((gap: string) => <li key={gap}>{gap}</li>)}

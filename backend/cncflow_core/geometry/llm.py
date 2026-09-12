@@ -84,6 +84,10 @@ _TYPE_ALIASES = {
     "t型": "slot",
     "开口型腔": "pocket",
     "封闭槽": "slot",
+    "chamfer": "chamfer",
+    "倒角": "chamfer",
+    "fillet": "fillet",
+    "圆角": "fillet",
 }
 
 _HOLE_TYPE = {
@@ -132,6 +136,8 @@ _ID_PREFIX = {
     "step": "step",
     "pocket": "slot",
     "slot": "slot",
+    "chamfer": "chamfer",
+    "fillet": "fillet",
 }
 _SUBTYPE = {
     "hole": "recognized_hole",
@@ -142,6 +148,8 @@ _SUBTYPE = {
     "step": "recognized_step",
     "pocket": "recognized_slot",
     "slot": "recognized_slot",
+    "chamfer": "recognized_chamfer",
+    "fillet": "recognized_fillet",
 }
 
 SYSTEM_PROMPT = """你是 CNC 制造特征识别器。根据 ISO-10303-21 STEP 文本（以及可选截图）抽出加工特征。
@@ -652,6 +660,48 @@ def _map_surface(raw, index):
     }
 
 
+def _map_chamfer_or_fillet(raw, index, feature_type):
+    """只从独立特征的显式字段读取 C/R；bbox 不具备尺寸语义。"""
+    if feature_type == "chamfer":
+        dimension_key = "C"
+        size = _dim(raw, "C", "chamfer", "chamfer_mm")
+    else:
+        dimension_key = "R"
+        size = _dim(raw, "R", "radius", "fillet", "fillet_radius")
+    if size is not None and size <= 0:
+        raise ValueError(f"{feature_type} {dimension_key} 须为正数")
+
+    dimensions = (
+        dict(raw["dimensions"])
+        if isinstance(raw.get("dimensions"), dict)
+        else {}
+    )
+    if size is not None:
+        size = round(size, 4)
+        dimensions[dimension_key] = size
+    feature = {
+        "feature_id": raw.get("feature_id") or f"{feature_type}-{index}",
+        "type": feature_type,
+        "subtype": raw.get("subtype") or _SUBTYPE[feature_type],
+        "selected": raw.get("selected") is not False,
+        "dimensions": dimensions,
+        "location": _xyz(
+            raw.get("location")
+            or raw.get("center")
+            or (raw.get("pose") or {}).get("origin")
+        ),
+        "axis": _xyz(raw.get("axis") or (raw.get("pose") or {}).get("axis")),
+        "occurrences": int(raw.get("occurrences") or 1),
+        "confidence": float(raw.get("confidence") or 0.55),
+        "evidence": list(raw.get("evidence") or ["llm-gpt-6-astra"]),
+        "warnings": list(raw.get("warnings") or []),
+        "source": "llm",
+    }
+    if size is not None:
+        feature[dimension_key] = size
+    return feature
+
+
 _MAPPERS = {
     "hole": _map_hole,
     "outer_cylinder": _map_od,
@@ -661,6 +711,8 @@ _MAPPERS = {
     "slot": lambda raw, i: _map_slot(raw, i, "slot"),
     "step": _map_step,
     "surface": _map_surface,
+    "chamfer": lambda raw, i: _map_chamfer_or_fillet(raw, i, "chamfer"),
+    "fillet": lambda raw, i: _map_chamfer_or_fillet(raw, i, "fillet"),
 }
 
 _NESTED_SLOT_KEYS = ("slots", "pockets", "cavities", "槽", "槽腔", "型腔")
@@ -668,7 +720,7 @@ _SLOT_SIGNAL = (
     "槽", "slot", "pocket", "groove", "channel", "型腔", "recess", "cavity",
     "keyway", "键槽", "开槽", "通槽",
 )
-_KEEP_TYPE = {"hole", "outer_cylinder", "thread"}
+_KEEP_TYPE = {"hole", "outer_cylinder", "thread", "chamfer", "fillet"}
 
 
 def _flatten_feature_items(raw_list):

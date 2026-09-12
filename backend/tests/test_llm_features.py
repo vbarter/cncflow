@@ -108,6 +108,8 @@ def test_map_llm_fixture_review_and_quote_pins(client):
         ({"type": "曲面", "surface_type": "凸面", "curvature_radius": 20, "position": "顶面"}, "surface", "surface-0"),
         ({"type": "pocket", "length": 24, "width": 12, "depth": 6, "pocket_type": "封闭"}, "pocket", "slot-0"),
         ({"type": "pocket_or_step", "length": 24, "width": 12, "depth": 6, "pocket_type": "封闭"}, "pocket", "slot-0"),
+        ({"type": "倒角", "chamfer_mm": 0.8}, "chamfer", "chamfer-0"),
+        ({"type": "圆角", "dimensions": {"fillet_radius": 2}}, "fillet", "fillet-0"),
     ],
 )
 def test_map_handbook_type_aliases(raw, expect_type, expect_id):
@@ -129,7 +131,7 @@ def test_map_llm_empty_or_garbage_is_visible_failure():
         _json_object("not-json")
 
 
-def test_sanitize_keeps_quote_types_and_review_only_outer_cylinder():
+def test_sanitize_keeps_quote_and_review_only_feature_types():
     cleaned = _sanitize_review_features([
         {"type": "hole", "feature_id": "hole-0"},
         {"type": "face", "feature_id": "face-0"},
@@ -154,13 +156,97 @@ def test_sanitize_keeps_quote_types_and_review_only_outer_cylinder():
         "surface-0",
         "step-0",
         "od-0",
+        "chamfer-0",
+        "fillet-0",
     ]
+
+
+def test_llm_chamfer_and_fillet_keep_only_explicit_sizes_and_review_warnings():
+    warning = "可能是沉头孔、倒角或锥面，需人工分类"
+    mapped = map_llm_features({
+        "features": [
+            {
+                "type": "chamfer",
+                "feature_id": "chamfer-explicit",
+                "dimensions": {"C": 0.8, "x": 90, "y": 60, "z": 12},
+                "warnings": [warning],
+            },
+            {
+                "type": "fillet",
+                "feature_id": "fillet-explicit",
+                "fillet_radius": 2.5,
+            },
+            {
+                "type": "chamfer",
+                "feature_id": "chamfer-bbox-only",
+                "dimensions": {"x": 1, "y": 30, "z": 30},
+            },
+        ],
+    })["features"]
+
+    assert mapped[0]["C"] == mapped[0]["dimensions"]["C"] == 0.8
+    assert mapped[0]["warnings"] == [warning]
+    assert mapped[1]["R"] == mapped[1]["dimensions"]["R"] == 2.5
+    assert "C" not in mapped[2]
+    assert "C" not in mapped[2]["dimensions"]
+
+    review, quoted = _review_and_quote_features(
+        mapped + [{
+            "type": "hole",
+            "feature_id": "hole-0",
+            "diameter_mm": 8,
+            "depth_mm": 12,
+        }],
+        None,
+        80,
+        60,
+        12,
+    )
+    assert [feature["type"] for feature in quoted] == ["hole"]
+    edges = [feature for feature in review if feature["type"] in {"chamfer", "fillet"}]
+    assert {feature["feature_id"] for feature in edges} == {
+        "chamfer-explicit",
+        "fillet-explicit",
+        "chamfer-bbox-only",
+    }
+    assert all(feature["quote_status"] == "待手册公式" for feature in edges)
+    assert all(feature["quote_excluded"] is True for feature in edges)
+    assert all(feature["amount_contribution"] == 0 for feature in edges)
+    assert all(
+        step["minutes"] is None
+        and step["amount"] == 0
+        and step["quote_excluded"] is True
+        and step["process"] != "chamfer"
+        for feature in edges
+        for step in feature["process_chain"]
+    )
+    bbox_only = next(
+        feature for feature in edges
+        if feature["feature_id"] == "chamfer-bbox-only"
+    )
+    assert "C" not in bbox_only
+    assert any("不得从 bbox 推断" in gap for gap in bbox_only["gaps"])
+    assert next(
+        feature for feature in edges
+        if feature["feature_id"] == "chamfer-explicit"
+    )["warnings"] == [warning]
+    torus_warning = "可能是圆角或环形槽，需人工分类"
+    step_candidate = _sanitize_review_features([{
+        "type": "fillet",
+        "feature_id": "torus-7",
+        "subtype": "toroidal_face",
+        "dimensions": {"x": 6, "y": 6, "z": 2},
+        "warnings": [torus_warning],
+    }])[0]
+    assert step_candidate["warnings"] == [torus_warning]
+    assert "R" not in step_candidate
+    assert any("不得从 bbox 推断" in gap for gap in step_candidate["gaps"])
 
 
 def test_map_llm_skips_unknown_keeps_valid():
     mapped = map_llm_features({
         "features": [
-            {"type": "chamfer"},
+            {"type": "boss"},
             {"type": "hole", "diameter_mm": 6, "depth_mm": 10, "hole_type": "盲孔", "position_type": "侧向"},
         ],
     })
