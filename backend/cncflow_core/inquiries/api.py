@@ -1173,10 +1173,16 @@ def _quote_part(
         ),
     }
     result = quote(quote_payload, conn, rules_version=rules_version)
+    try:
+        blank_step_path = _step_path_for_job(conn, part.get("parse_job_id"))
+    except Exception:
+        blank_step_path = None
     result.update(build_plan_quotes(
         quote_payload,
         conn,
         rules_version=rules_version,
+        step_path=blank_step_path,
+        geometry=geometry,
     ))
     result["review_features"] = review
     result["feature_overrides"] = feature_overrides

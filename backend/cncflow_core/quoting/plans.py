@@ -5,7 +5,7 @@ import re
 from urllib import error, request
 
 from ..common.models import PlanQuoteComparison, ProcessPlanCandidate
-from . import blank
+from . import blank, blank_llm
 from .engine import quote
 
 
@@ -266,18 +266,37 @@ def generate_candidates(payload: dict) -> tuple[list[dict], list[str]]:
     return [candidate.to_dict() for candidate in candidates], warnings
 
 
-def build_plan_quotes(payload: dict, conn, rules_version: str = "") -> dict:
-    decision = blank.decide(payload)
+def build_plan_quotes(
+    payload: dict,
+    conn,
+    rules_version: str = "",
+    *,
+    step_path: str | None = None,
+    step_text: str | None = None,
+    geometry: dict | None = None,
+) -> dict:
+    geometry_context = geometry or payload.get("geometry")
+    geometry_quote_payload = blank_llm.geometry_payload(payload, geometry_context)
+    legacy_decision = blank.decide(geometry_quote_payload)
+    decision = blank_llm.decide(
+        geometry_quote_payload,
+        step_path=step_path,
+        step_text=step_text or payload.get("step_text"),
+        geometry=geometry_context,
+    )
     candidates, warnings = generate_candidates(payload)
     comparison = []
     for candidate in candidates:
-        quote_payload = dict(payload)
+        quote_payload = dict(geometry_quote_payload)
         quote_payload.pop("user_process_plan", None)
+        quote_payload.pop("step_text", None)
         quote_payload["equipment_type"] = candidate["machine"]
         quote_payload["machine_axes"] = _machine_axes(candidate["machine"])
         if not quote_payload.get("stock_type") and not quote_payload.get("blank_type"):
             quote_payload["stock_type"] = (
-                "棒料" if decision["blank_type"] == "round_bar" else "板料"
+                "棒料"
+                if legacy_decision["blank_type"] == "round_bar"
+                else "板料"
             )
         engine_result = quote(quote_payload, conn, rules_version=rules_version)
         row = PlanQuoteComparison(
