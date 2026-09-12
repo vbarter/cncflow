@@ -266,6 +266,14 @@ CREATE TABLE IF NOT EXISTS parts (
   FOREIGN KEY (inquiry_id) REFERENCES inquiries(id)
 );
 
+CREATE TABLE IF NOT EXISTS blank_llm_cache (
+  fingerprint TEXT PRIMARY KEY,
+  model TEXT NOT NULL,
+  suggestion_json TEXT NOT NULL,
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS parser_workers (
   worker_id TEXT PRIMARY KEY,
   parser_version TEXT NOT NULL,
