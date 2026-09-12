@@ -510,18 +510,21 @@ def test_plan_llm_failure_returns_rule_fallback(monkeypatch):
     assert "upstream unavailable" in " ".join(warnings)
 
 
-def test_plan_slow_llm_hits_short_timeout_and_keeps_user_first(monkeypatch):
+def test_plan_endpoint_slow_llm_times_out_and_keeps_user_first(
+    client,
+    monkeypatch,
+):
     monkeypatch.setenv("TUZI_API_KEY", "test-key")
     monkeypatch.setenv("CNCFLOW_PLAN_LLM_ENABLED", "1")
     monkeypatch.setenv("TUZI_PLAN_TIMEOUT_SECONDS", "0.03")
 
     def slow(*_args, **_kwargs):
-        time.sleep(0.3)
+        time.sleep(1)
         return []
 
     monkeypatch.setattr(plans, "_request_llm_candidates", slow)
     started = time.monotonic()
-    candidates, warnings = plans.generate_candidates(_payload(
+    response = client.post("/api/v1/quotes/plans", json=_payload(
         user_process_plan={
             "machine": "3轴立式加工中心",
             "setups": 2,
@@ -530,9 +533,11 @@ def test_plan_slow_llm_hits_short_timeout_and_keeps_user_first(monkeypatch):
         },
     ))
     elapsed = time.monotonic() - started
+    body = response.get_json()
 
-    assert elapsed < 0.15
-    assert len(candidates) >= 2
-    assert candidates[0]["source"] == "user"
-    assert candidates[0]["model"] is None
-    assert any("超时" in warning for warning in warnings)
+    assert response.status_code == 200
+    assert elapsed < 0.3
+    assert len(body["candidates"]) >= 2
+    assert body["candidates"][0]["source"] == "user"
+    assert body["candidates"][0]["model"] is None
+    assert any("超时" in warning for warning in body["warnings"])
