@@ -3,6 +3,7 @@ import math
 
 import pytest
 
+from cncflow_core.inquiries.api import _pocket_for_pipeline
 from cncflow_core.quoting.engine import suggested_lead_time_days
 
 
@@ -182,6 +183,107 @@ def test_frozen_live_quote_pins(
     items = {item["code"]: item["amount"] for item in body["cost_items"]}
     assert ui["inspect"] == ui["toolwear"] == ui["scrap"] == 0, sample
     assert items["INSPECT"] == items["TOOLWEAR"] == items["SCRAP"] == 0, sample
+
+
+@pytest.mark.parametrize(
+    ("feature_type", "pocket_type", "display_type"),
+    [
+        ("slot", "封闭", "slot"),
+        ("pocket", "开放", "slot"),
+        ("pocket", "open slot", "slot"),
+        ("pocket", "封闭", "pocket"),
+    ],
+)
+def test_pocket_pipeline_preserves_display_type(
+    feature_type,
+    pocket_type,
+    display_type,
+):
+    mapped = _pocket_for_pipeline({
+        "type": feature_type,
+        "length": 40,
+        "width": 10,
+        "depth": 8,
+        "pocket_type": pocket_type,
+    }, "feature-0")
+
+    assert mapped["type"] == "pocket"
+    assert mapped["display_type"] == display_type
+
+
+def test_mapped_open_slot_uses_slot_labor_names_without_changing_quote_pin(client):
+    mapped = _pocket_for_pipeline({
+        "type": "slot",
+        "feature_id": "slot-0",
+        "length": 40,
+        "width": 10,
+        "depth": 8,
+        "corner_radius": 3,
+        "pocket_type": "开放",
+    }, "slot-0")
+    body = quote(client, {
+        "material": "铝合金",
+        "stock_type": "板材",
+        "length": 80,
+        "width": 60,
+        "height": 12,
+        "v_part_cad": 54.430702,
+        "features": [
+            mapped,
+            {
+                "type": "face",
+                "feature_id": "face-0",
+                "length": 80,
+                "width": 60,
+            },
+        ],
+    }).get_json()
+
+    slot_group = next(
+        group
+        for group in body["labor_cost_breakdown"]["groups"]
+        if group["feature_type"] == "slot"
+    )
+    rough_slot = next(
+        step
+        for step in body["process_sequence"]
+        if step["process"] == "rough_pocket"
+    )
+    assert mapped["type"] == "pocket"
+    assert slot_group["name"] == "槽"
+    assert "型腔" not in {
+        group["name"] for group in body["labor_cost_breakdown"]["groups"]
+    }
+    assert rough_slot["name"] == "槽粗"
+    assert body["labor_cost_breakdown"]["total"] == pytest.approx(211.59, abs=0.01)
+
+
+def test_mapped_closed_pocket_keeps_pocket_labor_name(client):
+    mapped = _pocket_for_pipeline({
+        "type": "pocket",
+        "feature_id": "pocket-0",
+        "length": 40,
+        "width": 20,
+        "depth": 8,
+        "corner_radius": 3,
+        "pocket_type": "封闭",
+    }, "pocket-0")
+    body = quote(client, {
+        "material": "铝合金",
+        "stock_type": "板材",
+        "length": 80,
+        "width": 60,
+        "height": 12,
+        "features": [mapped],
+    }).get_json()
+
+    pocket_group = next(
+        group
+        for group in body["labor_cost_breakdown"]["groups"]
+        if group["feature_type"] == "pocket"
+    )
+    assert mapped["type"] == "pocket"
+    assert pocket_group["name"] == "型腔"
 
 
 def test_two_setup_fixture_keeps_each_setup_contiguous(client):

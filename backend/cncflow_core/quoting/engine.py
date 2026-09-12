@@ -47,6 +47,28 @@ FEATURE_STEP_NAME = {
     ("thread", "drill"): "底孔",
     ("thread", "tap"): "攻牙",
 }
+_OPEN_SLOT_POCKET_TYPES = {
+    "开放", "开口", "开口槽", "通槽",
+    "open", "opened", "open_slot", "through_slot", "side_open",
+}
+
+
+def _display_feature_type(feature: dict) -> str:
+    """展示类型独立于报价管道类型，开口槽仍可按 pocket 计算。"""
+    feature_type = str(feature.get("type") or "").strip().lower()
+    display_type = str(feature.get("display_type") or "").strip().lower()
+    pocket_type = str(feature.get("pocket_type") or "").strip().lower()
+    normalized_pocket_type = pocket_type.replace("-", "_").replace(" ", "_")
+    if (
+        display_type == "slot"
+        or feature_type == "slot"
+        or (
+            feature_type == "pocket"
+            and normalized_pocket_type in _OPEN_SLOT_POCKET_TYPES
+        )
+    ):
+        return "slot"
+    return feature_type
 
 
 def suggested_lead_time_days(hours_total: float, setup_count: int, batch: int) -> int:
@@ -152,7 +174,7 @@ def _labor_trace(
     feature_types = {}
     for plan in plans:
         feature_id = plan["feature_id"]
-        feature_type = plan["type"]
+        feature_type = plan.get("display_type") or plan["type"]
         feature_types[feature_id] = feature_type
         group = groups_by_type.get(feature_type)
         if group is None:
@@ -435,6 +457,7 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
     n_tools = 0
     for i, feat in enumerate(features, 1):
         ftype = feat.get("type")
+        display_type = _display_feature_type(feat)
         fn = PIPELINES.get(ftype)
         if fn is None:
             continue
@@ -469,7 +492,12 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
             n_tools += steps_n
         ops.append({"op": ftype, "minutes": mins, "na": na})
         fid = feat.get("id") or feat.get("feature_id") or f"{ftype}-{i}"
-        plans.append({"feature_id": fid, "type": ftype, "plan": result})
+        plans.append({
+            "feature_id": fid,
+            "type": ftype,
+            "display_type": display_type,
+            "plan": result,
+        })
         steps = result.get("tool_chain") or result.get("process_chain") or []
         timed_steps = (result.get("time") or {}).get("steps") or []
         for si, step in enumerate(steps):
@@ -520,7 +548,7 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
                 if step.get(key) is not None:
                     seq[-1][key] = step[key]
             display_name = FEATURE_STEP_NAME.get(
-                (ftype, step.get("process")), step.get("name"),
+                (display_type, step.get("process")), step.get("name"),
             )
             if display_name:
                 seq[-1]["name"] = display_name
