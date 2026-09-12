@@ -492,12 +492,14 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
             n_tools += steps_n
         ops.append({"op": ftype, "minutes": mins, "na": na})
         fid = feat.get("id") or feat.get("feature_id") or f"{ftype}-{i}"
-        plans.append({
+        plan = {
             "feature_id": fid,
             "type": ftype,
-            "display_type": display_type,
             "plan": result,
-        })
+        }
+        if display_type != ftype:
+            plan["display_type"] = display_type
+        plans.append(plan)
         steps = result.get("tool_chain") or result.get("process_chain") or []
         timed_steps = (result.get("time") or {}).get("steps") or []
         for si, step in enumerate(steps):
