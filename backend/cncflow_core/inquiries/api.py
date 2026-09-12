@@ -505,8 +505,8 @@ def _outer_cylinder_geometry(feature):
     pose_is_start = point is not None and axis is not None
     if not pose_is_start:
         # STEP parser 的 location 是圆柱轴向中心，可与显式 axis 组成轴线证据。
-        # LLM 在缺失坐标时会填默认 location/axis；没有 pose 时不能据此归并。
-        if feature.get("source") == "llm":
+        # LLM location 仅在 _ensure_pose 验证完整几何后按片段起点使用。
+        if str(feature.get("source") or "").lower() == "llm":
             return None
         point = _finite_xyz(feature.get("location") or feature.get("origin"))
         axis = _finite_xyz(feature.get("axis"))
@@ -691,7 +691,15 @@ def _sanitize_review_features(features):
             or str(feature.get("feature_id") or feature.get("id") or "").startswith("prismatic-region-")
         ):
             continue
-        sanitized.append(feature)
+        item = dict(feature)
+        if (
+            str(item.get("type") or "").lower() == "outer_cylinder"
+            and str(item.get("source") or "").lower() == "llm"
+        ):
+            # 旧 LLM parse-job 没有 pose，但 location 已采用当前 _map_od
+            # 的“片段起点”语义；先补 pose，归并和详情展示共用同一几何。
+            item = _ensure_pose(item)
+        sanitized.append(item)
     return [
         _outer_cylinder_review_feature(feature)
         if str(feature.get("type") or "").lower() == "outer_cylinder"
@@ -856,15 +864,38 @@ def _ensure_part_mesh(conn, part):
 def _ensure_pose(feat):
     if feat.get("pose"):
         return feat
-    loc, ax = feat.get("location"), feat.get("axis")
-    d, h = feat.get("diameter_mm"), feat.get("depth_mm")
-    if isinstance(loc, dict) and isinstance(ax, dict) and d and h:
-        feat["pose"] = {
-            "origin": {"x": loc.get("x"), "y": loc.get("y"), "z": loc.get("z")},
-            "axis": ax,
-            "length_mm": h,
-            "diameter_mm": d,
-        }
+    dimensions = feat.get("dimensions") or {}
+    loc = _finite_xyz(feat.get("location") or feat.get("origin"))
+    axis = _finite_xyz(feat.get("axis"))
+    try:
+        diameter = float(
+            feat.get("diameter_mm")
+            or dimensions.get("diameter_mm")
+        )
+        length = float(
+            feat.get("depth_mm")
+            or feat.get("length")
+            or dimensions.get("depth_mm")
+            or dimensions.get("length")
+        )
+    except (TypeError, ValueError):
+        return feat
+    if (
+        loc is None
+        or axis is None
+        or not math.isfinite(diameter)
+        or not math.isfinite(length)
+        or diameter <= 0
+        or length <= 0
+        or math.sqrt(sum(component * component for component in axis)) <= 1e-12
+    ):
+        return feat
+    feat["pose"] = {
+        "origin": dict(zip(("x", "y", "z"), loc)),
+        "axis": dict(zip(("x", "y", "z"), axis)),
+        "length_mm": length,
+        "diameter_mm": diameter,
+    }
     return feat
 
 
@@ -901,25 +932,56 @@ def _attach_parsed_features(conn, part):
         "bytes": (mesh or {}).get("bytes"),
         "format": "glb" if available else None,
     }
-    quote = part.get("quote")
-    if not isinstance(quote, dict):
+    stored_quote = part.get("quote")
+    quote_was_stored = isinstance(stored_quote, dict)
+    if not quote_was_stored:
         quote = {}
     else:
-        quote = dict(quote)
+        quote = dict(stored_quote)
+    stored_review = quote.get("review_features")
+    stored_outer_count = sum(
+        1
+        for feature in stored_review or []
+        if isinstance(feature, dict)
+        and str(feature.get("type") or "").lower() == "outer_cylinder"
+    )
+    parsed_outer_count = sum(
+        1
+        for feature in feats
+        if str(feature.get("type") or "").lower() == "outer_cylinder"
+    )
+    stale_outer_review = (
+        isinstance(stored_review, list)
+        and parsed_outer_count < stored_outer_count
+    )
     for key in ("review_features", "features"):
         if isinstance(quote.get(key), list):
             quote[key] = _sanitize_review_features(quote[key])
-    if refreshed or not (quote.get("review_features") or quote.get("features")):
+    if (
+        refreshed
+        or stale_outer_review
+        or not (quote.get("review_features") or quote.get("features"))
+    ):
         box = (result.get("geometry") or {}).get("bounding_box_mm") or {}
+        selected_ids = None
+        if stale_outer_review:
+            selected_ids = [
+                str(feature.get("feature_id") or feature.get("id"))
+                for feature in stored_review
+                if isinstance(feature, dict)
+                and feature.get("selected") is not False
+                and (feature.get("feature_id") or feature.get("id"))
+                not in (None, "")
+            ]
         review, _ = _review_and_quote_features(
             feats,
-            None,
+            selected_ids,
             part.get("length") or box.get("x") or 0,
             part.get("width") or box.get("y") or 0,
             part.get("height") or box.get("z") or 0,
         )
         quote["review_features"] = [_flatten_hole_fields(f) for f in review]
-        if refreshed and isinstance(part.get("quote"), dict):
+        if (refreshed or stale_outer_review) and quote_was_stored:
             conn.execute(
                 "UPDATE parts SET quote_json=?, updated_at=datetime('now') WHERE id=?",
                 (json.dumps(quote, ensure_ascii=False), part["id"]),
