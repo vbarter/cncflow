@@ -6,6 +6,7 @@ import os
 import pytest
 
 from cncflow_core.common.db import get_conn
+from cncflow_core.geometry import FEATURE_SCHEMA
 from cncflow_core.ingestion.jobs import finish_job
 from cncflow_core.inquiries.api import _cad_volume_mm3, _flatten_hole_fields
 
@@ -350,6 +351,7 @@ def test_part_detail_persists_stale_llm_outer_cylinder_review_merge(
     ).get_json()["job_id"]
     conn = get_conn(seeded_db_path)
     finish_job(conn, job_id, {
+        "feature_schema": FEATURE_SCHEMA,
         "geometry": {
             "volume_cm3": 13.8,
             "bounding_box_mm": {"x": 23.7, "y": 23.7, "z": 35},
