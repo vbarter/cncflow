@@ -271,19 +271,28 @@ def build_plan_quotes(
     conn,
     rules_version: str = "",
     *,
+    use_blank_llm: bool = False,
     step_path: str | None = None,
     step_text: str | None = None,
     geometry: dict | None = None,
 ) -> dict:
     geometry_context = geometry or payload.get("geometry")
     geometry_quote_payload = blank_llm.geometry_payload(payload, geometry_context)
+    geometry_quote_payload.pop("force_blank_llm", None)
     legacy_decision = blank.decide(geometry_quote_payload)
-    decision = blank_llm.decide(
-        geometry_quote_payload,
-        step_path=step_path,
-        step_text=step_text or payload.get("step_text"),
-        geometry=geometry_context,
-    )
+    if use_blank_llm:
+        decision = blank_llm.decide_cached(
+            geometry_quote_payload,
+            conn,
+            step_path=step_path,
+            step_text=step_text or payload.get("step_text"),
+            geometry=geometry_context,
+        )
+    else:
+        decision = blank_llm.geometry_decide(
+            geometry_quote_payload,
+            geometry=geometry_context,
+        )
     candidates, warnings = generate_candidates(payload)
     comparison = []
     for candidate in candidates:

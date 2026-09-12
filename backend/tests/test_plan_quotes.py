@@ -69,6 +69,7 @@ def test_plan_blank_llm_plate_uses_step_and_then_existing_decide(
         _payload(),
         seeded_conn,
         "test",
+        use_blank_llm=True,
         step_path=str(step_path),
     )
     decision = result["blank"]
@@ -90,10 +91,59 @@ def test_plan_blank_llm_plate_uses_step_and_then_existing_decide(
     assert decision["suggested_stock_size"]["display"] == "85 × 65 × 16 mm"
     assert decision["source"] == "llm"
     assert decision["model"] == "gpt-6-astra"
+    assert decision["pending"] is False
+    assert decision["cache_hit"] is False
     assert decision["decide_normalized_envelope"] is False
     assert decision["llm_rationale"] == "薄板投影，厚度显著小于长宽"
     assert decision["gaps"]
     assert 999 not in decision["allowance_mm"].values()
+
+
+def test_plan_quotes_default_never_calls_blank_llm(seeded_conn, monkeypatch):
+    def unexpected_tuzi(*_args, **_kwargs):
+        pytest.fail("默认报价不应调用 blank LLM")
+
+    monkeypatch.setattr(blank_llm, "_tuzi_chat", unexpected_tuzi)
+    result = plans.build_plan_quotes(_payload(), seeded_conn, "test")
+
+    assert result["blank"]["source"] == "geometry"
+    assert result["blank"]["model"] is None
+    assert result["blank"]["pending"] is False
+    assert result["blank"]["blank_type"] == "plate"
+    assert result["blank"]["suggested_stock_size"]["display"] == "85 × 65 × 16 mm"
+    assert result["blank"]["gaps"]
+
+
+def test_forced_blank_llm_cache_hit_skips_second_tuzi_call(
+    seeded_conn,
+    monkeypatch,
+):
+    calls = []
+
+    def fake_tuzi(*_args, **_kwargs):
+        calls.append(True)
+        return {
+            "blank_type": "plate",
+            "envelope_mm": {"length": 81, "width": 61, "height": 12},
+            "rationale": "缓存测试",
+        }
+
+    monkeypatch.setattr(blank_llm, "_tuzi_chat", fake_tuzi)
+    payload = _payload(length=81, width=61)
+    kwargs = {
+        "use_blank_llm": True,
+        "step_text": "ISO-10303-21;CACHE-TEST;END-ISO-10303-21;",
+    }
+
+    first = plans.build_plan_quotes(payload, seeded_conn, "test", **kwargs)
+    second = plans.build_plan_quotes(payload, seeded_conn, "test", **kwargs)
+
+    assert len(calls) == 1
+    assert first["blank"]["source"] == "llm"
+    assert first["blank"]["cache_hit"] is False
+    assert second["blank"]["source"] == "llm"
+    assert second["blank"]["cache_hit"] is True
+    assert second["blank"]["model"] == "gpt-6-astra"
 
 
 def test_blank_llm_failure_falls_back_to_geometry_decide(monkeypatch):
@@ -107,6 +157,7 @@ def test_blank_llm_failure_falls_back_to_geometry_decide(monkeypatch):
     assert decision["label"] == "板料"
     assert decision["source"] == "geometry"
     assert decision["model"] == "gpt-6-astra"
+    assert decision["pending"] is False
     assert decision["suggested_stock_size"]["display"] == "85 × 65 × 16 mm"
     assert decision["llm_error"] == "blank timeout"
 
@@ -165,6 +216,36 @@ def test_plan_endpoint_pins_user_candidate_first_and_quotes_every_plan(
         assert row["setup_count"] >= 1
 
 
+def test_plan_endpoint_force_blank_llm_uses_explicit_body_flag(
+    client,
+    monkeypatch,
+):
+    monkeypatch.delenv("TUZI_API_KEY", raising=False)
+    monkeypatch.setattr(
+        blank_llm,
+        "_tuzi_chat",
+        lambda *_args, **_kwargs: {
+            "blank_type": "square_bar",
+            "envelope_mm": {"length": 84, "width": 60, "height": 30},
+            "rationale": "显式刷新测试",
+        },
+    )
+
+    response = client.post(
+        "/api/v1/quotes/plans",
+        json={
+            **_payload(length=84, height=30),
+            "force_blank_llm": True,
+        },
+    )
+
+    assert response.status_code == 200
+    blank_result = response.get_json()["blank"]
+    assert blank_result["source"] == "llm"
+    assert blank_result["model"] == "gpt-6-astra"
+    assert blank_result["pending"] is False
+
+
 def test_comparison_amounts_are_taken_from_one_engine_call_per_candidate(
     seeded_conn,
     monkeypatch,
@@ -197,6 +278,44 @@ def test_comparison_amounts_are_taken_from_one_engine_call_per_candidate(
     ]
 
 
+def test_forced_llm_blank_does_not_change_comparison_geometry_stock(
+    seeded_conn,
+    monkeypatch,
+):
+    monkeypatch.delenv("TUZI_API_KEY", raising=False)
+    monkeypatch.setattr(
+        blank_llm,
+        "_tuzi_chat",
+        lambda *_args, **_kwargs: {
+            "blank_type": "round_bar",
+            "envelope_mm": {"diameter": 60, "length": 82},
+            "rationale": "LLM 识别为圆棒",
+        },
+    )
+    quote_payloads = []
+
+    def fake_quote(payload, conn, rules_version=""):
+        quote_payloads.append(payload)
+        return {
+            "quote": {"cost": 100, "amount": 120},
+            "ui_cost": {"machining": 10, "setup": 5},
+            "hours": {"total": 0.1},
+            "fixture": {"setup_count": 1},
+        }
+
+    monkeypatch.setattr(plans, "quote", fake_quote)
+    result = plans.build_plan_quotes(
+        _payload(length=82),
+        seeded_conn,
+        "test",
+        use_blank_llm=True,
+        step_text="ISO-10303-21;COMPARISON-ISOLATION;END-ISO-10303-21;",
+    )
+
+    assert result["blank"]["blank_type"] == "round_bar"
+    assert all(payload["stock_type"] == "板料" for payload in quote_payloads)
+
+
 def test_inquiry_part_persists_user_plan_and_embeds_comparison(
     client,
     monkeypatch,
@@ -220,3 +339,37 @@ def test_inquiry_part_persists_user_plan_and_embeds_comparison(
     assert len(body["quote"]["comparison"]) >= 2
     assert body["quote"]["blank"]["blank_type"] == "plate"
     assert body["quote"]["blank"]["source"] == "geometry"
+    assert body["quote"]["blank"]["model"] is None
+    assert body["quote"]["blank"]["pending"] is False
+
+
+def test_part_quote_force_blank_llm_persists_llm_blank(client, monkeypatch):
+    monkeypatch.delenv("TUZI_API_KEY", raising=False)
+    monkeypatch.setattr(
+        blank_llm,
+        "_tuzi_chat",
+        lambda *_args, **_kwargs: {
+            "blank_type": "square_bar",
+            "envelope_mm": {"length": 86, "width": 60, "height": 30},
+            "rationale": "零件显式刷新",
+        },
+    )
+    inquiry = client.post(
+        "/api/v1/inquiries",
+        json={"customer": "毛坯刷新"},
+    ).get_json()
+    part = client.post(
+        f"/api/v1/inquiries/{inquiry['id']}/parts",
+        json={**_payload(length=86, height=30), "name": "显式刷新件"},
+    ).get_json()
+
+    response = client.post(
+        f"/api/v1/parts/{part['id']}/quote",
+        json={"force_blank_llm": True},
+    )
+
+    assert response.status_code == 200
+    blank_result = response.get_json()["quote"]["blank"]
+    assert blank_result["source"] == "llm"
+    assert blank_result["model"] == "gpt-6-astra"
+    assert blank_result["pending"] is False

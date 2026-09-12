@@ -1,6 +1,7 @@
 """独立毛坯 LLM：只识别类型和零件包络，余量/库存仍由 blank.decide 决定。"""
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import os
@@ -219,23 +220,178 @@ def _observe(
     decision: dict,
     *,
     source: str,
-    model: str,
+    model: str | None,
     normalized: bool = False,
     rationale: str = "",
     error: Exception | None = None,
+    cache_hit: bool = False,
 ) -> dict:
     observed = dict(decision)
     observed.update({
         "source": source,
         "model": model,
+        "pending": False,
         "decide_normalized_envelope": bool(normalized),
         "gaps": _stock_table_gaps(decision["blank_type"]),
     })
+    if source == "llm":
+        observed["cache_hit"] = bool(cache_hit)
     if rationale:
         observed["llm_rationale"] = rationale
     if error is not None:
         observed["llm_error"] = str(error)[:300]
     return observed
+
+
+def geometry_decide(payload: dict, *, geometry: dict | None = None) -> dict:
+    """默认快路径：只执行确定性的 geometry 毛坯决策，不读取 STEP、不调用 LLM。"""
+    payload = geometry_payload(payload, geometry)
+    return _observe(
+        blank.decide(payload),
+        source="geometry",
+        model=None,
+    )
+
+
+def _decision_from_suggestion(
+    payload: dict,
+    suggestion: dict,
+    *,
+    model: str,
+    cache_hit: bool = False,
+) -> dict:
+    decision = blank.decide(_decision_payload(payload, suggestion))
+    normalized = (
+        decision["blank_type"] != suggestion["blank_type"]
+        or decision["label"] != suggestion["label"]
+        or not _same_envelope(
+            decision["envelope_mm"],
+            suggestion["envelope_mm"],
+        )
+    )
+    return _observe(
+        decision,
+        source="llm",
+        model=model,
+        normalized=normalized,
+        rationale=suggestion["rationale"],
+        cache_hit=cache_hit,
+    )
+
+
+def _step_sha256(step_path: str | None, step_text: str | bytes | None) -> str:
+    hasher = hashlib.sha256()
+    if step_text is not None:
+        hasher.update(
+            step_text
+            if isinstance(step_text, bytes)
+            else str(step_text).encode("utf-8")
+        )
+        return hasher.hexdigest()
+    if not step_path:
+        hasher.update(b"<no-step>")
+        return hasher.hexdigest()
+    with open(step_path, "rb") as step_file:
+        for chunk in iter(lambda: step_file.read(1024 * 1024), b""):
+            hasher.update(chunk)
+    return hasher.hexdigest()
+
+
+def input_fingerprint(
+    payload: dict,
+    *,
+    step_path: str | None = None,
+    step_text: str | bytes | None = None,
+) -> str:
+    """缓存键只绑定 STEP 内容与 geometry 包络，不绑定报价公式或库存规格。"""
+    envelope = {
+        key: payload.get(key)
+        for key in ("length", "width", "height", "diameter")
+        if payload.get(key) not in (None, "")
+    }
+    fingerprint_input = json.dumps(
+        {
+            "version": 1,
+            "step_sha256": _step_sha256(step_path, step_text),
+            "envelope_mm": envelope,
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(fingerprint_input).hexdigest()
+
+
+def decide_cached(
+    payload: dict,
+    conn,
+    *,
+    step_path: str | None = None,
+    step_text: str | None = None,
+    geometry: dict | None = None,
+) -> dict:
+    """显式 LLM 路径：命中耐久缓存则跳过 tu-zi，失败仍返回 geometry。"""
+    model = blank_model()
+    payload = geometry_payload(payload, geometry)
+    try:
+        fingerprint = input_fingerprint(
+            payload,
+            step_path=step_path,
+            step_text=step_text,
+        )
+        cached = conn.execute(
+            "SELECT model,suggestion_json FROM blank_llm_cache WHERE fingerprint=?",
+            (fingerprint,),
+        ).fetchone()
+        if cached:
+            try:
+                suggestion = map_suggestion(json.loads(cached["suggestion_json"]))
+                return _decision_from_suggestion(
+                    payload,
+                    suggestion,
+                    model=cached["model"],
+                    cache_hit=True,
+                )
+            except (TypeError, ValueError, json.JSONDecodeError):
+                conn.execute(
+                    "DELETE FROM blank_llm_cache WHERE fingerprint=?",
+                    (fingerprint,),
+                )
+                conn.commit()
+
+        text, truncated = _read_step(step_path, step_text)
+        suggestion = map_suggestion(_tuzi_chat(
+            build_messages(
+                payload,
+                step_text=text,
+                geometry=geometry,
+                truncated=truncated,
+            ),
+            model=model,
+        ))
+        conn.execute(
+            "INSERT OR REPLACE INTO blank_llm_cache"
+            "(fingerprint,model,suggestion_json,updated_at) "
+            "VALUES (?,?,?,datetime('now'))",
+            (
+                fingerprint,
+                model,
+                json.dumps(suggestion, ensure_ascii=False, sort_keys=True),
+            ),
+        )
+        conn.commit()
+        return _decision_from_suggestion(
+            payload,
+            suggestion,
+            model=model,
+        )
+    except Exception as exc:
+        return _observe(
+            blank.decide(payload),
+            source="geometry",
+            model=model,
+            error=exc,
+        )
 
 
 def decide(
@@ -259,22 +415,10 @@ def decide(
             ),
             model=model,
         )
-        suggestion = map_suggestion(raw)
-        decision = blank.decide(_decision_payload(payload, suggestion))
-        normalized = (
-            decision["blank_type"] != suggestion["blank_type"]
-            or decision["label"] != suggestion["label"]
-            or not _same_envelope(
-                decision["envelope_mm"],
-                suggestion["envelope_mm"],
-            )
-        )
-        return _observe(
-            decision,
-            source="llm",
+        return _decision_from_suggestion(
+            payload,
+            map_suggestion(raw),
             model=model,
-            normalized=normalized,
-            rationale=suggestion["rationale"],
         )
     except Exception as exc:
         return _observe(

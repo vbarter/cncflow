@@ -1181,6 +1181,7 @@ def _quote_part(
         quote_payload,
         conn,
         rules_version=rules_version,
+        use_blank_llm=extra.get("force_blank_llm") is True,
         step_path=blank_step_path,
         geometry=geometry,
     ))
