@@ -26,6 +26,25 @@ def _thread_specs(value):
     return [item.strip()[:100] for item in value if item.strip()][:100]
 
 
+def _user_process_plan(value):
+    if value in (None, "", {}):
+        return None
+    if isinstance(value, str):
+        value = value.strip()
+        if len(value) > 4000:
+            raise ValueError("user_process_plan 最长 4000 字符")
+        return value or None
+    if not isinstance(value, dict):
+        raise ValueError("user_process_plan 须为字符串或对象")
+    try:
+        encoded = json.dumps(value, ensure_ascii=False)
+    except (TypeError, ValueError):
+        raise ValueError("user_process_plan 不是有效 JSON 对象") from None
+    if len(encoded) > 10000:
+        raise ValueError("user_process_plan 最长 10000 字符")
+    return value
+
+
 def _qty(value, default=1):
     if value in (None, ""):
         if default is not None:
@@ -62,6 +81,12 @@ def _part(row):
     item = dict(row)
     item["is_repeat_order"] = bool(item.get("is_repeat_order"))
     item["quote"] = json.loads(item.pop("quote_json") or "null")
+    try:
+        item["user_process_plan"] = _user_process_plan(
+            json.loads(item.pop("user_process_plan_json", None) or "null")
+        )
+    except (TypeError, ValueError, json.JSONDecodeError):
+        item["user_process_plan"] = None
     try:
         item["thread_specs"] = _thread_specs(
             json.loads(item.pop("thread_specs_json", None) or "[]")
@@ -119,8 +144,8 @@ def add_part(conn, iid: str, payload: dict) -> dict:
     qty = _qty(payload.get("qty"))
     conn.execute(
         "INSERT INTO parts (id,inquiry_id,name,qty,material_code,surface_finish,tolerance_it,roughness_ra,thread_specs_json,"
-        "batch_size,is_repeat_order,blank_type,length,width,height,diameter,status,slider) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "batch_size,is_repeat_order,blank_type,length,width,height,diameter,status,slider,user_process_plan_json) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (
             pid, iid, payload.get("name") or "零件",
             qty, payload.get("material") or payload.get("material_code") or "铝合金",
@@ -131,6 +156,7 @@ def add_part(conn, iid: str, payload: dict) -> dict:
             payload.get("blank_type") or "板料",
             payload.get("length"), payload.get("width"), payload.get("height"), payload.get("diameter"),
             "draft", payload.get("slider") or "标准",
+            json.dumps(_user_process_plan(payload.get("user_process_plan")), ensure_ascii=False),
         ),
     )
     conn.commit()
@@ -153,7 +179,7 @@ def update_part(conn, pid: str, patch: dict) -> dict:
         raise ValueError("thread_specs_json 是内部字段，请使用 thread_specs")
     allowed = {"name", "qty", "material_code", "surface_finish", "tolerance_it", "roughness_ra",
                "thread_specs_json", "batch_size", "is_repeat_order", "blank_type",
-               "length", "width", "height", "diameter", "slider"}
+               "length", "width", "height", "diameter", "slider", "user_process_plan_json"}
     if "material" in patch:
         patch = {**patch, "material_code": patch["material"]}
     if "thread_specs" in patch:
@@ -161,6 +187,14 @@ def update_part(conn, pid: str, patch: dict) -> dict:
             **patch,
             "thread_specs_json": json.dumps(
                 _thread_specs(patch["thread_specs"]),
+                ensure_ascii=False,
+            ),
+        }
+    if "user_process_plan" in patch:
+        patch = {
+            **patch,
+            "user_process_plan_json": json.dumps(
+                _user_process_plan(patch["user_process_plan"]),
                 ensure_ascii=False,
             ),
         }

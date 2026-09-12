@@ -12,6 +12,7 @@ def pytest_configure(config):
 @pytest.fixture(autouse=True)
 def _geometry_parser_for_pin_tests(monkeypatch, request):
     """现网插件/报价钉测默认走几何回退；标 llm_features 的测才打 LLM 主路径。"""
+    monkeypatch.setenv("CNCFLOW_PLAN_LLM_ENABLED", "0")
     if request.node.get_closest_marker("llm_features"):
         monkeypatch.setenv("CNCFLOW_FEATURE_PARSER", "llm")
         return

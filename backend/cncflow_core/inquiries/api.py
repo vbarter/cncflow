@@ -15,6 +15,7 @@ from ..ingestion import r2
 from ..common.materials import resolve_material
 from ..quoting.engine import quote
 from ..quoting import process_edits
+from ..quoting.plans import build_plan_quotes
 from . import store
 from .quote_pdf import build_quote_pdf
 
@@ -710,7 +711,7 @@ def _quote_part(
         material = raw_mat
     if process_overrides is _UNSET:
         process_overrides = saved_quote.get("process_overrides") or []
-    result = quote({
+    quote_payload = {
         "material": material,
         "stock_type": part.get("blank_type") or "板料",
         "length": L,
@@ -725,7 +726,18 @@ def _quote_part(
         "v_part_cad": _cad_volume_mm3(geometry),
         "features": features,
         "process_overrides": process_overrides,
-    }, conn, rules_version=rules_version)
+        "user_process_plan": (
+            extra.get("user_process_plan")
+            if "user_process_plan" in extra
+            else part.get("user_process_plan")
+        ),
+    }
+    result = quote(quote_payload, conn, rules_version=rules_version)
+    result.update(build_plan_quotes(
+        quote_payload,
+        conn,
+        rules_version=rules_version,
+    ))
     result["review_features"] = review
     result["feature_overrides"] = feature_overrides
     return store.set_quote(conn, part["id"], result)
@@ -762,7 +774,8 @@ def _maybe_quote(conn, part):
     already = isinstance(q.get("quote"), dict) and (q.get("quote") or {}).get("amount")
     seq = q.get("process_sequence") or []
     has_sku = any(s.get("sku") for s in seq)
-    if already and has_sku and part.get("status") in {"quoted", "revising"}:
+    has_plan_comparison = bool(q.get("blank") and len(q.get("comparison") or []) >= 2)
+    if already and has_sku and has_plan_comparison and part.get("status") in {"quoted", "revising"}:
         return part
     try:
         quoted = _quote_part(conn, part)

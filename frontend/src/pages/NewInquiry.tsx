@@ -10,13 +10,14 @@ type PartDraft = {
   surface_finish: string
   precision: string
   roughness_ra: string
+  user_process_plan: string
   step?: File
   pdf?: File
 }
 
 const empty = (): PartDraft => ({
   name: "", qty: "1", material: "AL6061-T6", surface_finish: "无",
-  precision: "普通(ISO 2768-m)", roughness_ra: "3.2",
+  precision: "普通(ISO 2768-m)", roughness_ra: "3.2", user_process_plan: "",
 })
 
 function isStep(f: File) {
@@ -90,6 +91,7 @@ export function NewInquiry({ go }: { go: (h: string) => void }) {
             tolerance_it: p.precision.includes("精密") ? 7 : 11,
             roughness_ra: Number(p.roughness_ra) || 3.2,
             batch_size: Number(p.qty) || 1,
+            user_process_plan: p.user_process_plan.trim() || null,
           }),
         })
         if (p.step || p.pdf) {
@@ -170,6 +172,15 @@ export function NewInquiry({ go }: { go: (h: string) => void }) {
                 <button type="button" className="min-h-11 flex-1 rounded border border-[#e2e8f0] px-3 text-xs text-slate-600" onClick={() => { fileRow.current = { i, kind: "step" }; stepRef.current?.click() }}>{p.step ? p.step.name : "⇪ 上传 STEP"}</button>
                 <button type="button" className="min-h-11 flex-1 rounded border border-[#e2e8f0] px-3 text-xs text-slate-600" onClick={() => { fileRow.current = { i, kind: "pdf" }; pdfRef.current?.click() }}>{p.pdf ? p.pdf.name : "⇪ 上传 PDF"}</button>
               </div>
+              <label className="block text-xs text-slate-500">
+                用户工艺方案（可选）
+                <textarea
+                  className="mt-1 min-h-20 w-full rounded border border-[#e2e8f0] bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-blue-500"
+                  value={p.user_process_plan}
+                  onChange={e => upd(i, { user_process_plan: e.target.value })}
+                  placeholder="例如：3轴立加，两次装夹；先粗铣外形，再加工孔系"
+                />
+              </label>
               <div className="text-xs text-slate-400">状态：待分析</div>
             </div>
           </div>
@@ -178,7 +189,7 @@ export function NewInquiry({ go }: { go: (h: string) => void }) {
       <div className="hidden overflow-x-auto md:block">
         <table className="w-full border-collapse text-left text-sm">
           <thead><tr className="border-b border-[#e2e8f0] bg-slate-50 text-xs text-slate-500">
-            <th className="py-2 pr-2 font-normal">零件名称</th><th className="font-normal">数量</th><th className="font-normal">材料</th><th className="font-normal">表面处理</th><th className="font-normal">关键精度</th><th className="font-normal">粗糙度</th><th className="font-normal">图纸</th><th className="font-normal">状态</th><th className="font-normal">操作</th>
+            <th className="py-2 pr-2 font-normal">零件名称</th><th className="font-normal">数量</th><th className="font-normal">材料</th><th className="font-normal">表面处理</th><th className="font-normal">关键精度</th><th className="font-normal">粗糙度</th><th className="font-normal">用户工艺（可选）</th><th className="font-normal">图纸</th><th className="font-normal">状态</th><th className="font-normal">操作</th>
           </tr></thead>
           <tbody>
             {parts.map((p, i) => (
@@ -189,6 +200,14 @@ export function NewInquiry({ go }: { go: (h: string) => void }) {
                 <td>{finishSelect(p, i)}</td>
                 <td>{precisionSelect(p, i)}</td>
                 <td>{raSelect(p, i)}</td>
+                <td className="min-w-52 px-1">
+                  <textarea
+                    className="min-h-16 w-full rounded border border-[#e2e8f0] px-2 py-1.5 text-xs outline-none focus:border-blue-500"
+                    value={p.user_process_plan}
+                    onChange={e => upd(i, { user_process_plan: e.target.value })}
+                    placeholder="设备、装夹、工序"
+                  />
+                </td>
                 <td className="whitespace-nowrap">
                   <button type="button" className="mr-2 text-xs text-slate-500 hover:underline" onClick={() => { fileRow.current = { i, kind: "step" }; stepRef.current?.click() }}>{p.step ? p.step.name : "⇪ STEP"}</button>
                   <button type="button" className="text-xs text-slate-500 hover:underline" onClick={() => { fileRow.current = { i, kind: "pdf" }; pdfRef.current?.click() }}>{p.pdf ? p.pdf.name : "⇪ PDF"}</button>
