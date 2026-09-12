@@ -1,6 +1,7 @@
 """询价单 / 零件状态机。"""
 from io import BytesIO
 import json
+import os
 
 import pytest
 
@@ -10,6 +11,11 @@ from cncflow_core.inquiries.api import _cad_volume_mm3, _flatten_hole_fields
 
 
 MINIMAL_STEP = b"ISO-10303-21;\nHEADER;\nFILE_SCHEMA(('AUTOMOTIVE_DESIGN'));\nENDSEC;\nDATA;\nENDSEC;\nEND-ISO-10303-21;"
+SK002952_LLM_OD = os.path.join(
+    os.path.dirname(__file__),
+    "fixtures",
+    "llm_sk002952_outer_cylinders.json",
+)
 
 
 def _nuc_step_bytes(tmp_path):
@@ -308,6 +314,100 @@ def test_part_detail_refreshes_stale_open_slot_labor_names(
         for group in persisted["labor_cost_breakdown"]["groups"]
         if "slot-0" in group["feature_ids"]
     )
+
+
+def test_part_detail_persists_stale_llm_outer_cylinder_review_merge(
+    client,
+    seeded_db_path,
+):
+    with open(SK002952_LLM_OD, encoding="utf-8") as fh:
+        raw_features = json.load(fh)["features"]
+    inquiry = client.post(
+        "/api/v1/inquiries",
+        json={"customer": "华科"},
+    ).get_json()
+    pid = client.post(
+        f"/api/v1/inquiries/{inquiry['id']}/parts",
+        json={
+            "name": "SK002952",
+            "material": "钢",
+            "qty": 5,
+            "batch_size": 5,
+            "length": 35,
+            "width": 23.7,
+            "height": 23.7,
+            "diameter": 23.7,
+            "blank_type": "圆棒",
+        },
+    ).get_json()["id"]
+    job_id = client.post(
+        "/api/v1/parse-jobs",
+        data={
+            "step_file": (BytesIO(MINIMAL_STEP), "SK002952.step"),
+            "part_id": pid,
+        },
+        content_type="multipart/form-data",
+    ).get_json()["job_id"]
+    conn = get_conn(seeded_db_path)
+    finish_job(conn, job_id, {
+        "geometry": {
+            "volume_cm3": 13.8,
+            "bounding_box_mm": {"x": 23.7, "y": 23.7, "z": 35},
+        },
+        "features": raw_features,
+        "drawing": None,
+        "warnings": [],
+    })
+    conn.close()
+
+    current = client.get(f"/api/v1/parts/{pid}").get_json()
+    stale_quote = current["quote"]
+    stale_quote["review_features"] = raw_features
+    amount_before = dict(stale_quote["quote"])
+    process_before = list(stale_quote["process_sequence"])
+    conn = get_conn(seeded_db_path)
+    conn.execute(
+        "UPDATE parts SET quote_json=? WHERE id=?",
+        (json.dumps(stale_quote, ensure_ascii=False), pid),
+    )
+    conn.commit()
+    conn.close()
+
+    response = client.get(f"/api/v1/parts/{pid}")
+
+    assert response.status_code == 200
+    part = response.get_json()
+    for features in (
+        part["parsed_features"],
+        part["quote"]["review_features"],
+    ):
+        outer = [
+            feature
+            for feature in features
+            if feature["type"] == "outer_cylinder"
+        ]
+        assert len(outer) == 3
+        by_diameter = {feature["diameter_mm"]: feature for feature in outer}
+        assert by_diameter[21]["merged_from"] == ["od-0", "od-2"]
+        assert by_diameter[21]["depth_mm"] == pytest.approx(22.8)
+        assert by_diameter[19]["merged_from"] == ["od-1", "od-4"]
+        assert by_diameter[19]["depth_mm"] == pytest.approx(17.2)
+        assert by_diameter[23.7]["depth_mm"] == pytest.approx(3.2)
+    assert part["quote"]["quote"] == amount_before
+    assert part["quote"]["process_sequence"] == process_before
+    assert part["qty"] == part["batch_size"] == 5
+
+    conn = get_conn(seeded_db_path)
+    persisted = json.loads(conn.execute(
+        "SELECT quote_json FROM parts WHERE id=?",
+        (pid,),
+    ).fetchone()[0])
+    conn.close()
+    assert len([
+        feature
+        for feature in persisted["review_features"]
+        if feature["type"] == "outer_cylinder"
+    ]) == 3
 
 
 def test_part_detail_keeps_closed_pocket_labor_name(client):

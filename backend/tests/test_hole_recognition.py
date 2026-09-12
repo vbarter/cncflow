@@ -1,5 +1,6 @@
 """Hole recognition fields vs hole pipeline (D/H, through/blind, position_type)."""
 from io import BytesIO
+import json
 import math
 import os
 
@@ -19,10 +20,18 @@ from cncflow_core.ingestion.step_parser import (
     recover_through_depth, through_cut_depth, through_into_cavity,
     through_wall_depth, _hole_feature, _merge_inner,
 )
-from cncflow_core.inquiries.api import _hole_for_pipeline, _review_and_quote_features
+from cncflow_core.inquiries.api import (
+    _hole_for_pipeline,
+    _review_and_quote_features,
+    _sanitize_review_features,
+)
 
 FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures")
 NUC_PLATE_STEP = os.path.join(FIXTURES, "nuc_plate_windows.step")
+SK002952_LLM_OD = os.path.join(
+    FIXTURES,
+    "llm_sk002952_outer_cylinders.json",
+)
 
 
 MINIMAL_STEP = (
@@ -175,8 +184,20 @@ def test_review_keeps_coaxial_different_diameter_outer_cylinders_separate():
 
 def test_review_keeps_same_diameter_parallel_noncoaxial_outer_cylinders_separate():
     feats = [
-        _outer_cylinder("od-1", 40, (0, 0, 0), (0, 0, 1), 10),
-        _outer_cylinder("od-2", 40, (2, 0, 10), (0, 0, 1), 10),
+        {
+            "type": "outer_cylinder",
+            "feature_id": feature_id,
+            "source": "llm",
+            "diameter_mm": 40,
+            "depth_mm": 10,
+            "location": dict(zip(("x", "y", "z"), location)),
+            "axis": {"x": 0, "y": 0, "z": 1},
+            "pose": None,
+        }
+        for feature_id, location in (
+            ("od-1", (0, 0, 0)),
+            ("od-2", (2, 0, 10)),
+        )
     ]
 
     review, quoted = _review_and_quote_features(feats, None, 40, 40, 20)
@@ -206,7 +227,7 @@ def test_review_merges_step_parser_outer_cylinders_from_axis_and_center():
     assert review[0]["depth_mm"] == 20
 
 
-def test_review_does_not_merge_llm_outer_cylinders_without_explicit_pose():
+def test_review_merges_llm_outer_cylinders_with_usable_start_geometry():
     feats = [
         {
             "type": "outer_cylinder",
@@ -223,7 +244,63 @@ def test_review_does_not_merge_llm_outer_cylinders_without_explicit_pose():
     review, quoted = _review_and_quote_features(feats, None, 40, 40, 20)
 
     assert quoted == []
+    assert len(review) == 1
+    assert review[0]["merged_from"] == ["od-1", "od-2"]
+    assert review[0]["depth_mm"] == 10
+
+
+@pytest.mark.parametrize("missing", ["location", "axis", "diameter_mm", "depth_mm"])
+def test_review_does_not_merge_llm_outer_cylinders_without_geometry_evidence(
+    missing,
+):
+    feats = [
+        {
+            "type": "outer_cylinder",
+            "feature_id": feature_id,
+            "source": "llm",
+            "diameter_mm": 40,
+            "depth_mm": 10,
+            "location": {"x": 0, "y": 0, "z": index * 10},
+            "axis": {"x": 0, "y": 0, "z": 1},
+        }
+        for index, feature_id in enumerate(("od-1", "od-2"))
+    ]
+    for feature in feats:
+        feature.pop(missing)
+
+    review, quoted = _review_and_quote_features(feats, None, 40, 40, 20)
+
+    assert quoted == []
     assert [feature["feature_id"] for feature in review] == ["od-1", "od-2"]
+    assert all("merged_from" not in feature for feature in review)
+
+
+def test_review_merges_sk002952_stored_llm_outer_cylinders():
+    with open(SK002952_LLM_OD, encoding="utf-8") as fh:
+        raw_features = json.load(fh)["features"]
+
+    sanitized = _sanitize_review_features(raw_features)
+    review, quoted = _review_and_quote_features(
+        raw_features,
+        None,
+        23.7,
+        23.7,
+        35,
+    )
+
+    assert quoted == []
+    for features in (sanitized, review):
+        assert len(features) == 3
+        by_diameter = {feature["diameter_mm"]: feature for feature in features}
+        assert by_diameter[21]["merged_from"] == ["od-0", "od-2"]
+        assert by_diameter[21]["depth_mm"] == pytest.approx(22.8)
+        assert by_diameter[19]["merged_from"] == ["od-1", "od-4"]
+        assert by_diameter[19]["depth_mm"] == pytest.approx(17.2)
+        assert "merged_from" not in by_diameter[23.7]
+        assert by_diameter[23.7]["depth_mm"] == pytest.approx(3.2)
+        assert all(feature["pose"] for feature in features)
+        assert all(feature["quote_excluded"] is True for feature in features)
+        assert all(feature["amount_contribution"] == 0 for feature in features)
 
 
 def test_raw_cylinder_candidate_never_reaches_review_or_quote():
