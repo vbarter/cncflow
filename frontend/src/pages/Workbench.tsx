@@ -6,6 +6,50 @@ import { hoursLabel, quoteHours } from "../quoteHours"
 import { inquirySuggestedDays, suggestedDaysLabel } from "../suggestedDays"
 
 const LABELS: Record<string, string> = { pending: "待处理", quoting: "报价中", review: "待审核", done: "已完成" }
+const SHANGHAI_TIME_FORMATTER = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "Asia/Shanghai",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+})
+
+type CreatedAtSort = "asc" | "desc"
+
+function timestampMillis(value: unknown) {
+  if (typeof value !== "string" || !value.trim()) return null
+  const timestamp = value.trim()
+  const utcTimestamp = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d+)?$/.test(timestamp)
+    ? `${timestamp.replace(" ", "T")}Z`
+    : timestamp
+  const millis = Date.parse(utcTimestamp)
+  return Number.isNaN(millis) ? null : millis
+}
+
+export function formatShanghaiTimestamp(value: unknown) {
+  const millis = timestampMillis(value)
+  if (millis == null) return "—"
+  const parts = Object.fromEntries(
+    SHANGHAI_TIME_FORMATTER.formatToParts(millis).map(part => [part.type, part.value]),
+  )
+  return `${parts.month}-${parts.day} ${parts.hour}:${parts.minute}`
+}
+
+export function sortInquiriesByCreatedAt(items: any[], direction: CreatedAtSort) {
+  return [...items].sort((a, b) => {
+    const aTime = timestampMillis(a.created_at)
+    const bTime = timestampMillis(b.created_at)
+    if (aTime == null) return bTime == null ? 0 : 1
+    if (bTime == null) return -1
+    return direction === "asc" ? aTime - bTime : bTime - aTime
+  })
+}
+
+function updatedAtTitle(value: unknown) {
+  const timestamp = formatShanghaiTimestamp(value)
+  return timestamp === "—" ? undefined : `更新 ${timestamp}`
+}
 
 function yen(n: any) {
   const v = Number(n)
@@ -39,16 +83,17 @@ export function Workbench({ go }: { go: (h: string) => void }) {
   const [items, setItems] = useState<any[]>([])
   const [filter, setFilter] = useState("")
   const [q, setQ] = useState("")
+  const [createdAtSort, setCreatedAtSort] = useState<CreatedAtSort>("desc")
   useEffect(() => {
     json<{ items: any[] }>("/inquiries" + (filter ? `?ui_status=${filter}` : "")).then(d => setItems(d.items)).catch(() => setItems([]))
   }, [filter])
   const counts = items.reduce((a: any, i) => { a[i.ui_status] = (a[i.ui_status] || 0) + 1; return a }, { pending: 0, quoting: 0, review: 0, done: 0 })
   const monthAmount = items.reduce((s, i) => s + totals(i).amount, 0)
-  const shown = items.filter(i => {
+  const shown = sortInquiriesByCreatedAt(items.filter(i => {
     if (!q.trim()) return true
     const blob = `${i.title || ""} ${i.customer || ""} ${i.project || ""}`
     return blob.toLowerCase().includes(q.trim().toLowerCase())
-  })
+  }), createdAtSort)
   return <div className="space-y-6">
     <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
       <div>
@@ -102,7 +147,10 @@ export function Workbench({ go }: { go: (h: string) => void }) {
               <div className="text-sm font-semibold">{yen(t.amount)}</div>
             </div>
           </div>
-          <div className="mt-3 text-xs text-slate-500">交期要求 {i.due_date || "—"} · 建议交期 {suggestedDaysLabel(t.suggestedDays)}</div>
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+            <div>交期要求 {i.due_date || "—"} · 建议交期 {suggestedDaysLabel(t.suggestedDays)}</div>
+            <time title={updatedAtTitle(i.updated_at)}>创建 {formatShanghaiTimestamp(i.created_at)}</time>
+          </div>
         </Card>
       })}
       {!shown.length && <Card className="px-4 py-10 text-center text-sm text-slate-500">还没有询价单</Card>}
@@ -110,13 +158,26 @@ export function Workbench({ go }: { go: (h: string) => void }) {
     <Card className="hidden overflow-x-auto md:block">
       <table className="w-full text-left text-sm">
         <thead><tr className="border-b border-[#e2e8f0] text-xs text-slate-500">
-          <th className="px-4 py-3">询价单号</th><th>客户</th><th>零件</th><th>报价金额</th><th>成本</th><th>综合毛利</th><th>加工时间</th><th>交期</th><th>状态</th><th>操作</th>
+          <th className="px-4 py-3">询价单号</th>
+          <th aria-sort={createdAtSort === "asc" ? "ascending" : "descending"}>
+            <button
+              type="button"
+              className="whitespace-nowrap py-3 text-left hover:text-slate-900"
+              onClick={() => setCreatedAtSort(current => current === "desc" ? "asc" : "desc")}
+            >
+              创建时间 {createdAtSort === "desc" ? "↓" : "↑"}
+            </button>
+          </th>
+          <th>客户</th><th>零件</th><th>报价金额</th><th>成本</th><th>综合毛利</th><th>加工时间</th><th>交期</th><th>状态</th><th>操作</th>
         </tr></thead>
         <tbody>
           {shown.map(i => {
             const t = totals(i)
             return <tr key={i.id} className="border-b border-slate-100 hover:bg-slate-50">
               <td className="px-4 py-3 font-mono text-xs">{i.title || "—"}</td>
+              <td className="whitespace-nowrap font-mono text-xs">
+                <time title={updatedAtTitle(i.updated_at)}>{formatShanghaiTimestamp(i.created_at)}</time>
+              </td>
               <td className="font-medium">{i.customer || "—"}</td>
               <td>{t.n} 个零件</td>
               <td>{yen(t.amount)}</td>
@@ -128,7 +189,7 @@ export function Workbench({ go }: { go: (h: string) => void }) {
               <td><button type="button" className="text-sm text-blue-600" onClick={() => go("inquiry/" + i.id)}>查看询价单 →</button></td>
             </tr>
           })}
-          {!shown.length && <tr><td colSpan={10} className="px-4 py-10 text-center text-slate-500">还没有询价单</td></tr>}
+          {!shown.length && <tr><td colSpan={11} className="px-4 py-10 text-center text-slate-500">还没有询价单</td></tr>}
         </tbody>
       </table>
     </Card>
