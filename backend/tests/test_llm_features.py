@@ -71,7 +71,7 @@ def test_map_llm_plate_hole_d8_fixture_fields():
 def test_map_llm_fixture_review_and_quote_pins(client):
     features = map_llm_features(_fixture_payload())["features"]
     review, quoted = _review_and_quote_features(features, None, 80, 60, 12)
-    assert {feat["feature_id"] for feat in review} == {"hole-0", "face-0", "od-0"}
+    assert {feat["feature_id"] for feat in review} == {"hole-0", "face-0"}
     assert [feat["type"] for feat in quoted] == ["hole", "face"]
     hole = quoted[0]
     assert hole["cut_depth_mm"] == pytest.approx(14.4)
@@ -124,14 +124,31 @@ def test_map_llm_empty_or_garbage_is_visible_failure():
         _json_object("not-json")
 
 
-def test_sanitize_drops_pocket_or_step_leftover():
+def test_sanitize_keeps_only_handbook_types_with_live_quote_mappings():
     cleaned = _sanitize_review_features([
+        {"type": "hole", "feature_id": "hole-0"},
+        {"type": "face", "feature_id": "face-0"},
         {"type": "pocket", "feature_id": "slot-0", "subtype": "recognized_slot"},
+        {"type": "slot", "feature_id": "open-slot-0"},
+        {"type": "thread", "feature_id": "thread-0"},
         {"type": "surface", "feature_id": "surface-0", "subtype": "recognized_surface"},
+        {"type": "step", "feature_id": "step-0"},
+        {"type": "outer_cylinder", "feature_id": "od-0"},
+        {"type": "chamfer", "feature_id": "chamfer-0"},
+        {"type": "fillet", "feature_id": "fillet-0"},
+        {"type": "boss", "feature_id": "boss-0"},
         {"type": "pocket_or_step", "feature_id": "prismatic-region-0", "subtype": "planar_region"},
         {"type": "hole", "feature_id": "cylinder-0", "subtype": "cylindrical_candidate"},
     ])
-    assert [feat["feature_id"] for feat in cleaned] == ["slot-0", "surface-0"]
+    assert [feat["feature_id"] for feat in cleaned] == [
+        "hole-0",
+        "face-0",
+        "slot-0",
+        "open-slot-0",
+        "thread-0",
+        "surface-0",
+        "step-0",
+    ]
 
 
 def test_map_llm_skips_unknown_keeps_valid():

@@ -400,12 +400,24 @@ def _review_and_quote_features(parsed_feats, selected_ids, L, W, H=0):
     return review, features
 
 
+_REVIEW_FEATURE_TYPES = {
+    "hole",
+    "face",
+    "pocket",
+    "slot",
+    "thread",
+    "surface",
+    "step",
+}
+
+
 def _sanitize_review_features(features):
-    """Parser leftovers (raw cylinders, pocket_or_step hints) never enter the review tree."""
+    """Only handbook-covered features with live quote mappings enter review payloads."""
     return [
         feature
         for feature in features or []
         if isinstance(feature, dict)
+        and str(feature.get("type") or "").lower() in _REVIEW_FEATURE_TYPES
         and feature.get("subtype") not in {"cylindrical_candidate", "planar_region"}
         and feature.get("type") != "pocket_or_step"
         and not str(feature.get("feature_id") or feature.get("id") or "").startswith("cylinder-")
