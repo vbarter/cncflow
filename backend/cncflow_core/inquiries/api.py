@@ -69,6 +69,10 @@ _POS_TO_SURFACE = {
 }
 _HOLE_TYPE = {"through": "through", "blind": "blind", "通孔": "through", "盲孔": "blind"}
 _BOTTOM = {"cone": "cone", "flat": "flat", "锥底": "cone", "conical": "cone", "平底": "flat"}
+_OPEN_SLOT_POCKET_TYPES = {
+    "开放", "开口", "开口槽", "通槽",
+    "open", "opened", "open_slot", "through_slot", "side_open",
+}
 
 
 def _hole_for_pipeline(feat, fid):
@@ -115,10 +119,19 @@ def _pocket_for_pipeline(feat, fid):
     corner = feat.get("corner_radius")
     if corner is None:
         corner = dim.get("corner_radius") or 1
+    pocket_type = feat.get("pocket_type") or dim.get("pocket_type") or "封闭"
+    normalized_pocket_type = str(pocket_type).strip().lower().replace("-", "_").replace(" ", "_")
+    source_type = str(feat.get("type") or "pocket").strip().lower()
+    display_type = (
+        "slot"
+        if source_type == "slot" or normalized_pocket_type in _OPEN_SLOT_POCKET_TYPES
+        else "pocket"
+    )
     return {
         "type": "pocket",
+        "display_type": display_type,
         "feature_id": fid,
-        "pocket_type": feat.get("pocket_type") or dim.get("pocket_type") or "封闭",
+        "pocket_type": pocket_type,
         "length": float(length),
         "width": float(width),
         "depth": float(depth),
