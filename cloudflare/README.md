@@ -30,6 +30,8 @@ npx wrangler secret put TUZI_FEATURE_MODEL    # STEP features, default gpt-6-ast
 
 The Worker forwards `POST /api/v1/chat` to the container Node process on port 3002 without buffering. Chat jail is `/app/chat-jail` (`docs/knowledge-base`, `backend/cncflow_core`, `frontend/src`). The only registered tools are `read` and read-only `bash`; `write` / `edit` and all other tools are disabled.
 
-Frontend production build uses `VITE_BASE=/` and `VITE_API_URL` pointing at the `cncflow-api` Worker origin. The Cloudflare workflow publishes `frontend/dist` to Pages project `cncflow` on every main push. VPS SSH publish remains as a fallback.
+Frontend production build uses `VITE_BASE=/` and `VITE_API_URL` pointing at the `cncflow-api` Worker origin. The Cloudflare workflow publishes `frontend/dist` to Pages project `cncflow` on every main push.
 
-CORS is applied at the Worker (OPTIONS 204 + ACAO on proxied responses). `CNCFLOW_CORS_ORIGINS` defaults to `*`; Flask `_install_cors` is defense in depth only.
+Tencent VPS dual-publishes the **same UI** as static nginx on **http://43.129.175.172:8081/** (`VITE_BASE=/`, no `VITE_API_URL`; nginx reverse-proxies `/api` to this Worker). Pages job is unchanged; the optional `tencent` job after it rsyncs when `TENCENT_SSH_PRIVATE_KEY` is set. See `deploy/tencent/README.md`. Do not move Flask, the parser, or R2 onto that box.
+
+CORS is applied at the Worker (OPTIONS 204 + ACAO on proxied responses). `CNCFLOW_CORS_ORIGINS` defaults to `*`; Flask `_install_cors` is defense in depth only. If someone rsyncs the Pages dist (Worker URL baked in), allow `http://43.129.175.172:8081` on that secret. Same-origin nginx `/api` does not need CORS.

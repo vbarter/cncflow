@@ -18,6 +18,21 @@
 
 生产环境不会自动灌入模拟 SKU；如需演示，显式设置 `CNCFLOW_SEED_MOCK_TOOLS=1`。
 
-## Cloudflare
+## Cloudflare + Tencent（前端双发）
 
-生产目标是 Pages（前端）+ Container（Flask 与解析进程）+ R2（STP/PDF 与 SQLite 检查点）。细节见 `cloudflare/README.md`。VPS SSH 发布仍可用。
+生产目标是 Pages（前端）+ Container（Flask 与解析进程）+ R2（STP/PDF 与 SQLite 检查点）。细节见 `cloudflare/README.md`。
+
+| 前端 | URL | 构建 |
+| --- | --- | --- |
+| Cloudflare Pages | https://cncflow.pages.dev | `VITE_BASE=/` + `VITE_API_URL` → Worker |
+| Tencent VPS | **http://43.129.175.172:8081/** | `VITE_BASE=/`，同域 `/api` → nginx → Worker |
+
+API 只在 Cloudflare Worker：`https://cncflow-api.yzcaijunjie6095.workers.dev`。腾讯机**只跑 Vite 静态文件 + nginx**，不迁 Flask / LLM / parser / R2。80/443 是 magicart、8080 已占用，所以独立听 **8081**。
+
+Pages 工作流不变；main 推送后可选 rsync（secret `TENCENT_SSH_PRIVATE_KEY`）。没配 key 时用 HostAlias：
+
+```bash
+./deploy/tencent/publish.sh   # ssh tencent → root@43.129.175.172
+```
+
+跑本见 `deploy/tencent/README.md`。旧 VPS Flask 发布（`deploy/deploy.sh`）仍可用，与腾讯静态站无关。
