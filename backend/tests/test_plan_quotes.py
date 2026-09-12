@@ -415,6 +415,7 @@ def test_plan_llm_default_model_and_enriched_step_feature_prompt(monkeypatch):
         return FakeResponse()
 
     monkeypatch.setenv("TUZI_API_KEY", "test-key")
+    monkeypatch.setenv("CNCFLOW_PLAN_LLM_ENABLED", "1")
     monkeypatch.delenv("TUZI_PLAN_MODEL", raising=False)
     monkeypatch.setattr(plans.request, "urlopen", fake_urlopen)
     result = plans._request_llm_candidates(
@@ -449,6 +450,7 @@ def test_plan_llm_default_model_and_enriched_step_feature_prompt(monkeypatch):
 
 def test_plan_llm_filters_same_route_skin_variants(monkeypatch):
     monkeypatch.setenv("TUZI_API_KEY", "test-key")
+    monkeypatch.setenv("CNCFLOW_PLAN_LLM_ENABLED", "1")
     monkeypatch.setattr(
         plans,
         "_bounded_llm_request",
@@ -494,6 +496,7 @@ def test_plan_llm_filters_same_route_skin_variants(monkeypatch):
 
 def test_plan_llm_failure_returns_rule_fallback(monkeypatch):
     monkeypatch.setenv("TUZI_API_KEY", "test-key")
+    monkeypatch.setenv("CNCFLOW_PLAN_LLM_ENABLED", "1")
 
     def fail(*_args, **_kwargs):
         raise RuntimeError("upstream unavailable")
@@ -509,6 +512,7 @@ def test_plan_llm_failure_returns_rule_fallback(monkeypatch):
 
 def test_plan_slow_llm_hits_short_timeout_and_keeps_user_first(monkeypatch):
     monkeypatch.setenv("TUZI_API_KEY", "test-key")
+    monkeypatch.setenv("CNCFLOW_PLAN_LLM_ENABLED", "1")
     monkeypatch.setenv("TUZI_PLAN_TIMEOUT_SECONDS", "0.03")
 
     def slow(*_args, **_kwargs):
