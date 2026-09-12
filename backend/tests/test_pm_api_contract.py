@@ -88,11 +88,16 @@ def test_pm_new_quote_through_hole_contract(client, seeded_db_path):
     assert by_id["hole-0"]["position_type"] == "垂直"
     assert by_id["hole-0"]["diameter_mm"] == 8
     assert by_id["hole-0"]["depth_mm"] == 12
-    assert not any(f.get("type") == "outer_cylinder" for f in review)
-    assert not any(
-        str(f.get("feature_id") or "").startswith("od-")
-        for f in review
-    )
+    outer = by_id["od-1"]
+    assert outer["type"] == "outer_cylinder"
+    assert outer["selected"] is False
+    assert outer["quote_excluded"] is True
+    assert outer["amount_contribution"] == 0
+    assert [step["name"] for step in outer["process_chain"]] == [
+        "粗车外圆",
+        "精车外圆",
+    ]
+    assert outer["gaps"]
 
     plans = (part["quote"] or {}).get("features") or []
     hole_plans = [p for p in plans if p.get("type") == "hole"]
@@ -108,7 +113,14 @@ def test_pm_new_quote_through_hole_contract(client, seeded_db_path):
 
     seq = (part["quote"] or {}).get("process_sequence") or []
     assert seq
-    assert not any("od-1" in str(s) for s in seq)
+    assert not any(
+        step.get("feature_id") == "od-1"
+        or step.get("process") in {
+            "rough_turn_outer_cylinder",
+            "finish_turn_outer_cylinder",
+        }
+        for step in seq
+    )
 
     patched = client.patch(f"/api/v1/parts/{pid}", json={
         "material": "SUS304", "tolerance_it": 7, "roughness_ra": 1.6,

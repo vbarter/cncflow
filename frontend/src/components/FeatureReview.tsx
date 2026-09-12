@@ -40,9 +40,10 @@ const CANVAS_GL = {
   localClippingEnabled: true,
 }
 
-/** 手册已覆盖且现网已有报价映射的审查特征。 */
+/** 可审查特征；外圆仅展示待手册公式骨架，不参与报价。 */
 const REVIEW_TREE_FEATURE_TYPES = new Set([
   "hole",
+  "outer_cylinder",
   "face",
   "pocket",
   "slot",
@@ -53,6 +54,7 @@ const REVIEW_TREE_FEATURE_TYPES = new Set([
 
 const FEATURE_LABEL: Record<string, string> = {
   hole: "孔",
+  outer_cylinder: "外圆",
   face: "面",
   pocket: "型腔",
   slot: "槽",
@@ -91,6 +93,13 @@ export function featureTreeTitle(feature: Feat): string {
       dimension("H", feature?.pose?.length_mm, feature?.depth_mm, feature?.depth, dim.depth_mm, dim.depth),
     ].filter(Boolean).join("×")
     return details(size, holeLabel(feature?.hole_type || dim.hole_type))
+  }
+  if (type === "outer_cylinder") {
+    const size = [
+      dimension("Ø", feature?.pose?.diameter_mm, feature?.diameter_mm, dim.diameter_mm),
+      dimension("H", feature?.pose?.length_mm, feature?.depth_mm, feature?.length, dim.depth_mm, dim.length),
+    ].filter(Boolean).join("×")
+    return details(size)
   }
   if (type === "thread") {
     const size = [
@@ -186,7 +195,15 @@ function poseOf(f: Feat): Pose | null {
   if (t === "hole" || t === "thread" || t === "outer_cylinder") {
     if (!origin) return null
     const diameter = num(f.pose?.diameter_mm, f.diameter_mm, f.nominal_d, dim.diameter_mm) || 1
-    const length = num(f.pose?.length_mm, f.depth_mm, f.thread_length, dim.thread_length, dim.depth_mm) || 1
+    const length = num(
+      f.pose?.length_mm,
+      f.depth_mm,
+      f.length,
+      f.thread_length,
+      dim.length,
+      dim.thread_length,
+      dim.depth_mm,
+    ) || 1
     return {
       kind: "cyl",
       origin,
@@ -701,6 +718,8 @@ function inspectorFields(f: Feat) {
     ? f.thread_length ?? dim.thread_length ?? f.depth_mm ?? dim.depth_mm
     : type === "hole"
       ? f.depth_mm ?? dim.depth_mm
+      : type === "outer_cylinder"
+        ? f.depth_mm ?? dim.depth_mm ?? f.length ?? dim.length
       : type === "step"
         ? f.height ?? dim.height ?? f.depth ?? dim.depth ?? f.depth_mm ?? dim.depth_mm
         : f.depth ?? dim.depth ?? f.height ?? dim.height ?? f.depth_mm ?? dim.depth_mm
@@ -724,9 +743,18 @@ type DimensionField = {
 function editableDimensions(f: Feat): DimensionField[] {
   const fields = inspectorFields(f)
   const type = featType(f)
+  const dim = f.dimensions || {}
   if (type === "hole") return [
     { key: "diameter_mm", label: "D", value: fields.d, prefix: "Ø" },
     { key: "depth_mm", label: "H", value: fields.h },
+  ]
+  if (type === "outer_cylinder") return [
+    { key: "diameter_mm", label: "D", value: fields.d, prefix: "Ø" },
+    {
+      key: f.depth_mm != null || dim.depth_mm != null ? "depth_mm" : "length",
+      label: "H",
+      value: fields.h,
+    },
   ]
   if (type === "thread") return [
     { key: "diameter_mm", label: "D", value: fields.d, prefix: "Ø" },
@@ -879,6 +907,10 @@ export function FeatureReview({
     () => processSequence.filter((step) => step.feature_id === picked),
     [processSequence, picked],
   )
+  const pendingSteps = selectedSteps.length
+    ? []
+    : (Array.isArray(selected?.process_chain) ? selected.process_chain : [])
+  const processGaps = Array.isArray(selected?.gaps) ? selected.gaps : []
   const onBox = useCallback((b: THREE.Box3) => setBox(b.clone()), [])
   const requestView = useCallback((nextView: ViewName) => {
     setView(nextView)
@@ -1144,6 +1176,25 @@ export function FeatureReview({
                         />
                       </div>
                     ))}
+                  </div>
+                ) : pendingSteps.length ? (
+                  <div className="space-y-3">
+                    {pendingSteps.map((step: any) => (
+                      <div key={step.step_id || step.process} className="rounded border border-amber-200 bg-amber-50 p-2">
+                        <div className="flex items-center justify-between gap-2 text-xs">
+                          <span className="truncate font-medium text-slate-800">{processName(step)}</span>
+                          <span className="shrink-0 text-amber-700">待手册公式</span>
+                        </div>
+                      </div>
+                    ))}
+                    <div className="rounded border border-amber-200 bg-white p-2 text-[11px] text-amber-800">
+                      <div className="font-medium">待手册公式 · 不计入报价</div>
+                      {processGaps.length > 0 && (
+                        <ul className="mt-1 list-disc space-y-0.5 pl-4">
+                          {processGaps.map((gap: string) => <li key={gap}>{gap}</li>)}
+                        </ul>
+                      )}
+                    </div>
                   </div>
                 ) : (
                   <div className="text-xs text-slate-400">该特征暂无匹配工序</div>

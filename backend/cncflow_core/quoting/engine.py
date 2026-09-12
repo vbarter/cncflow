@@ -380,6 +380,16 @@ def quote(payload: dict, conn, rules_version: str = "") -> dict:
     settings = factory["settings"]
     raw_features = payload.get("features")
     features = list(raw_features) if isinstance(raw_features, list) else []
+    # Freeze B：外圆仅有工艺意图骨架。缺 Vc/f/ap 与径向余量表时，必须在
+    # 设备、夹具、编程、工时和金额计算前排除，避免“无切削时间但总价漂移”。
+    features = [
+        feature
+        for feature in features
+        if not (
+            isinstance(feature, dict)
+            and str(feature.get("type") or "").lower() == "outer_cylinder"
+        )
+    ]
     slide = slider.resolve(payload.get("slider") or "标准", material, features)
     stock = payload.get("blank_type") or payload.get("stock_type") or settings.get("blank_type") or "板料"
     is_bar = stock in {"棒料", "棒", "bar"}
