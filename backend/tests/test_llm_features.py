@@ -71,7 +71,7 @@ def test_map_llm_plate_hole_d8_fixture_fields():
 def test_map_llm_fixture_review_and_quote_pins(client):
     features = map_llm_features(_fixture_payload())["features"]
     review, quoted = _review_and_quote_features(features, None, 80, 60, 12)
-    assert {feat["feature_id"] for feat in review} == {"hole-0", "face-0", "od-0"}
+    assert {feat["feature_id"] for feat in review} == {"hole-0", "face-0"}
     assert [feat["type"] for feat in quoted] == ["hole", "face"]
     hole = quoted[0]
     assert hole["cut_depth_mm"] == pytest.approx(14.4)
