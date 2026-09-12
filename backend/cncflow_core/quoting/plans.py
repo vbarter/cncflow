@@ -2,6 +2,8 @@
 import json
 import os
 import re
+from queue import Queue
+from threading import Thread
 from urllib import error, request
 
 from ..common.models import PlanQuoteComparison, ProcessPlanCandidate
@@ -10,6 +12,26 @@ from .engine import quote
 
 
 TUZI_URL = "https://api.tu-zi.com/v1/chat/completions"
+PLAN_MODEL_DEFAULT = "gpt-6-astra"
+PLAN_TIMEOUT_SECONDS_DEFAULT = 5.0
+PLAN_MAX_STEP_CHARS_DEFAULT = 120_000
+
+
+def plan_model() -> str:
+    return os.environ.get("TUZI_PLAN_MODEL") or PLAN_MODEL_DEFAULT
+
+
+def _plan_timeout_seconds() -> float:
+    try:
+        timeout = float(
+            os.environ.get("TUZI_PLAN_TIMEOUT_SECONDS")
+            or PLAN_TIMEOUT_SECONDS_DEFAULT
+        )
+    except (TypeError, ValueError):
+        return PLAN_TIMEOUT_SECONDS_DEFAULT
+    return timeout if timeout > 0 else PLAN_TIMEOUT_SECONDS_DEFAULT
+
+
 def _feature_refs(payload: dict) -> tuple[list[str], list[str]]:
     types = list(dict.fromkeys(
         str(feature.get("type"))
@@ -139,38 +161,164 @@ def _extract_json(text: str):
     return parsed
 
 
-def _request_llm_candidates(payload: dict) -> list[dict]:
-    api_key = os.environ.get("TUZI_API_KEY")
-    if not api_key:
-        return []
+_FEATURE_SUMMARY_FIELDS = (
+    "feature_id",
+    "type",
+    "diameter_mm",
+    "depth_mm",
+    "cut_depth_mm",
+    "length",
+    "width",
+    "height",
+    "depth",
+    "thread_length",
+    "pitch",
+    "corner_radius",
+    "hole_type",
+    "pocket_type",
+    "profile_type",
+    "surface_type",
+    "face_position",
+    "position_type",
+    "position",
+    "axis",
+)
+_EXPLICIT_SETUP_HINT_FIELDS = (
+    "setup_hint",
+    "clamping_hint",
+    "fixture_hint",
+)
+
+
+def _feature_summary(payload: dict) -> list[dict]:
+    """只发送已进入报价的审定特征，以及与工艺路线有关的尺寸/装夹线索。"""
+    summaries = []
+    for feature in payload.get("features") or []:
+        if not isinstance(feature, dict) or not feature.get("type"):
+            continue
+        summary = {
+            key: feature[key]
+            for key in _FEATURE_SUMMARY_FIELDS
+            if feature.get(key) not in (None, "")
+        }
+        dimensions = feature.get("dimensions")
+        if isinstance(dimensions, dict):
+            for key in _FEATURE_SUMMARY_FIELDS:
+                if key not in summary and dimensions.get(key) not in (None, ""):
+                    summary[key] = dimensions[key]
+        setup_hints = [
+            str(feature[key]).strip()
+            for key in _EXPLICIT_SETUP_HINT_FIELDS
+            if feature.get(key) not in (None, "")
+        ]
+        for key in ("position_type", "face_position", "position", "axis"):
+            if summary.get(key) not in (None, ""):
+                setup_hints.append(f"{key}={summary[key]}")
+        if setup_hints:
+            summary["setup_hints"] = setup_hints
+        summaries.append(summary)
+    return summaries
+
+
+def _plan_step(
+    step_path: str | None,
+    step_text: str | bytes | None,
+) -> tuple[str, bool]:
+    text, truncated = blank_llm._read_step(step_path, step_text)
+    try:
+        limit = int(
+            os.environ.get("TUZI_PLAN_MAX_STEP_CHARS")
+            or PLAN_MAX_STEP_CHARS_DEFAULT
+        )
+    except (TypeError, ValueError):
+        limit = PLAN_MAX_STEP_CHARS_DEFAULT
+    limit = max(limit, 0)
+    return text[:limit], truncated or len(text) > limit
+
+
+def _geometry_bbox(geometry: dict | None) -> dict:
+    if not isinstance(geometry, dict):
+        return {}
+    bbox = geometry.get("bounding_box_mm") or geometry
+    if not isinstance(bbox, dict):
+        return {}
+    return {
+        axis: bbox[axis]
+        for axis in ("x", "y", "z")
+        if bbox.get(axis) not in (None, "")
+    }
+
+
+def _plan_messages(
+    payload: dict,
+    *,
+    step_text: str,
+    step_truncated: bool,
+    geometry: dict | None,
+) -> list[dict]:
     operations, refs = _feature_refs(payload)
-    prompt = {
-        "envelope_mm": {
+    context = {
+        "bbox_mm": {
             "length": payload.get("length"),
             "width": payload.get("width"),
             "height": payload.get("height"),
             "diameter": payload.get("diameter"),
         },
+        "geometry_bbox_mm": _geometry_bbox(geometry),
         "material": payload.get("material") or payload.get("material_code"),
-        "feature_types": refs,
-        "required_operations": operations,
+        "reviewed_features": _feature_summary(payload),
+        "existing_feature_operations": operations,
+        "existing_process_chain_refs": refs,
+        "step_truncated": step_truncated,
     }
+    prompt = f"已审上下文：{json.dumps(context, ensure_ascii=False)}"
+    if step_text:
+        prompt += f"\n\nSTEP:\n{step_text}"
+    else:
+        prompt += "\n\n未提供 STEP；仅按 bbox、材料和已审特征规划。"
+    return [
+        {
+            "role": "system",
+            "content": (
+                "你是 CNC 工艺路线规划器。只输出 JSON："
+                '{"candidates":[{"machine":"3轴立式加工中心","setups":2,'
+                '"operations":["粗铣基准面","钻孔"],'
+                '"process_chain_ref":["face-pipeline","hole-pipeline"],'
+                '"label":"三轴两装夹","rationale":"通用设备完成基准转换"}]}。'
+                "提出 1~3 条真实可区分的路线，operations 必须是可读工序名，"
+                "rationale 只写一句短理由。任意两条路线至少在 machine、setups "
+                "或 operations/process_chain_ref 工序链之一有实质差异；"
+                "禁止同机床、同装夹、同工序链只改 label/rationale。"
+                "禁止输出或推测价格、费率、成本、工时分钟、切削参数、刀具表；"
+                "缺少切削表时不得编造。"
+            ),
+        },
+        {"role": "user", "content": prompt},
+    ]
+
+
+def _request_llm_candidates(
+    payload: dict,
+    *,
+    step_path: str | None = None,
+    step_text: str | bytes | None = None,
+    geometry: dict | None = None,
+    timeout: float | None = None,
+) -> list[dict]:
+    api_key = os.environ.get("TUZI_API_KEY")
+    if not api_key:
+        return []
+    plan_step, truncated = _plan_step(step_path, step_text)
     body = json.dumps({
-        "model": os.environ.get("TUZI_PLAN_MODEL") or "gpt-4.1-mini",
+        "model": plan_model(),
         "temperature": 0,
         "response_format": {"type": "json_object"},
-        "messages": [
-            {
-                "role": "system",
-                "content": (
-                    "你是 CNC 工艺规划器。只输出 JSON："
-                    '{"candidates":[{"machine":"3轴立式加工中心","setups":2,'
-                    '"operations":["..."],"process_chain_ref":["hole-pipeline"],'
-                    '"label":"..."}]}。提出 1~3 个工艺壳；禁止输出价格、费率或成本。'
-                ),
-            },
-            {"role": "user", "content": json.dumps(prompt, ensure_ascii=False)},
-        ],
+        "messages": _plan_messages(
+            payload,
+            step_text=plan_step,
+            step_truncated=truncated,
+            geometry=geometry,
+        ),
     }, ensure_ascii=False).encode()
     req = request.Request(
         TUZI_URL,
@@ -181,7 +329,7 @@ def _request_llm_candidates(payload: dict) -> list[dict]:
         },
         method="POST",
     )
-    timeout = float(os.environ.get("TUZI_PLAN_TIMEOUT_SECONDS") or "8")
+    timeout = timeout or _plan_timeout_seconds()
     try:
         with request.urlopen(req, timeout=timeout) as response:
             result = json.loads(response.read().decode())
@@ -198,18 +346,80 @@ def _request_llm_candidates(payload: dict) -> list[dict]:
     return parsed
 
 
-def _llm_candidates(payload: dict) -> tuple[list[ProcessPlanCandidate], list[str]]:
+def _bounded_llm_request(
+    payload: dict,
+    *,
+    step_path: str | None,
+    step_text: str | bytes | None,
+    geometry: dict | None,
+) -> list[dict]:
+    """给整个调用加硬上限；底层客户端不遵守 timeout 时也不阻塞报价。"""
+    timeout = _plan_timeout_seconds()
+    result: Queue = Queue(maxsize=1)
+
+    def run():
+        try:
+            value = _request_llm_candidates(
+                payload,
+                step_path=step_path,
+                step_text=step_text,
+                geometry=geometry,
+                timeout=timeout,
+            )
+        except Exception as exc:
+            result.put((False, exc))
+        else:
+            result.put((True, value))
+
+    worker = Thread(target=run, name="cncflow-plan-llm", daemon=True)
+    worker.start()
+    worker.join(timeout)
+    if worker.is_alive():
+        raise TimeoutError(f"tu-zi 方案生成超时（{timeout:g}s）")
+    ok, value = result.get_nowait()
+    if not ok:
+        raise value
+    return value
+
+
+def _normalized_text(value) -> str:
+    return re.sub(r"[\W_]+", "", str(value or "").casefold())
+
+
+def _candidate_signature(candidate: ProcessPlanCandidate) -> tuple:
+    return (
+        _normalized_text(candidate.machine),
+        candidate.setups,
+        tuple(_normalized_text(item) for item in candidate.operations),
+        tuple(_normalized_text(item) for item in candidate.process_chain_ref),
+    )
+
+
+def _llm_candidates(
+    payload: dict,
+    *,
+    step_path: str | None = None,
+    step_text: str | bytes | None = None,
+    geometry: dict | None = None,
+) -> tuple[list[ProcessPlanCandidate], list[str]]:
     enabled = (os.environ.get("CNCFLOW_PLAN_LLM_ENABLED") or "1").strip().lower()
     if enabled in {"0", "false", "no"}:
         return [], ["LLM 方案生成未启用，已使用规则方案"]
     if not os.environ.get("TUZI_API_KEY"):
         return [], ["未配置 TUZI_API_KEY，已使用规则方案"]
     try:
-        raw_candidates = _request_llm_candidates(payload)
+        raw_candidates = _bounded_llm_request(
+            payload,
+            step_path=step_path,
+            step_text=step_text,
+            geometry=geometry,
+        )
     except Exception as exc:
-        return [], [f"{exc}；已回退规则方案"]
+        return [], [f"{plan_model()}: {exc}；已回退规则方案"]
     defaults, refs = _feature_refs(payload)
     candidates = []
+    signatures = set()
+    duplicate_count = 0
     for index, raw in enumerate(raw_candidates[:3], 1):
         if not isinstance(raw, dict):
             continue
@@ -230,7 +440,7 @@ def _llm_candidates(payload: dict) -> tuple[list[ProcessPlanCandidate], list[str
             process_refs = [process_refs]
         if not isinstance(process_refs, list):
             process_refs = refs
-        candidates.append(ProcessPlanCandidate(
+        candidate = ProcessPlanCandidate(
             id=f"llm-{index}",
             source="llm",
             machine=machine,
@@ -238,27 +448,58 @@ def _llm_candidates(payload: dict) -> tuple[list[ProcessPlanCandidate], list[str
             operations=[str(item) for item in operations if str(item).strip()] or defaults,
             process_chain_ref=[str(item) for item in process_refs],
             label=str(raw.get("label") or f"AI 方案 {index}"),
-        ))
+            rationale=str(raw.get("rationale") or "").strip()[:300],
+            model=plan_model(),
+        )
+        signature = _candidate_signature(candidate)
+        if signature in signatures:
+            duplicate_count += 1
+            continue
+        candidates.append(candidate)
+        signatures.add(signature)
     if not candidates:
         return [], ["tu-zi 未返回有效方案；已回退规则方案"]
-    return candidates, []
+    warnings = []
+    if duplicate_count:
+        warnings.append(
+            f"tu-zi 返回 {duplicate_count} 条同机床/装夹/工序链重复路线，已去重"
+        )
+    return candidates, warnings
 
 
-def generate_candidates(payload: dict) -> tuple[list[dict], list[str]]:
+def generate_candidates(
+    payload: dict,
+    *,
+    step_path: str | None = None,
+    step_text: str | bytes | None = None,
+    geometry: dict | None = None,
+) -> tuple[list[dict], list[str]]:
     """用户方案固定第一；其后优先 LLM，规则补足到至少两个方案。"""
     candidates = []
     user = _user_candidate(payload.get("user_process_plan"), payload)
     if user:
         candidates.append(user)
-    llm, warnings = _llm_candidates(payload)
-    candidates.extend(llm)
-    existing_signatures = {
-        (candidate.machine, candidate.setups) for candidate in candidates
-    }
+    llm, warnings = _llm_candidates(
+        payload,
+        step_path=step_path,
+        step_text=step_text,
+        geometry=geometry,
+    )
+    existing_signatures = {_candidate_signature(candidate) for candidate in candidates}
+    duplicate_count = 0
+    for candidate in llm:
+        signature = _candidate_signature(candidate)
+        if signature in existing_signatures:
+            duplicate_count += 1
+            continue
+        candidates.append(candidate)
+        existing_signatures.add(signature)
+    if duplicate_count:
+        warnings.append(f"{duplicate_count} 条 LLM 路线与已有方案重复，已去重")
     for candidate in _rule_candidates(payload):
         if len(candidates) >= 2:
             break
-        signature = (candidate.machine, candidate.setups)
+        signature = _candidate_signature(candidate)
         if signature in existing_signatures:
             continue
         candidates.append(candidate)
@@ -293,7 +534,12 @@ def build_plan_quotes(
             geometry_quote_payload,
             geometry=geometry_context,
         )
-    candidates, warnings = generate_candidates(payload)
+    candidates, warnings = generate_candidates(
+        payload,
+        step_path=step_path,
+        step_text=step_text or payload.get("step_text"),
+        geometry=geometry_context,
+    )
     comparison = []
     for candidate in candidates:
         quote_payload = dict(geometry_quote_payload)
