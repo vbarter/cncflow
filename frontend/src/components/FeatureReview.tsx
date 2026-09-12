@@ -743,6 +743,7 @@ type DimensionField = {
 function editableDimensions(f: Feat): DimensionField[] {
   const fields = inspectorFields(f)
   const type = featType(f)
+  const dim = f.dimensions || {}
   if (type === "hole") return [
     { key: "diameter_mm", label: "D", value: fields.d, prefix: "Ø" },
     { key: "depth_mm", label: "H", value: fields.h },
