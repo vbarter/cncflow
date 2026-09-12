@@ -75,6 +75,21 @@ _OPEN_SLOT_POCKET_TYPES = {
 }
 
 
+def _is_open_slot_feature(feature):
+    if not isinstance(feature, dict):
+        return False
+    dim = feature.get("dimensions") or {}
+    source_type = str(feature.get("type") or "").strip().lower()
+    pocket_type = feature.get("pocket_type") or dim.get("pocket_type")
+    normalized_pocket_type = (
+        str(pocket_type or "").strip().lower().replace("-", "_").replace(" ", "_")
+    )
+    return (
+        source_type == "slot"
+        or normalized_pocket_type in _OPEN_SLOT_POCKET_TYPES
+    )
+
+
 def _hole_for_pipeline(feat, fid):
     dim = feat.get("dimensions") or {}
     d = dim.get("diameter_mm") or feat.get("diameter_mm")
@@ -120,13 +135,7 @@ def _pocket_for_pipeline(feat, fid):
     if corner is None:
         corner = dim.get("corner_radius") or 1
     pocket_type = feat.get("pocket_type") or dim.get("pocket_type") or "封闭"
-    normalized_pocket_type = str(pocket_type).strip().lower().replace("-", "_").replace(" ", "_")
-    source_type = str(feat.get("type") or "pocket").strip().lower()
-    display_type = (
-        "slot"
-        if source_type == "slot" or normalized_pocket_type in _OPEN_SLOT_POCKET_TYPES
-        else "pocket"
-    )
+    display_type = "slot" if _is_open_slot_feature(feat) else "pocket"
     return {
         "type": "pocket",
         "display_type": display_type,
@@ -853,6 +862,58 @@ def _saved_quote_selection(part):
     ]
 
 
+def _quote_has_stale_open_slot_labels(quote_data, parsed_features):
+    """识别 #170 前已落库的开口槽工时展示名。"""
+    if not isinstance(quote_data, dict):
+        return False
+    feature_sources = [
+        quote_data.get("review_features"),
+        parsed_features,
+    ]
+    open_slot_ids = {
+        str(feature.get("feature_id") or feature.get("id"))
+        for features in feature_sources
+        if isinstance(features, list)
+        for feature in features
+        if _is_open_slot_feature(feature)
+        and (feature.get("feature_id") or feature.get("id")) not in (None, "")
+    }
+    if not open_slot_ids:
+        return False
+
+    labor = quote_data.get("labor_cost_breakdown") or {}
+    for group in labor.get("groups") or []:
+        if not isinstance(group, dict):
+            continue
+        group_feature_ids = {
+            str(feature_id)
+            for feature_id in group.get("feature_ids") or []
+            if feature_id not in (None, "")
+        }
+        group_feature_ids.update(
+            str(operation.get("feature_id"))
+            for operation in group.get("operations") or []
+            if isinstance(operation, dict)
+            and operation.get("feature_id") not in (None, "")
+        )
+        if (
+            open_slot_ids & group_feature_ids
+            and (
+                str(group.get("feature_type") or "").lower() == "pocket"
+                or group.get("name") == "型腔"
+            )
+        ):
+            return True
+
+    return any(
+        isinstance(step, dict)
+        and str(step.get("feature_id") or "") in open_slot_ids
+        and step.get("process") == "rough_pocket"
+        and step.get("name") != "槽粗"
+        for step in quote_data.get("process_sequence") or []
+    )
+
+
 def _maybe_quote(conn, part):
     """Parse-complete parts with bbox become quoted so 1/2/3/5 have numbers."""
     if not part or part.get("status") in {"confirmed", "abandoned", "parse_failed"}:
@@ -862,10 +923,27 @@ def _maybe_quote(conn, part):
     seq = q.get("process_sequence") or []
     has_sku = any(s.get("sku") for s in seq)
     has_plan_comparison = bool(q.get("blank") and len(q.get("comparison") or []) >= 2)
-    if already and has_sku and has_plan_comparison and part.get("status") in {"quoted", "revising"}:
+    parsed_features = (_stored_parse_result(conn, part).get("features") or [])
+    stale_open_slot = _quote_has_stale_open_slot_labels(q, parsed_features)
+    if (
+        already
+        and has_sku
+        and has_plan_comparison
+        and part.get("status") in {"quoted", "revising"}
+        and not stale_open_slot
+    ):
         return part
     try:
-        quoted = _quote_part(conn, part)
+        quoted = _quote_part(
+            conn,
+            part,
+            selected_ids=(
+                _saved_quote_selection(part) if stale_open_slot else None
+            ),
+            features_override=(
+                q.get("review_features") if stale_open_slot else None
+            ),
+        )
     except ValueError:
         return part
     return quoted if quoted is not None else part
