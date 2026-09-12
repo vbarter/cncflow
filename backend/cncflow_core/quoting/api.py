@@ -35,6 +35,7 @@ def create_plan_quotes():
             conn,
             rules_version=current_app.config.get("RULES_VERSION") or "",
             use_blank_llm=payload.get("force_blank_llm") is True,
+            force_plan_llm=payload.get("force_plan_llm") is True,
         ))
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400

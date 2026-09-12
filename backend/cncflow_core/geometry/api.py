@@ -2,8 +2,9 @@
 import os
 import tempfile
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, current_app, jsonify, request
 
+from ..common.db import DEFAULT_DB_PATH
 from .plugins import list_plugins
 from .service import contract
 
@@ -55,7 +56,19 @@ def geometry_parse():
     try:
         step.save(path)
         from .service import parse_step_file
-        result = parse_step_file(path, include_mesh=False)
+        force_reparse = (
+            request.values.get("force_reparse", "").strip().lower()
+            in {"1", "true", "yes", "on"}
+        )
+        result = parse_step_file(
+            path,
+            include_mesh=False,
+            force_reparse=force_reparse,
+            cache_db_path=(
+                current_app.config.get("DB_PATH")
+                or str(DEFAULT_DB_PATH)
+            ),
+        )
         return jsonify(_public_json_value(result))
     except RuntimeError as exc:
         return jsonify({

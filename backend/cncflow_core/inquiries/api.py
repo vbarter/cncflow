@@ -1182,6 +1182,7 @@ def _quote_part(
         conn,
         rules_version=rules_version,
         use_blank_llm=extra.get("force_blank_llm") is True,
+        force_plan_llm=extra.get("force_plan_llm") is True,
         step_path=blank_step_path,
         geometry=geometry,
     ))

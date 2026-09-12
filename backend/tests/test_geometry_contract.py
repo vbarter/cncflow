@@ -76,7 +76,7 @@ def test_geometry_parse_disables_mesh_and_strips_binary_private_fields(client, m
 
     called = {}
 
-    def fake_parse(path, include_mesh=True):
+    def fake_parse(path, include_mesh=True, **_kwargs):
         called["include_mesh"] = include_mesh
         return {
             "parser": "geometry-service",

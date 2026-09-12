@@ -219,6 +219,53 @@ def test_plan_endpoint_pins_user_candidate_first_and_quotes_every_plan(
         assert row["setup_count"] >= 1
 
 
+def test_plan_endpoint_default_does_not_call_plan_llm(client, monkeypatch):
+    monkeypatch.delenv("CNCFLOW_PLAN_LLM_ENABLED", raising=False)
+    monkeypatch.setenv("TUZI_API_KEY", "test-key")
+
+    def unexpected_llm(*_args, **_kwargs):
+        pytest.fail("默认报价不应调用 plan LLM")
+
+    monkeypatch.setattr(plans, "_bounded_llm_request", unexpected_llm)
+    response = client.post("/api/v1/quotes/plans", json=_payload())
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert len(body["candidates"]) >= 2
+    assert all(candidate["source"] == "rule" for candidate in body["candidates"])
+
+
+def test_plan_endpoint_force_plan_llm_uses_explicit_body_flag(
+    client,
+    monkeypatch,
+):
+    monkeypatch.delenv("CNCFLOW_PLAN_LLM_ENABLED", raising=False)
+    monkeypatch.setenv("TUZI_API_KEY", "test-key")
+    calls = []
+
+    def fake_llm(*_args, **_kwargs):
+        calls.append(True)
+        return [{
+            "machine": "5轴联动加工中心",
+            "setups": 1,
+            "operations": ["五轴一次装夹加工"],
+            "process_chain_ref": ["5axis-route"],
+            "label": "五轴方案",
+        }]
+
+    monkeypatch.setattr(plans, "_bounded_llm_request", fake_llm)
+    response = client.post(
+        "/api/v1/quotes/plans",
+        json={**_payload(), "force_plan_llm": True},
+    )
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert calls == [True]
+    assert any(candidate["source"] == "llm" for candidate in body["candidates"])
+    assert len(body["candidates"]) >= 2
+
+
 def test_plan_endpoint_force_blank_llm_uses_explicit_body_flag(
     client,
     monkeypatch,
@@ -376,6 +423,43 @@ def test_part_quote_force_blank_llm_persists_llm_blank(client, monkeypatch):
     assert blank_result["source"] == "llm"
     assert blank_result["model"] == "gpt-6-astra"
     assert blank_result["pending"] is False
+
+
+def test_part_quote_force_plan_llm_uses_explicit_body_flag(client, monkeypatch):
+    monkeypatch.delenv("CNCFLOW_PLAN_LLM_ENABLED", raising=False)
+    monkeypatch.setenv("TUZI_API_KEY", "test-key")
+    calls = []
+
+    def fake_llm(*_args, **_kwargs):
+        calls.append(True)
+        return [{
+            "machine": "5轴联动加工中心",
+            "setups": 1,
+            "operations": ["五轴一次装夹加工"],
+            "process_chain_ref": ["5axis-route"],
+            "label": "五轴方案",
+        }]
+
+    monkeypatch.setattr(plans, "_bounded_llm_request", fake_llm)
+    inquiry = client.post(
+        "/api/v1/inquiries",
+        json={"customer": "方案显式刷新"},
+    ).get_json()
+    part = client.post(
+        f"/api/v1/inquiries/{inquiry['id']}/parts",
+        json={**_payload(), "name": "方案刷新件"},
+    ).get_json()
+
+    response = client.post(
+        f"/api/v1/parts/{part['id']}/quote",
+        json={"force_plan_llm": True},
+    )
+
+    assert response.status_code == 200
+    candidates = response.get_json()["quote"]["candidates"]
+    assert calls == [True]
+    assert any(candidate["source"] == "llm" for candidate in candidates)
+    assert len(candidates) >= 2
 
 
 def test_plan_llm_default_model_and_enriched_step_feature_prompt(monkeypatch):

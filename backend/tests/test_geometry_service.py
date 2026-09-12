@@ -87,7 +87,7 @@ def test_process_claimed_emits_geometry_parse_event(client, seeded_db_path, monk
     options = json.loads(conn.execute("SELECT options_json FROM parse_jobs WHERE job_id=?", (job_id,)).fetchone()[0] or "{}")
     claimed = {"job_id": job_id, "files": files, "options": options}
 
-    def fake_parse(path):
+    def fake_parse(path, **_kwargs):
         return {
             "parser": "geometry-service",
             "parser_version": "hole-v4",
@@ -99,6 +99,8 @@ def test_process_claimed_emits_geometry_parse_event(client, seeded_db_path, monk
                 "hole_type": "through", "position_type": "垂直", "cut_depth_mm": 14.4,
             }],
             "warnings": [],
+            "cache_hit": True,
+            "llm": {"called": False, "ok": True, "cache_hit": True},
             "plugins": [
                 {"id": "hole", "status": "active", "version": "hole-v4"},
                 {"id": "slot", "status": "active", "version": "slot-v1"},
@@ -120,7 +122,12 @@ def test_process_claimed_emits_geometry_parse_event(client, seeded_db_path, monk
     assert "geometry-service" in message
     assert "hole-v4" in message
     assert "hole" in message and "slot" in message and "face" in message
+    assert any(
+        "cache_hit=true" in event["message"]
+        for event in geo_events
+    )
     assert job["stage"] == "review"
+    assert job["result"]["cache_hit"] is True
     assert job["result"]["parser"] == "geometry-service"
     assert job["result"]["feature_schema"] == "hole-v4"
     ids = [plugin["id"] for plugin in job["result"]["plugins"]]

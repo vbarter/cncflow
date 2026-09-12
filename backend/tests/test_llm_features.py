@@ -519,6 +519,41 @@ def test_extract_retries_thin_miss_as_open_slot(monkeypatch, miss):
 
 
 @pytest.mark.llm_features
+def test_feature_cache_skips_second_tuzi_and_force_reparse_bypasses(
+    seeded_conn,
+    monkeypatch,
+    tmp_path,
+):
+    from cncflow_core.geometry import llm as llm_mod
+
+    step = tmp_path / "feature-cache.step"
+    step.write_bytes(
+        b"ISO-10303-21;\nHEADER;\nENDSEC;\nDATA;\n"
+        b"/* FEATURE-CACHE-UNIQUE */\nENDSEC;\nEND-ISO-10303-21;"
+    )
+    calls = []
+
+    def fake_tuzi(*_args, **_kwargs):
+        calls.append(True)
+        return {"features": [{"type": "step", "length": 80, "height": 8}]}
+
+    monkeypatch.setattr(llm_mod, "_tuzi_chat", fake_tuzi)
+    first = llm_mod.extract_step_features(str(step), cache_conn=seeded_conn)
+    second = llm_mod.extract_step_features(str(step), cache_conn=seeded_conn)
+    forced = llm_mod.extract_step_features(
+        str(step),
+        cache_conn=seeded_conn,
+        force_reparse=True,
+    )
+
+    assert len(calls) == 2
+    assert first["cache_hit"] is False
+    assert second["cache_hit"] is True
+    assert forced["cache_hit"] is False
+    assert second["features"] == first["features"]
+
+
+@pytest.mark.llm_features
 def test_extract_drops_nuc_window_pockets_but_keeps_mounting_holes(monkeypatch):
     from cncflow_core.geometry import llm as llm_mod
 

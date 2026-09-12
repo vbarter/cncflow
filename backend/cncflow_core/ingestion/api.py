@@ -56,6 +56,10 @@ def upload_job():
         options = {
             "allow_external_ai": drawing is not None,
             "part_id": part_id or None,
+            "force_reparse": (
+                (request.form.get("force_reparse") or "").strip().lower()
+                in {"1", "true", "yes", "on"}
+            ),
         }
         if part_id:
             part = conn.execute("SELECT id FROM parts WHERE id=?", (part_id,)).fetchone()

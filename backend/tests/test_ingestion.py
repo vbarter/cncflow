@@ -136,8 +136,13 @@ def test_retry_failed_job_requeues_same_upload(client, seeded_db_path):
 
     conn = get_conn(seeded_db_path)
     part_status = conn.execute("SELECT status FROM parts WHERE id=?", (pid,)).fetchone()["status"]
+    options = conn.execute(
+        "SELECT options_json FROM parse_jobs WHERE job_id=?",
+        (job_id,),
+    ).fetchone()["options_json"]
     conn.close()
     assert part_status == "parsing"
+    assert '"force_reparse": true' in options
 
 
 def test_retry_rejects_active_job(client):
@@ -243,7 +248,7 @@ def test_isolated_parse_inline(monkeypatch, tmp_path):
     monkeypatch.setenv("CNCFLOW_PARSE_INLINE", "1")
     step = tmp_path / "part.step"
     step.write_bytes(MINIMAL_STEP)
-    def fake_step(path):
+    def fake_step(path, **_kwargs):
         return {"geometry": {"ok": True}, "features": [], "warnings": [path]}
     monkeypatch.setattr(worker, "parse_step_file", fake_step)
     out = worker.isolated_parse("step", str(step), {})
@@ -266,7 +271,7 @@ def test_process_claimed_geometry_parse_event(client, seeded_db_path, monkeypatc
     options = json.loads(conn.execute("SELECT options_json FROM parse_jobs WHERE job_id=?", (job_id,)).fetchone()[0] or "{}")
     claimed = {"job_id": job_id, "files": files, "options": options}
 
-    def fake_parse(path):
+    def fake_parse(path, **_kwargs):
         return {
             "parser": "geometry-service",
             "parser_version": "hole-v4",

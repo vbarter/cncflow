@@ -21,6 +21,17 @@ def plan_model() -> str:
     return os.environ.get("TUZI_PLAN_MODEL") or PLAN_MODEL_DEFAULT
 
 
+def _plan_llm_enabled(force_plan_llm: bool = False) -> bool:
+    if force_plan_llm:
+        return True
+    return (os.environ.get("CNCFLOW_PLAN_LLM_ENABLED") or "0").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
 def _plan_timeout_seconds() -> float:
     try:
         timeout = float(
@@ -401,9 +412,9 @@ def _llm_candidates(
     step_path: str | None = None,
     step_text: str | bytes | None = None,
     geometry: dict | None = None,
+    force_plan_llm: bool = False,
 ) -> tuple[list[ProcessPlanCandidate], list[str]]:
-    enabled = (os.environ.get("CNCFLOW_PLAN_LLM_ENABLED") or "1").strip().lower()
-    if enabled in {"0", "false", "no"}:
+    if not _plan_llm_enabled(force_plan_llm):
         return [], ["LLM 方案生成未启用，已使用规则方案"]
     if not os.environ.get("TUZI_API_KEY"):
         return [], ["未配置 TUZI_API_KEY，已使用规则方案"]
@@ -473,6 +484,7 @@ def generate_candidates(
     step_path: str | None = None,
     step_text: str | bytes | None = None,
     geometry: dict | None = None,
+    force_plan_llm: bool = False,
 ) -> tuple[list[dict], list[str]]:
     """用户方案固定第一；其后优先 LLM，规则补足到至少两个方案。"""
     candidates = []
@@ -484,6 +496,7 @@ def generate_candidates(
         step_path=step_path,
         step_text=step_text,
         geometry=geometry,
+        force_plan_llm=force_plan_llm,
     )
     existing_signatures = {_candidate_signature(candidate) for candidate in candidates}
     duplicate_count = 0
@@ -513,6 +526,7 @@ def build_plan_quotes(
     rules_version: str = "",
     *,
     use_blank_llm: bool = False,
+    force_plan_llm: bool = False,
     step_path: str | None = None,
     step_text: str | None = None,
     geometry: dict | None = None,
@@ -520,6 +534,7 @@ def build_plan_quotes(
     geometry_context = geometry or payload.get("geometry")
     geometry_quote_payload = blank_llm.geometry_payload(payload, geometry_context)
     geometry_quote_payload.pop("force_blank_llm", None)
+    geometry_quote_payload.pop("force_plan_llm", None)
     legacy_decision = blank.decide(geometry_quote_payload)
     if use_blank_llm:
         decision = blank_llm.decide_cached(
@@ -539,6 +554,7 @@ def build_plan_quotes(
         step_path=step_path,
         step_text=step_text or payload.get("step_text"),
         geometry=geometry_context,
+        force_plan_llm=force_plan_llm,
     )
     comparison = []
     for candidate in candidates:

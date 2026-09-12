@@ -274,6 +274,14 @@ CREATE TABLE IF NOT EXISTS blank_llm_cache (
   updated_at TEXT DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS feature_llm_cache (
+  fingerprint TEXT PRIMARY KEY,
+  model TEXT NOT NULL,
+  result_json TEXT NOT NULL,
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS parser_workers (
   worker_id TEXT PRIMARY KEY,
   parser_version TEXT NOT NULL,
