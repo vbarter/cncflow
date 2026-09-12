@@ -116,6 +116,8 @@ class ProcessPlanCandidate:
     operations: list[str]
     process_chain_ref: list[str]
     label: str
+    rationale: str = ""
+    model: Optional[str] = None
 
     def to_dict(self) -> dict:
         return {
@@ -126,6 +128,8 @@ class ProcessPlanCandidate:
             "operations": self.operations,
             "process_chain_ref": self.process_chain_ref,
             "label": self.label,
+            "rationale": self.rationale,
+            "model": self.model,
         }
 
 

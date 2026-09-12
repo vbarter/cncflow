@@ -1,4 +1,7 @@
 """一期毛坯决策与多方案报价合同。"""
+import json
+import time
+
 import pytest
 
 from cncflow_core.quoting import blank, blank_llm, plans
@@ -373,3 +376,168 @@ def test_part_quote_force_blank_llm_persists_llm_blank(client, monkeypatch):
     assert blank_result["source"] == "llm"
     assert blank_result["model"] == "gpt-6-astra"
     assert blank_result["pending"] is False
+
+
+def test_plan_llm_default_model_and_enriched_step_feature_prompt(monkeypatch):
+    captured = {}
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def read(self):
+            return json.dumps({
+                "choices": [{
+                    "message": {
+                        "content": json.dumps({
+                            "candidates": [{
+                                "machine": "3轴立式加工中心",
+                                "setups": 2,
+                                "operations": ["粗铣基准面", "钻孔"],
+                                "process_chain_ref": [
+                                    "face-pipeline",
+                                    "hole-pipeline",
+                                ],
+                                "label": "三轴通用",
+                                "rationale": "通用设备两次装夹",
+                            }],
+                        }),
+                    },
+                }],
+            }).encode()
+
+    def fake_urlopen(req, timeout):
+        captured["body"] = json.loads(req.data.decode())
+        captured["timeout"] = timeout
+        return FakeResponse()
+
+    monkeypatch.setenv("TUZI_API_KEY", "test-key")
+    monkeypatch.setenv("CNCFLOW_PLAN_LLM_ENABLED", "1")
+    monkeypatch.delenv("TUZI_PLAN_MODEL", raising=False)
+    monkeypatch.setattr(plans.request, "urlopen", fake_urlopen)
+    result = plans._request_llm_candidates(
+        _payload(features=[
+            {
+                "type": "hole",
+                "feature_id": "hole-0",
+                "diameter_mm": 8,
+                "depth_mm": 12,
+                "position_type": "侧向",
+                "axis": {"x": 1, "y": 0, "z": 0},
+            },
+        ]),
+        step_text="ISO-10303-21;PLAN-ROUTE;END-ISO-10303-21;",
+        geometry={"bounding_box_mm": {"x": 80, "y": 60, "z": 12}},
+    )
+
+    body = captured["body"]
+    prompt = body["messages"][1]["content"]
+    assert body["model"] == "gpt-6-astra"
+    assert captured["timeout"] == plans.PLAN_TIMEOUT_SECONDS_DEFAULT
+    assert captured["timeout"] <= 8
+    assert "ISO-10303-21;PLAN-ROUTE" in prompt
+    assert '"reviewed_features"' in prompt
+    assert '"diameter_mm": 8' in prompt
+    assert '"depth_mm": 12' in prompt
+    assert '"position_type": "侧向"' in prompt
+    assert '"setup_hints"' in prompt
+    assert '"geometry_bbox_mm": {"x": 80, "y": 60, "z": 12}' in prompt
+    assert result[0]["rationale"] == "通用设备两次装夹"
+
+
+def test_plan_llm_filters_same_route_skin_variants(monkeypatch):
+    monkeypatch.setenv("TUZI_API_KEY", "test-key")
+    monkeypatch.setenv("CNCFLOW_PLAN_LLM_ENABLED", "1")
+    monkeypatch.setattr(
+        plans,
+        "_bounded_llm_request",
+        lambda *_args, **_kwargs: [
+            {
+                "machine": "3轴立式加工中心",
+                "setups": 2,
+                "operations": ["粗铣 基准面", "钻孔"],
+                "process_chain_ref": ["face-pipeline", "hole-pipeline"],
+                "label": "经济方案",
+                "rationale": "第一版文案",
+            },
+            {
+                "machine": "3轴立式加工中心",
+                "setups": 2,
+                "operations": ["粗铣基准面", "钻孔"],
+                "process_chain_ref": ["face_pipeline", "hole pipeline"],
+                "label": "稳妥方案",
+                "rationale": "只是换皮文案",
+            },
+            {
+                "machine": "4轴立式加工中心",
+                "setups": 1,
+                "operations": ["四轴联动粗铣", "钻孔"],
+                "process_chain_ref": ["4axis-face", "hole-pipeline"],
+                "label": "少装夹",
+                "rationale": "回转轴减少翻面",
+            },
+        ],
+    )
+
+    candidates, warnings = plans.generate_candidates(_payload())
+
+    assert len(candidates) == 2
+    assert [candidate["source"] for candidate in candidates] == ["llm", "llm"]
+    assert [candidate["label"] for candidate in candidates] == [
+        "经济方案",
+        "少装夹",
+    ]
+    assert all(candidate["model"] == "gpt-6-astra" for candidate in candidates)
+    assert any("重复路线" in warning for warning in warnings)
+
+
+def test_plan_llm_failure_returns_rule_fallback(monkeypatch):
+    monkeypatch.setenv("TUZI_API_KEY", "test-key")
+    monkeypatch.setenv("CNCFLOW_PLAN_LLM_ENABLED", "1")
+
+    def fail(*_args, **_kwargs):
+        raise RuntimeError("upstream unavailable")
+
+    monkeypatch.setattr(plans, "_bounded_llm_request", fail)
+    candidates, warnings = plans.generate_candidates(_payload())
+
+    assert len(candidates) >= 2
+    assert all(candidate["source"] == "rule" for candidate in candidates)
+    assert all(candidate["model"] is None for candidate in candidates)
+    assert "upstream unavailable" in " ".join(warnings)
+
+
+def test_plan_endpoint_slow_llm_times_out_and_keeps_user_first(
+    client,
+    monkeypatch,
+):
+    monkeypatch.setenv("TUZI_API_KEY", "test-key")
+    monkeypatch.setenv("CNCFLOW_PLAN_LLM_ENABLED", "1")
+    monkeypatch.setenv("TUZI_PLAN_TIMEOUT_SECONDS", "0.03")
+
+    def slow(*_args, **_kwargs):
+        time.sleep(1)
+        return []
+
+    monkeypatch.setattr(plans, "_request_llm_candidates", slow)
+    started = time.monotonic()
+    response = client.post("/api/v1/quotes/plans", json=_payload(
+        user_process_plan={
+            "machine": "3轴立式加工中心",
+            "setups": 2,
+            "operations": ["先面后孔"],
+            "process_chain_ref": ["face-pipeline", "hole-pipeline"],
+        },
+    ))
+    elapsed = time.monotonic() - started
+    body = response.get_json()
+
+    assert response.status_code == 200
+    assert elapsed < 0.3
+    assert len(body["candidates"]) >= 2
+    assert body["candidates"][0]["source"] == "user"
+    assert body["candidates"][0]["model"] is None
+    assert any("超时" in warning for warning in body["warnings"])
