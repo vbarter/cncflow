@@ -210,6 +210,149 @@ def test_part_detail_shows_parse_job_holes_before_quote(client, seeded_db_path):
     assert hole.get("cut_depth_mm") == 26.99
 
 
+def test_part_detail_refreshes_stale_open_slot_labor_names(
+    client,
+    seeded_db_path,
+):
+    inquiry = client.post(
+        "/api/v1/inquiries",
+        json={"customer": "华科"},
+    ).get_json()
+    pid = client.post(
+        f"/api/v1/inquiries/{inquiry['id']}/parts",
+        json={
+            "name": "开口槽回退",
+            "material": "铝合金",
+            "length": 80,
+            "width": 60,
+            "height": 12,
+            "blank_type": "板料",
+        },
+    ).get_json()["id"]
+    quoted = client.post(
+        f"/api/v1/parts/{pid}/quote",
+        json={
+            "features": [
+                {
+                    "type": "pocket",
+                    "feature_id": "slot-0",
+                    "length": 40,
+                    "width": 10,
+                    "depth": 8,
+                    "corner_radius": 3,
+                    "pocket_type": "开放",
+                },
+                {
+                    "type": "face",
+                    "feature_id": "face-0",
+                    "length": 80,
+                    "width": 60,
+                },
+            ],
+        },
+    ).get_json()
+    stale_quote = quoted["quote"]
+    slot_group = next(
+        group
+        for group in stale_quote["labor_cost_breakdown"]["groups"]
+        if "slot-0" in group["feature_ids"]
+    )
+    slot_group["feature_type"] = "pocket"
+    slot_group["name"] = "型腔"
+    rough_slot = next(
+        step
+        for step in stale_quote["process_sequence"]
+        if step["feature_id"] == "slot-0"
+        and step["process"] == "rough_pocket"
+    )
+    rough_slot["name"] = "粗铣"
+    conn = get_conn(seeded_db_path)
+    conn.execute(
+        "UPDATE parts SET quote_json=? WHERE id=?",
+        (json.dumps(stale_quote, ensure_ascii=False), pid),
+    )
+    conn.commit()
+    conn.close()
+
+    response = client.get(f"/api/v1/parts/{pid}")
+
+    assert response.status_code == 200
+    refreshed = response.get_json()["quote"]
+    slot_group = next(
+        group
+        for group in refreshed["labor_cost_breakdown"]["groups"]
+        if "slot-0" in group["feature_ids"]
+    )
+    rough_slot = next(
+        step
+        for step in refreshed["process_sequence"]
+        if step["feature_id"] == "slot-0"
+        and step["process"] == "rough_pocket"
+    )
+    assert slot_group["feature_type"] == "slot"
+    assert slot_group["name"] == "槽"
+    assert rough_slot["name"] == "槽粗"
+    assert refreshed["labor_cost_breakdown"]["total"] == pytest.approx(
+        211.59,
+        abs=0.01,
+    )
+
+    conn = get_conn(seeded_db_path)
+    persisted = json.loads(conn.execute(
+        "SELECT quote_json FROM parts WHERE id=?",
+        (pid,),
+    ).fetchone()[0])
+    conn.close()
+    assert any(
+        group["name"] == "槽"
+        for group in persisted["labor_cost_breakdown"]["groups"]
+        if "slot-0" in group["feature_ids"]
+    )
+
+
+def test_part_detail_keeps_closed_pocket_labor_name(client):
+    inquiry = client.post(
+        "/api/v1/inquiries",
+        json={"customer": "华科"},
+    ).get_json()
+    pid = client.post(
+        f"/api/v1/inquiries/{inquiry['id']}/parts",
+        json={
+            "name": "封闭型腔",
+            "material": "铝合金",
+            "length": 80,
+            "width": 60,
+            "height": 12,
+        },
+    ).get_json()["id"]
+    response = client.post(
+        f"/api/v1/parts/{pid}/quote",
+        json={
+            "features": [
+                {
+                    "type": "pocket",
+                    "feature_id": "slot-0",
+                    "length": 40,
+                    "width": 20,
+                    "depth": 8,
+                    "corner_radius": 3,
+                    "pocket_type": "封闭",
+                },
+            ],
+        },
+    )
+    assert response.status_code == 200
+
+    part = client.get(f"/api/v1/parts/{pid}").get_json()
+    pocket_group = next(
+        group
+        for group in part["quote"]["labor_cost_breakdown"]["groups"]
+        if "slot-0" in group["feature_ids"]
+    )
+    assert pocket_group["feature_type"] == "pocket"
+    assert pocket_group["name"] == "型腔"
+
+
 @pytest.mark.parametrize(
     ("part_name", "candidate_id", "candidate_diameter", "hole_diameter", "hole_depth"),
     [
