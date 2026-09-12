@@ -149,15 +149,24 @@ test("特征树标题以中文类型和关键尺寸为主", () => {
     width: 18,
     height: 5,
   }), "台阶 · L30×W18×H5")
+  assert.equal(featureTreeTitle({
+    type: "outer_cylinder",
+    diameter_mm: 50,
+    depth_mm: 24,
+  }), "外圆 · Ø50×H24")
+  assert.equal(featureTreeTitle({
+    type: "outer_cylinder",
+    dimensions: { diameter_mm: 32, length: 18 },
+  }), "外圆 · Ø32×H18")
 })
 
-test("特征树只显示手册已覆盖且已有报价映射的七类特征", () => {
-  const allowed = ["hole", "face", "pocket", "slot", "thread", "surface", "step"]
+test("特征树显示七类报价特征和仅供审查的外圆", () => {
+  const allowed = ["hole", "outer_cylinder", "face", "pocket", "slot", "thread", "surface", "step"]
   assert.deepEqual(
     allowed.filter((type) => isReviewTreeFeature({ type, feature_id: `${type}-0` })),
     allowed,
   )
-  for (const type of ["outer_cylinder", "chamfer", "fillet", "pocket_or_step", "boss", ""]) {
+  for (const type of ["chamfer", "fillet", "pocket_or_step", "boss", ""]) {
     assert.equal(isReviewTreeFeature({ type, feature_id: `${type || "unknown"}-0` }), false)
   }
 
@@ -184,7 +193,17 @@ test("特征树只显示手册已覆盖且已有报价映射的七类特征", ()
           type: "pocket_or_step",
           subtype: "planar_region",
         },
-        { feature_id: "od-0", type: "outer_cylinder" },
+        {
+          feature_id: "od-0",
+          type: "outer_cylinder",
+          diameter_mm: 50,
+          depth_mm: 24,
+          process_chain: [
+            { step_id: "od-0:rough", order: 1, process: "rough_turn_outer_cylinder", name: "粗车外圆" },
+            { step_id: "od-0:finish", order: 2, process: "finish_turn_outer_cylinder", name: "精车外圆" },
+          ],
+          gaps: ["缺少车削 Vc/f/ap 参数表", "缺少径向余量表"],
+        },
         { feature_id: "chamfer-0", type: "chamfer" },
         { feature_id: "fillet-0", type: "fillet" },
         { feature_id: "boss-0", type: "boss" },
@@ -204,7 +223,18 @@ test("特征树只显示手册已覆盖且已有报价映射的七类特征", ()
   assert.match(tree.textContent || "", /曲面 · 自由曲面 R20/)
   assert.match(tree.textContent || "", /slot-0/)
   assert.match(tree.textContent || "", /surface-0/)
+  assert.match(tree.textContent || "", /外圆 · Ø50×H24/)
+  assert.match(tree.textContent || "", /od-0/)
   assert.doesNotMatch(tree.textContent || "", /pocket_or_step/)
   assert.doesNotMatch(tree.textContent || "", /prismatic-region/)
-  assert.doesNotMatch(tree.textContent || "", /od-0|outer_cylinder|chamfer|fillet|boss/)
+  assert.doesNotMatch(tree.textContent || "", /outer_cylinder|chamfer|fillet|boss/)
+
+  fireEvent.click(screen.getByRole("button", { name: /od-0/ }))
+  const inspector = screen.getByText("特征详细参数").closest("section")
+  assert.ok(inspector)
+  assert.match(inspector.textContent || "", /粗车外圆.*待手册公式.*精车外圆.*待手册公式/s)
+  assert.match(inspector.textContent || "", /缺少车削 Vc\/f\/ap 参数表/)
+  assert.match(inspector.textContent || "", /缺少径向余量表/)
+  assert.match(inspector.textContent || "", /不计入报价/)
+  assert.doesNotMatch(inspector.textContent || "", /暂无匹配工序/)
 })

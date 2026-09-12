@@ -86,17 +86,33 @@ def test_map_recognized_hole_to_pipeline_fields():
     assert holes[0]["surface"] == "side"
 
 
-def test_outer_cylinder_not_quoted():
+def test_outer_cylinder_has_review_skeleton_but_is_not_quoted():
     feats = [
         {"type": "outer_cylinder", "feature_id": "od-1", "selected": False,
          "diameter_mm": 40, "depth_mm": 12},
         {"type": "hole", "feature_id": "hole-0", "selected": True,
          "diameter_mm": 6, "depth_mm": 12, "hole_type": "through", "position_type": "垂直"},
     ]
-    _, features = _review_and_quote_features(feats, None, 80, 60)
+    review, features = _review_and_quote_features(feats, None, 80, 60)
     holes = [f for f in features if f["type"] == "hole"]
     assert len(holes) == 1
     assert holes[0]["cut_depth_mm"] == pytest.approx(12 + 0.3 * 6)
+    outer = next(f for f in review if f["type"] == "outer_cylinder")
+    assert outer["selected"] is False
+    assert outer["quote_status"] == "待手册公式"
+    assert outer["quote_excluded"] is True
+    assert outer["amount_contribution"] == 0
+    assert [step["name"] for step in outer["process_chain"]] == [
+        "粗车外圆",
+        "精车外圆",
+    ]
+    assert all(step["minutes"] is None for step in outer["process_chain"])
+    assert all(step["amount"] == 0 for step in outer["process_chain"])
+    assert outer["gaps"] == [
+        "缺少车削 Vc/f/ap 参数表",
+        "缺少径向余量表",
+    ]
+    assert not any(f["type"] == "outer_cylinder" for f in features)
 
 
 def test_raw_cylinder_candidate_never_reaches_review_or_quote():

@@ -71,8 +71,13 @@ def test_map_llm_plate_hole_d8_fixture_fields():
 def test_map_llm_fixture_review_and_quote_pins(client):
     features = map_llm_features(_fixture_payload())["features"]
     review, quoted = _review_and_quote_features(features, None, 80, 60, 12)
-    assert {feat["feature_id"] for feat in review} == {"hole-0", "face-0"}
+    assert {feat["feature_id"] for feat in review} == {
+        "hole-0", "face-0", "od-0",
+    }
     assert [feat["type"] for feat in quoted] == ["hole", "face"]
+    outer = next(feat for feat in review if feat["type"] == "outer_cylinder")
+    assert outer["quote_excluded"] is True
+    assert outer["amount_contribution"] == 0
     hole = quoted[0]
     assert hole["cut_depth_mm"] == pytest.approx(14.4)
     assert hole["hole_type"] == "through"
@@ -124,7 +129,7 @@ def test_map_llm_empty_or_garbage_is_visible_failure():
         _json_object("not-json")
 
 
-def test_sanitize_keeps_only_handbook_types_with_live_quote_mappings():
+def test_sanitize_keeps_quote_types_and_review_only_outer_cylinder():
     cleaned = _sanitize_review_features([
         {"type": "hole", "feature_id": "hole-0"},
         {"type": "face", "feature_id": "face-0"},
@@ -148,6 +153,7 @@ def test_sanitize_keeps_only_handbook_types_with_live_quote_mappings():
         "thread-0",
         "surface-0",
         "step-0",
+        "od-0",
     ]
 
 

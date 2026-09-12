@@ -220,6 +220,7 @@ def _surface_for_pipeline(feat, fid):
 
 _FEATURE_DIMENSION_FIELDS = {
     "hole": {"diameter_mm", "depth_mm"},
+    "outer_cylinder": {"diameter_mm", "depth_mm", "length"},
     "thread": {"diameter_mm", "thread_length"},
     "slot": {"length", "width", "depth"},
     "pocket": {"length", "width", "depth"},
@@ -335,12 +336,20 @@ def _apply_feature_overrides(features, overrides):
         feature.update(values)
         feature_type = str(feature.get("type") or "").lower()
         pose = dict(feature.get("pose") or {})
-        if pose and feature_type in {"hole", "thread"}:
+        if pose and feature_type in {"hole", "outer_cylinder", "thread"}:
             if "diameter_mm" in values:
                 pose["diameter_mm"] = values["diameter_mm"]
-            length_key = "depth_mm" if feature_type == "hole" else "thread_length"
-            if length_key in values:
-                pose["length_mm"] = values[length_key]
+            length_keys = {
+                "hole": ("depth_mm",),
+                "outer_cylinder": ("depth_mm", "length"),
+                "thread": ("thread_length",),
+            }[feature_type]
+            length_value = next(
+                (values[key] for key in length_keys if key in values),
+                None,
+            )
+            if length_value is not None:
+                pose["length_mm"] = length_value
             feature["pose"] = pose
         if feature_type == "hole" and (
             "diameter_mm" in values or "depth_mm" in values
@@ -369,6 +378,8 @@ def _review_and_quote_features(parsed_feats, selected_ids, L, W, H=0):
         if selected is None and feat.get("selected") is False:
             on = False
         item = {**feat, "feature_id": fid, "selected": on}
+        if item.get("type") == "outer_cylinder":
+            item = _outer_cylinder_review_feature(item)
         review.append(item)
         if not on:
             continue
@@ -402,6 +413,7 @@ def _review_and_quote_features(parsed_feats, selected_ids, L, W, H=0):
 
 _REVIEW_FEATURE_TYPES = {
     "hole",
+    "outer_cylinder",
     "face",
     "pocket",
     "slot",
@@ -411,18 +423,68 @@ _REVIEW_FEATURE_TYPES = {
 }
 
 
+_OUTER_CYLINDER_GAPS = [
+    "缺少车削 Vc/f/ap 参数表",
+    "缺少径向余量表",
+]
+
+
+def _outer_cylinder_review_feature(feature):
+    """外圆只暴露已冻结工艺意图；缺表时不生成工时或金额。"""
+    item = dict(feature)
+    fid = str(item.get("feature_id") or item.get("id") or "outer-cylinder")
+    item.update({
+        "quote_status": "待手册公式",
+        "quote_excluded": True,
+        "amount_contribution": 0,
+        "gaps": list(_OUTER_CYLINDER_GAPS),
+        "process_chain": [
+            {
+                "step_id": f"{fid}:rough_turn_outer_cylinder:1",
+                "order": 1,
+                "feature_id": fid,
+                "process": "rough_turn_outer_cylinder",
+                "name": "粗车外圆",
+                "status": "待手册公式",
+                "minutes": None,
+                "amount": 0,
+                "quote_excluded": True,
+            },
+            {
+                "step_id": f"{fid}:finish_turn_outer_cylinder:1",
+                "order": 2,
+                "feature_id": fid,
+                "process": "finish_turn_outer_cylinder",
+                "name": "精车外圆",
+                "status": "待手册公式",
+                "minutes": None,
+                "amount": 0,
+                "quote_excluded": True,
+            },
+        ],
+    })
+    return item
+
+
 def _sanitize_review_features(features):
-    """Only handbook-covered features with live quote mappings enter review payloads."""
-    return [
-        feature
-        for feature in features or []
-        if isinstance(feature, dict)
-        and str(feature.get("type") or "").lower() in _REVIEW_FEATURE_TYPES
-        and feature.get("subtype") not in {"cylindrical_candidate", "planar_region"}
-        and feature.get("type") != "pocket_or_step"
-        and not str(feature.get("feature_id") or feature.get("id") or "").startswith("cylinder-")
-        and not str(feature.get("feature_id") or feature.get("id") or "").startswith("prismatic-region-")
-    ]
+    """保留已覆盖特征；外圆只带待公式审查骨架，不进入自动报价。"""
+    sanitized = []
+    for feature in features or []:
+        if (
+            not isinstance(feature, dict)
+            or str(feature.get("type") or "").lower() not in _REVIEW_FEATURE_TYPES
+            or feature.get("subtype") in {"cylindrical_candidate", "planar_region"}
+            or feature.get("type") == "pocket_or_step"
+            or str(feature.get("feature_id") or feature.get("id") or "").startswith("cylinder-")
+            or str(feature.get("feature_id") or feature.get("id") or "").startswith("prismatic-region-")
+        ):
+            continue
+        sanitized.append(
+            _outer_cylinder_review_feature(feature)
+            if str(feature.get("type") or "").lower() == "outer_cylinder"
+            else feature
+        )
+    return sanitized
 
 
 def _stored_parse_result(conn, part):

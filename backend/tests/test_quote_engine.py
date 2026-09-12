@@ -33,6 +33,13 @@ def quote(client, payload):
                     "length": 80,
                     "width": 60,
                 },
+                {
+                    "type": "outer_cylinder",
+                    "feature_id": "od-0",
+                    "selected": True,
+                    "diameter_mm": 80,
+                    "depth_mm": 12,
+                },
             ],
             56_997,
             ["面粗", "钻孔", "倒角"],
