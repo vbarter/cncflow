@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -295,6 +296,49 @@ def read_step_ascii(path, max_chars=None):
         text = text[:limit]
         truncated = True
     return text, truncated
+
+
+def _feature_fingerprint(path, model=None):
+    digest = hashlib.sha256()
+    digest.update((model or feature_model()).encode())
+    digest.update(b"\0")
+    with open(path, "rb") as step_file:
+        for chunk in iter(lambda: step_file.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _cached_feature_result(conn, fingerprint):
+    if conn is None:
+        return None
+    row = conn.execute(
+        "SELECT result_json FROM feature_llm_cache WHERE fingerprint=?",
+        (fingerprint,),
+    ).fetchone()
+    if row is None:
+        return None
+    try:
+        result = json.loads(row["result_json"])
+    except (TypeError, json.JSONDecodeError):
+        return None
+    if not isinstance(result, dict) or not isinstance(result.get("features"), list):
+        return None
+    result["cache_hit"] = True
+    return result
+
+
+def _store_feature_result(conn, fingerprint, model, result):
+    if conn is None:
+        return
+    stored = dict(result)
+    stored["cache_hit"] = False
+    conn.execute(
+        "INSERT INTO feature_llm_cache(fingerprint,model,result_json) VALUES(?,?,?) "
+        "ON CONFLICT(fingerprint) DO UPDATE SET model=excluded.model,"
+        "result_json=excluded.result_json,updated_at=datetime('now')",
+        (fingerprint, model, json.dumps(stored, ensure_ascii=False)),
+    )
+    conn.commit()
 
 
 def _geometry_hint(geometry):
@@ -955,8 +999,22 @@ def _slot_retry_messages(step_text, geometry, previous):
     ]
 
 
-def extract_step_features(path, geometry=None, images=None):
+def extract_step_features(
+    path,
+    geometry=None,
+    images=None,
+    *,
+    cache_conn=None,
+    force_reparse=False,
+):
     """读 STEP 文本 → tu-zi gpt-6-astra → 映射后的 features。失败抛错。"""
+    model = feature_model()
+    fingerprint = _feature_fingerprint(path, model)
+    if not force_reparse:
+        cached = _cached_feature_result(cache_conn, fingerprint)
+        if cached is not None:
+            return cached
+
     step_text, truncated = read_step_ascii(path)
     warnings = []
     if truncated:
@@ -985,10 +1043,14 @@ def extract_step_features(path, geometry=None, images=None):
                 warnings.append("LLM 补询仍未出槽腔")
                 warnings.extend(f"LLM 跳过: {err}" for err in retry_mapped["errors"])
     warnings.extend(f"LLM 跳过: {err}" for err in mapped["errors"])
-    return {
+    result = {
         "raw": raw,
         "features": mapped["features"],
         "warnings": warnings,
-        "model": feature_model(),
+        "model": model,
         "truncated": truncated,
+        "cache_hit": False,
+        "fingerprint": fingerprint,
     }
+    _store_feature_result(cache_conn, fingerprint, model, result)
+    return result

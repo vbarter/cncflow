@@ -331,13 +331,15 @@ def retry_job(conn, job_id):
         conn.rollback()
         raise ValueError(f"任务状态 {row['status']} 无需重试")
 
+    options = json.loads(row["options_json"] or "{}")
+    options["force_reparse"] = True
     conn.execute(
         "UPDATE parse_jobs SET status='queued',stage='queued',progress=0,error=NULL,attempts=0,"
         "worker_id=NULL,started_at=NULL,heartbeat_at=NULL,result_json=NULL,confirmed_json=NULL,"
-        "plans_json=NULL,updated_at=datetime('now') WHERE job_id=? AND status='failed'",
-        (job_id,),
+        "plans_json=NULL,options_json=?,updated_at=datetime('now') "
+        "WHERE job_id=? AND status='failed'",
+        (json.dumps(options, ensure_ascii=False), job_id),
     )
-    options = json.loads(row["options_json"] or "{}")
     part_id = options.get("part_id")
     if part_id:
         part = conn.execute(

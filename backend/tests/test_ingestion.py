@@ -136,8 +136,13 @@ def test_retry_failed_job_requeues_same_upload(client, seeded_db_path):
 
     conn = get_conn(seeded_db_path)
     part_status = conn.execute("SELECT status FROM parts WHERE id=?", (pid,)).fetchone()["status"]
+    options = conn.execute(
+        "SELECT options_json FROM parse_jobs WHERE job_id=?",
+        (job_id,),
+    ).fetchone()["options_json"]
     conn.close()
     assert part_status == "parsing"
+    assert '"force_reparse": true' in options
 
 
 def test_retry_rejects_active_job(client):

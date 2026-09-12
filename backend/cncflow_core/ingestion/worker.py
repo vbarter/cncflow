@@ -48,7 +48,11 @@ PARSER_TIMEOUT_SECONDS = int(os.environ.get("CNCFLOW_PARSER_TIMEOUT", "300"))
 def _parse_in_child(detected_type, path, options, output):
     try:
         if detected_type == "step":
-            output.put({"ok": True, "value": parse_step_file(path)})
+            output.put({"ok": True, "value": parse_step_file(
+                path,
+                force_reparse=options.get("force_reparse") is True,
+                cache_db_path=options.get("_feature_cache_db_path"),
+            )})
         else:
             output.put({"ok": True, "value": parse_pdf(path, options.get("allow_external_ai", False))})
     except Exception as exc:
@@ -57,7 +61,11 @@ def _parse_in_child(detected_type, path, options, output):
 
 def _parse_inline(detected_type, path, options):
     if detected_type == "step":
-        return parse_step_file(path)
+        return parse_step_file(
+            path,
+            force_reparse=options.get("force_reparse") is True,
+            cache_db_path=options.get("_feature_cache_db_path"),
+        )
     return parse_pdf(path, options.get("allow_external_ai", False))
 
 
@@ -97,6 +105,10 @@ def process_claimed(conn, job):
         "worker_id": job.get("worker_id"),
         "attempt": job.get("attempt"),
     }
+    parse_options = dict(job["options"])
+    database_file = conn.execute("PRAGMA database_list").fetchone()["file"]
+    if database_file:
+        parse_options["_feature_cache_db_path"] = database_file
     for file in job["files"]:
         suffix = ".step" if file["detected_type"] == "step" else ".pdf"
         if file["detected_type"] == "step":
@@ -109,10 +121,23 @@ def process_claimed(conn, job):
                 **claim,
             )
             step_path = materialize(file["storage_path"], suffix=suffix)
-            parsed = isolated_parse("step", step_path, job["options"])
+            parsed = isolated_parse("step", step_path, parse_options)
             result["geometry"] = parsed["geometry"]
             result["features"].extend(parsed.get("features") or [])
             result["warnings"].extend(parsed.get("warnings") or [])
+            result["cache_hit"] = parsed.get("cache_hit", False)
+            result["llm"] = parsed.get("llm")
+            update_job(
+                conn,
+                job["job_id"],
+                stage="geometry_parse",
+                progress=60,
+                message=(
+                    "特征解析完成 "
+                    f"cache_hit={str(result['cache_hit']).lower()}"
+                ),
+                **claim,
+            )
             result["plugins"] = parsed.get("plugins")
             result["feature_schema"] = parsed.get("feature_schema") or FEATURE_SCHEMA
             result["parser"] = parsed.get("parser") or "geometry-service"

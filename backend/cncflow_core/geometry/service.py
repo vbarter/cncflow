@@ -388,7 +388,14 @@ def _finalize_features(features, geometry=None, source="geometry"):
     return _unselect_step_shoulder_tops(features)
 
 
-def parse_step_file(path, include_mesh=True):
+def parse_step_file(
+    path,
+    include_mesh=True,
+    *,
+    force_reparse=False,
+    cache_conn=None,
+    cache_db_path=None,
+):
     """STEP → features。默认 tu-zi gpt-6-astra；geometry/dual 见 CNCFLOW_FEATURE_PARSER。"""
     from cncflow_core.ingestion.step_parser import parse_step
     from .llm import extract_step_features
@@ -399,25 +406,46 @@ def parse_step_file(path, include_mesh=True):
     llm_meta = {"provider": "tu-zi", "called": False, "ok": False, "model": feature_model()}
     source = PARSER_GEOMETRY
     features = []
+    owned_cache_conn = None
 
     if mode != PARSER_GEOMETRY:
         try:
-            extracted = extract_step_features(path, geometry=result.get("geometry"))
+            if cache_conn is None and cache_db_path is not None:
+                from ..common.db import get_conn, init_schema
+
+                owned_cache_conn = get_conn(cache_db_path)
+                init_schema(owned_cache_conn)
+                cache_conn = owned_cache_conn
+            extracted = extract_step_features(
+                path,
+                geometry=result.get("geometry"),
+                cache_conn=cache_conn,
+                force_reparse=force_reparse,
+            )
             features = extracted["features"]
             warnings.extend(extracted.get("warnings") or [])
             llm_meta.update({
-                "called": True,
+                "called": not extracted.get("cache_hit", False),
                 "ok": True,
                 "model": extracted.get("model") or feature_model(),
                 "truncated": extracted.get("truncated", False),
+                "cache_hit": extracted.get("cache_hit", False),
             })
             source = PARSER_LLM
         except Exception as exc:
-            llm_meta.update({"called": True, "ok": False, "error": str(exc)})
+            llm_meta.update({
+                "called": True,
+                "ok": False,
+                "cache_hit": False,
+                "error": str(exc),
+            })
             if not llm_fallback_enabled():
                 raise RuntimeError(f"LLM 特征识别失败: {exc}") from exc
             warnings.append(f"LLM 特征识别失败，回退几何插件: {exc}")
             source = PARSER_GEOMETRY
+        finally:
+            if owned_cache_conn is not None:
+                owned_cache_conn.close()
 
     if source != PARSER_LLM:
         features = _run_geometry_plugins(path, result.get("features"))
@@ -429,6 +457,7 @@ def parse_step_file(path, include_mesh=True):
     result["feature_schema"] = FEATURE_SCHEMA
     result["feature_source"] = source
     result["llm"] = llm_meta
+    result["cache_hit"] = bool(llm_meta.get("cache_hit"))
     result["plugins"] = list_plugins()
     result["plugin_names"] = plugin_names()
     result["features"] = features
