@@ -86,7 +86,13 @@ def test_pm_new_quote_through_hole_contract(client, seeded_db_path):
     assert by_id["hole-0"]["selected"] is True
     assert by_id["hole-0"]["hole_type"] == "through"
     assert by_id["hole-0"]["position_type"] == "垂直"
-    assert by_id["od-1"]["selected"] is False
+    assert by_id["hole-0"]["diameter_mm"] == 8
+    assert by_id["hole-0"]["depth_mm"] == 12
+    assert not any(f.get("type") == "outer_cylinder" for f in review)
+    assert not any(
+        str(f.get("feature_id") or "").startswith("od-")
+        for f in review
+    )
 
     plans = (part["quote"] or {}).get("features") or []
     hole_plans = [p for p in plans if p.get("type") == "hole"]
