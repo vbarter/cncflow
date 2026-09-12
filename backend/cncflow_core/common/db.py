@@ -259,6 +259,7 @@ CREATE TABLE IF NOT EXISTS parts (
   status TEXT NOT NULL DEFAULT 'draft',
   parse_job_id TEXT,
   slider TEXT DEFAULT '标准',
+  user_process_plan_json TEXT,
   quote_json TEXT,
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now')),
@@ -307,6 +308,7 @@ def init_schema(conn: sqlite3.Connection) -> None:
     _ensure_column(conn, "parts", "thread_specs_json", "TEXT")
     _ensure_column(conn, "parts", "pdf_backfill_status", "TEXT")
     _ensure_column(conn, "parts", "pdf_backfill_warning", "TEXT")
+    _ensure_column(conn, "parts", "user_process_plan_json", "TEXT")
     # 一期数据库中的无来源刀具全部由 seed_tools.py 生成；迁移后不得冒充真实库存。
     conn.execute(
         "UPDATE tools SET is_mock=1, source='legacy_generated_mock' "

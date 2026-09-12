@@ -3,6 +3,7 @@ import { Button, Card, Input, Select } from "../components/ui"
 import { CostBreakdown } from "../components/CostBreakdown"
 import { FeatureReview, isReviewTreeFeature } from "../components/FeatureReview"
 import { PartQuoteDecision } from "../components/PartQuoteDecision"
+import { PlanQuoteComparison } from "../components/PlanQuoteComparison"
 import { ProcessSequenceEditor } from "../components/ProcessSequenceEditor"
 import { json } from "../api"
 import { hoursLabel, quoteHours } from "../quoteHours"
@@ -87,6 +88,7 @@ export function PartDetail({ id, go }: { id: string; go: (h: string) => void }) 
   const costCard = (
     <CostBreakdown quote={q} uiCost={ui} quoteSummary={quote} />
   )
+  const planComparison = <PlanQuoteComparison quote={q} />
 
   const actions = (
     <div className="flex flex-col gap-3 md:flex-row">
@@ -124,10 +126,12 @@ export function PartDetail({ id, go }: { id: string; go: (h: string) => void }) 
 
     {view === "boss" ? <>
       {decision(false)}
+      {planComparison}
       {costCard}
       {actions}
     </> : <>
       {decision(true)}
+      {planComparison}
 
       <Card className="p-5">
         <div className="mb-1 text-xs uppercase tracking-wide text-slate-400">PDF / PART FIELDS</div>

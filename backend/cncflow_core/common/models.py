@@ -83,3 +83,73 @@ class MachinabilityResult:
             "risk_notes": self.risk_notes,
             "fired_rules": self.fired_rules,
         }
+
+
+@dataclass
+class BlankDecision:
+    """一期毛坯建议合同；与冻结的 quoting.volume 计算链完全独立。"""
+
+    blank_type: str
+    label: str
+    envelope_mm: dict
+    allowance_mm: dict
+    suggested_stock_size: dict
+    rule: str
+
+    def to_dict(self) -> dict:
+        return {
+            "blank_type": self.blank_type,
+            "label": self.label,
+            "envelope_mm": self.envelope_mm,
+            "allowance_mm": self.allowance_mm,
+            "suggested_stock_size": self.suggested_stock_size,
+            "rule": self.rule,
+        }
+
+
+@dataclass
+class ProcessPlanCandidate:
+    id: str
+    source: str
+    machine: str
+    setups: int
+    operations: list[str]
+    process_chain_ref: list[str]
+    label: str
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "source": self.source,
+            "machine": self.machine,
+            "setups": self.setups,
+            "operations": self.operations,
+            "process_chain_ref": self.process_chain_ref,
+            "label": self.label,
+        }
+
+
+@dataclass
+class PlanQuoteComparison:
+    plan_id: str
+    label: str
+    source: str
+    machine: str
+    setup_count: int
+    total_cost: float
+    quoted_amount: float
+    machining_cost: float
+    machining_time_hours: float
+
+    def to_dict(self) -> dict:
+        return {
+            "plan_id": self.plan_id,
+            "label": self.label,
+            "source": self.source,
+            "machine": self.machine,
+            "setup_count": self.setup_count,
+            "total_cost": self.total_cost,
+            "quoted_amount": self.quoted_amount,
+            "machining_cost": self.machining_cost,
+            "machining_time_hours": self.machining_time_hours,
+        }
