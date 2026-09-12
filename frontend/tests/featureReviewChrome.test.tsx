@@ -2,7 +2,12 @@ import assert from "node:assert/strict"
 import test, { afterEach } from "node:test"
 import { JSDOM } from "jsdom"
 import React from "react"
-import { FeatureReview, ViewerToolbar, isReviewTreeFeature } from "../src/components/FeatureReview"
+import {
+  FeatureReview,
+  ViewerToolbar,
+  featureTreeTitle,
+  isReviewTreeFeature,
+} from "../src/components/FeatureReview"
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", {
   url: "http://localhost/",
@@ -102,7 +107,60 @@ test("特征树连续选择 hole/face 时右侧参数跟随同一 feature id", (
   assert.doesNotMatch(inspector.textContent || "", /hole-8/)
 })
 
-test("特征树主标题用中文类型，隐藏 pocket_or_step 残留", () => {
+test("特征树标题以中文类型和关键尺寸为主", () => {
+  assert.equal(featureTreeTitle({
+    type: "hole",
+    diameter_mm: 8,
+    depth_mm: 12,
+    hole_type: "through",
+  }), "孔 · Ø8×H12 通孔")
+  assert.equal(featureTreeTitle({
+    type: "face",
+    length: 80,
+    width: 60,
+    face_position: "水平",
+  }), "面 · L80×W60 水平")
+  assert.equal(featureTreeTitle({
+    type: "pocket",
+    pocket_type: "开放",
+    length: 24,
+    width: 12,
+    depth: 6,
+  }), "型腔 · 开放 L24×W12×H6")
+  assert.equal(featureTreeTitle({
+    type: "slot",
+    pocket_type: "开放",
+    dimensions: { length: 24, width: 8, depth: 4 },
+  }), "槽 · 开放 L24×W8×H4")
+  assert.equal(featureTreeTitle({
+    type: "thread",
+    nominal_d: 8,
+    pitch: 1.25,
+    thread_length: 12,
+  }), "螺纹 · M8×P1.25×H12")
+  assert.equal(featureTreeTitle({
+    type: "surface",
+    surface_type: "自由曲面",
+    curvature_radius: 20,
+  }), "曲面 · 自由曲面 R20")
+  assert.equal(featureTreeTitle({
+    type: "step",
+    length: 30,
+    width: 18,
+    height: 5,
+  }), "台阶 · L30×W18×H5")
+})
+
+test("特征树只显示手册已覆盖且已有报价映射的七类特征", () => {
+  const allowed = ["hole", "face", "pocket", "slot", "thread", "surface", "step"]
+  assert.deepEqual(
+    allowed.filter((type) => isReviewTreeFeature({ type, feature_id: `${type}-0` })),
+    allowed,
+  )
+  for (const type of ["outer_cylinder", "chamfer", "fillet", "pocket_or_step", "boss", ""]) {
+    assert.equal(isReviewTreeFeature({ type, feature_id: `${type || "unknown"}-0` }), false)
+  }
+
   render(
     <FeatureReview
       partId="part-labels"
@@ -126,7 +184,11 @@ test("特征树主标题用中文类型，隐藏 pocket_or_step 残留", () => {
           type: "pocket_or_step",
           subtype: "planar_region",
         },
-      ].filter(isReviewTreeFeature)}
+        { feature_id: "od-0", type: "outer_cylinder" },
+        { feature_id: "chamfer-0", type: "chamfer" },
+        { feature_id: "fillet-0", type: "fillet" },
+        { feature_id: "boss-0", type: "boss" },
+      ]}
       processSequence={[]}
       meshAvailable={false}
       locked={false}
@@ -138,15 +200,11 @@ test("特征树主标题用中文类型，隐藏 pocket_or_step 残留", () => {
   )
   const tree = screen.getByText("特征树").closest("section")
   assert.ok(tree)
-  assert.match(tree.textContent || "", /型腔 · 封闭/)
-  assert.match(tree.textContent || "", /曲面 · 自由曲面/)
+  assert.match(tree.textContent || "", /型腔 · 封闭 L24×W12×H6/)
+  assert.match(tree.textContent || "", /曲面 · 自由曲面 R20/)
   assert.match(tree.textContent || "", /slot-0/)
   assert.match(tree.textContent || "", /surface-0/)
   assert.doesNotMatch(tree.textContent || "", /pocket_or_step/)
   assert.doesNotMatch(tree.textContent || "", /prismatic-region/)
-  assert.equal(isReviewTreeFeature({
-    feature_id: "prismatic-region-0",
-    type: "pocket_or_step",
-    subtype: "planar_region",
-  }), false)
+  assert.doesNotMatch(tree.textContent || "", /od-0|outer_cylinder|chamfer|fillet|boss/)
 })

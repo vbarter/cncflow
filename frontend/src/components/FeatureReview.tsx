@@ -40,7 +40,17 @@ const CANVAS_GL = {
   localClippingEnabled: true,
 }
 
-/** 与 quoting/engine.py FEATURE_NAME 对齐；树/工时用同一套中文。 */
+/** 手册已覆盖且现网已有报价映射的审查特征。 */
+const REVIEW_TREE_FEATURE_TYPES = new Set([
+  "hole",
+  "face",
+  "pocket",
+  "slot",
+  "thread",
+  "surface",
+  "step",
+])
+
 const FEATURE_LABEL: Record<string, string> = {
   hole: "孔",
   face: "面",
@@ -49,9 +59,6 @@ const FEATURE_LABEL: Record<string, string> = {
   thread: "螺纹",
   surface: "曲面",
   step: "台阶",
-  outer_cylinder: "外圆",
-  chamfer: "倒角",
-  fillet: "圆角",
 }
 
 function holeLabel(ht: string | undefined) {
@@ -68,14 +75,62 @@ export function featureTypeLabel(feature: Feat): string {
 export function featureTreeTitle(feature: Feat): string {
   const label = featureTypeLabel(feature)
   const type = featType(feature)
-  const extra = type === "pocket" || type === "slot"
-    ? feature?.pocket_type || feature?.dimensions?.pocket_type
-    : type === "surface"
-      ? feature?.surface_type || feature?.dimensions?.surface_type
-      : type === "hole"
-        ? holeLabel(feature?.hole_type)
-        : ""
-  return extra && extra !== "—" ? `${label} · ${extra}` : label
+  const dim = feature?.dimensions || {}
+  const dimension = (prefix: string, ...values: any[]) => {
+    const value = num(...values)
+    return value == null ? "" : `${prefix}${value}`
+  }
+  const details = (...values: Array<string | null | undefined>) => {
+    const text = values.filter((value) => value && value !== "—").join(" ")
+    return text ? `${label} · ${text}` : label
+  }
+
+  if (type === "hole") {
+    const size = [
+      dimension("Ø", feature?.pose?.diameter_mm, feature?.diameter_mm, feature?.nominal_d, dim.diameter_mm),
+      dimension("H", feature?.pose?.length_mm, feature?.depth_mm, feature?.depth, dim.depth_mm, dim.depth),
+    ].filter(Boolean).join("×")
+    return details(size, holeLabel(feature?.hole_type || dim.hole_type))
+  }
+  if (type === "thread") {
+    const size = [
+      dimension("M", feature?.diameter_mm, feature?.nominal_d, dim.diameter_mm),
+      dimension("P", feature?.pitch, dim.pitch),
+      dimension("H", feature?.thread_length, feature?.depth_mm, dim.thread_length, dim.depth_mm),
+    ].filter(Boolean).join("×")
+    return details(size)
+  }
+  if (type === "pocket" || type === "slot") {
+    const size = [
+      dimension("L", feature?.length, dim.length),
+      dimension("W", feature?.width, dim.width),
+      dimension("H", feature?.depth, feature?.height, dim.depth, dim.height),
+    ].filter(Boolean).join("×")
+    return details(feature?.pocket_type || dim.pocket_type, size)
+  }
+  if (type === "face") {
+    const size = [
+      dimension("L", feature?.length, dim.length),
+      dimension("W", feature?.width, dim.width),
+    ].filter(Boolean).join("×")
+    return details(size, feature?.face_position || dim.face_position)
+  }
+  if (type === "step") {
+    const size = [
+      dimension("L", feature?.length, dim.length),
+      dimension("W", feature?.width, dim.width),
+      dimension("H", feature?.height, feature?.depth, feature?.depth_mm, dim.height, dim.depth, dim.depth_mm),
+    ].filter(Boolean).join("×")
+    const profile = feature?.profile_type || dim.profile_type
+    return details(size, profile === label ? "" : profile)
+  }
+  if (type === "surface") {
+    return details(
+      feature?.surface_type || dim.surface_type,
+      dimension("R", feature?.curvature_radius, feature?.radius_mm, feature?.radius, feature?.R, dim.curvature_radius, dim.R),
+    )
+  }
+  return label
 }
 
 function xyz(v: any): THREE.Vector3 | null {
@@ -111,7 +166,8 @@ export function isReviewTreeFeature(feature: Feat): boolean {
   const id = String(feature?.feature_id || feature?.id || "")
   const type = featType(feature)
   return (
-    feature?.subtype !== "cylindrical_candidate"
+    REVIEW_TREE_FEATURE_TYPES.has(type)
+    && feature?.subtype !== "cylindrical_candidate"
     && feature?.subtype !== "planar_region"
     && type !== "pocket_or_step"
     && !id.startsWith("cylinder-")
