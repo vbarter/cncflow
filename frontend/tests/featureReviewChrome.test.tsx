@@ -158,15 +158,30 @@ test("特征树标题以中文类型和关键尺寸为主", () => {
     type: "outer_cylinder",
     dimensions: { diameter_mm: 32, length: 18 },
   }), "外圆 · Ø32×H18")
+  assert.equal(featureTreeTitle({
+    type: "chamfer",
+    chamfer_mm: 0.8,
+  }), "倒角 · C0.8")
+  assert.equal(featureTreeTitle({
+    type: "fillet",
+    dimensions: { fillet_radius: 2 },
+  }), "圆角 · R2")
+  assert.equal(featureTreeTitle({
+    type: "chamfer",
+    dimensions: { x: 1, y: 20, z: 20 },
+  }), "倒角")
+  assert.equal(featureTreeTitle({
+    type: "fillet",
+  }), "圆角")
 })
 
-test("特征树显示七类报价特征和仅供审查的外圆", () => {
-  const allowed = ["hole", "outer_cylinder", "face", "pocket", "slot", "thread", "surface", "step"]
+test("特征树显示报价特征和仅供审查的外圆、倒角、圆角", () => {
+  const allowed = ["hole", "outer_cylinder", "chamfer", "fillet", "face", "pocket", "slot", "thread", "surface", "step"]
   assert.deepEqual(
     allowed.filter((type) => isReviewTreeFeature({ type, feature_id: `${type}-0` })),
     allowed,
   )
-  for (const type of ["chamfer", "fillet", "pocket_or_step", "boss", ""]) {
+  for (const type of ["pocket_or_step", "boss", ""]) {
     assert.equal(isReviewTreeFeature({ type, feature_id: `${type || "unknown"}-0` }), false)
   }
 
@@ -204,8 +219,29 @@ test("特征树显示七类报价特征和仅供审查的外圆", () => {
           ],
           gaps: ["缺少车削 Vc/f/ap 参数表", "缺少径向余量表"],
         },
-        { feature_id: "chamfer-0", type: "chamfer" },
-        { feature_id: "fillet-0", type: "fillet" },
+        {
+          feature_id: "chamfer-0",
+          type: "chamfer",
+          C: 0.8,
+          quote_status: "待手册公式",
+          quote_excluded: true,
+          process_chain: [
+            { step_id: "chamfer-0:review", order: 1, process: "review_independent_chamfer", name: "独立倒角加工", status: "待手册公式" },
+          ],
+          gaps: ["独立特征 schema 与 C/R 格式未冻结"],
+          warnings: ["可能是沉头孔、倒角或锥面，需人工分类"],
+        },
+        {
+          feature_id: "fillet-0",
+          type: "fillet",
+          R: 2,
+          quote_status: "待手册公式",
+          quote_excluded: true,
+          process_chain: [
+            { step_id: "fillet-0:review", order: 1, process: "review_independent_fillet", name: "独立圆角加工", status: "待手册公式" },
+          ],
+          gaps: ["缺少独立圆角刀具 SKU 匹配表"],
+        },
         { feature_id: "boss-0", type: "boss" },
       ]}
       processSequence={[]}
@@ -225,9 +261,13 @@ test("特征树显示七类报价特征和仅供审查的外圆", () => {
   assert.match(tree.textContent || "", /surface-0/)
   assert.match(tree.textContent || "", /外圆 · Ø50×H24/)
   assert.match(tree.textContent || "", /od-0/)
+  assert.match(tree.textContent || "", /倒角 · C0.8/)
+  assert.match(tree.textContent || "", /chamfer-0/)
+  assert.match(tree.textContent || "", /圆角 · R2/)
+  assert.match(tree.textContent || "", /fillet-0/)
   assert.doesNotMatch(tree.textContent || "", /pocket_or_step/)
   assert.doesNotMatch(tree.textContent || "", /prismatic-region/)
-  assert.doesNotMatch(tree.textContent || "", /outer_cylinder|chamfer|fillet|boss/)
+  assert.doesNotMatch(tree.textContent || "", /outer_cylinder|boss/)
 
   fireEvent.click(screen.getByRole("button", { name: /od-0/ }))
   const inspector = screen.getByText("特征详细参数").closest("section")
@@ -237,4 +277,12 @@ test("特征树显示七类报价特征和仅供审查的外圆", () => {
   assert.match(inspector.textContent || "", /缺少径向余量表/)
   assert.match(inspector.textContent || "", /不计入报价/)
   assert.doesNotMatch(inspector.textContent || "", /暂无匹配工序/)
+
+  fireEvent.click(screen.getByRole("button", { name: /chamfer-0/ }))
+  assert.match(inspector.textContent || "", /倒角/)
+  assert.match(inspector.textContent || "", /0.8 mm/)
+  assert.match(inspector.textContent || "", /独立倒角加工.*待手册公式/s)
+  assert.match(inspector.textContent || "", /独立特征 schema 与 C\/R 格式未冻结/)
+  assert.match(inspector.textContent || "", /可能是沉头孔、倒角或锥面，需人工分类/)
+  assert.match(inspector.textContent || "", /待手册公式 · 不计入报价/)
 })

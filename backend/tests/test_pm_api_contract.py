@@ -41,6 +41,16 @@ def _d8_through_result():
                 "diameter_mm": 80, "depth_mm": 12,
                 "dimensions": {"diameter_mm": 80, "depth_mm": 12},
             },
+            {
+                "type": "chamfer", "feature_id": "cone-2", "selected": False,
+                "C": 0.8, "dimensions": {"C": 0.8},
+                "warnings": ["可能是沉头孔、倒角或锥面，需人工分类"],
+            },
+            {
+                "type": "fillet", "feature_id": "torus-3", "selected": False,
+                "dimensions": {"x": 4, "y": 4, "z": 2},
+                "warnings": ["可能是圆角或环形槽，需人工分类"],
+            },
         ],
         "drawing": None, "warnings": [],
     }
@@ -98,8 +108,24 @@ def test_pm_new_quote_through_hole_contract(client, seeded_db_path):
         "精车外圆",
     ]
     assert outer["gaps"]
+    for feature_id, feature_type in (("cone-2", "chamfer"), ("torus-3", "fillet")):
+        edge = by_id[feature_id]
+        assert edge["type"] == feature_type
+        assert edge["quote_status"] == "待手册公式"
+        assert edge["quote_excluded"] is True
+        assert edge["amount_contribution"] == 0
+        assert edge["gaps"]
+        assert edge["process_chain"][0]["minutes"] is None
+        assert edge["process_chain"][0]["amount"] == 0
+        assert edge["process_chain"][0]["process"] != "chamfer"
+    assert by_id["cone-2"]["C"] == 0.8
+    assert "R" not in by_id["torus-3"]
+    assert any("不得从 bbox 推断" in gap for gap in by_id["torus-3"]["gaps"])
+    assert by_id["cone-2"]["warnings"] == ["可能是沉头孔、倒角或锥面，需人工分类"]
+    assert by_id["torus-3"]["warnings"] == ["可能是圆角或环形槽，需人工分类"]
 
     plans = (part["quote"] or {}).get("features") or []
+    assert not any(plan.get("type") in {"outer_cylinder", "chamfer", "fillet"} for plan in plans)
     hole_plans = [p for p in plans if p.get("type") == "hole"]
     assert len(hole_plans) == 1
     hole_out = (hole_plans[0].get("plan") or {}).get("hole") or {}
@@ -113,8 +139,12 @@ def test_pm_new_quote_through_hole_contract(client, seeded_db_path):
 
     seq = (part["quote"] or {}).get("process_sequence") or []
     assert seq
+    assert [step.get("name") for step in seq] == ["钻孔", "倒角"]
+    assert part["quote"]["ui_cost"]["inspect"] == 0
+    assert part["quote"]["ui_cost"]["toolwear"] == 0
+    assert part["quote"]["ui_cost"]["scrap"] == 0
     assert not any(
-        step.get("feature_id") == "od-1"
+        step.get("feature_id") in {"od-1", "cone-2", "torus-3"}
         or step.get("process") in {
             "rough_turn_outer_cylinder",
             "finish_turn_outer_cylinder",

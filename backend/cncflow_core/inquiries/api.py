@@ -440,6 +440,8 @@ def _review_and_quote_features(parsed_feats, selected_ids, L, W, H=0):
 _REVIEW_FEATURE_TYPES = {
     "hole",
     "outer_cylinder",
+    "chamfer",
+    "fillet",
     "face",
     "pocket",
     "slot",
@@ -452,6 +454,14 @@ _REVIEW_FEATURE_TYPES = {
 _OUTER_CYLINDER_GAPS = [
     "缺少车削 Vc/f/ap 参数表",
     "缺少径向余量表",
+]
+_CHAMFER_OR_FILLET_GAPS = [
+    "独立特征 schema 与 C/R 格式未冻结",
+    "缺少独立{label}刀具 SKU 匹配表",
+    "缺少切削参数或审定时间模型",
+    "缺少逐工步工时上下限",
+    "缺少与链末倒角的合并/去重规则",
+    "缺少装夹、刀轴与设备影响规则",
 ]
 _OUTER_CYLINDER_DIAMETER_TOL_MM = 1e-3
 _OUTER_CYLINDER_AXIS_LINE_TOL_MM = 1e-3
@@ -678,8 +688,87 @@ def _outer_cylinder_review_feature(feature):
     return item
 
 
+def _explicit_edge_size(feature, feature_type):
+    dimensions = (
+        feature.get("dimensions")
+        if isinstance(feature.get("dimensions"), dict)
+        else {}
+    )
+    keys = (
+        ("C", "chamfer", "chamfer_mm")
+        if feature_type == "chamfer"
+        else ("R", "radius", "fillet", "fillet_radius")
+    )
+    for key in keys:
+        value = feature.get(key)
+        if value in (None, ""):
+            value = dimensions.get(key)
+        if value in (None, "") or isinstance(value, bool):
+            continue
+        if isinstance(value, str):
+            match = re.search(r"-?\d+(?:\.\d+)?", value)
+            if not match:
+                continue
+            value = match.group(0)
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(number) and number > 0:
+            return number
+    return None
+
+
+def _chamfer_or_fillet_review_feature(feature):
+    """独立倒角/圆角只暴露审查骨架；不复用链末倒角报价路径。"""
+    item = dict(feature)
+    feature_type = str(item.get("type") or "").lower()
+    if feature_type not in {"chamfer", "fillet"}:
+        return item
+    fid = str(item.get("feature_id") or item.get("id") or feature_type)
+    label = "倒角" if feature_type == "chamfer" else "圆角"
+    dimension_key = "C" if feature_type == "chamfer" else "R"
+    size = _explicit_edge_size(item, feature_type)
+    gaps = [
+        gap.format(label=label)
+        for gap in _CHAMFER_OR_FILLET_GAPS
+    ]
+    if size is None:
+        gaps.insert(1, f"缺少明确的 {dimension_key} 尺寸（不得从 bbox 推断）")
+    else:
+        dimensions = (
+            dict(item["dimensions"])
+            if isinstance(item.get("dimensions"), dict)
+            else {}
+        )
+        dimensions[dimension_key] = size
+        item[dimension_key] = size
+        item["dimensions"] = dimensions
+    process = f"review_independent_{feature_type}"
+    item.update({
+        "quote_status": "待手册公式",
+        "quote_excluded": True,
+        "amount_contribution": 0,
+        "gaps": gaps,
+        "process_chain": [
+            {
+                "step_id": f"{fid}:{process}:1",
+                "order": 1,
+                "feature_id": fid,
+                "process": process,
+                "name": f"独立{label}加工",
+                "status": "待手册公式",
+                "minutes": None,
+                "amount": 0,
+                "quote_excluded": True,
+            },
+        ],
+    })
+    return item
+
+
 def _sanitize_review_features(features):
-    """保留已覆盖特征；外圆只带待公式审查骨架，不进入自动报价。"""
+    """保留已覆盖特征；审查骨架不进入自动报价。"""
     sanitized = []
     for feature in features or []:
         if (
@@ -703,6 +792,8 @@ def _sanitize_review_features(features):
     return [
         _outer_cylinder_review_feature(feature)
         if str(feature.get("type") or "").lower() == "outer_cylinder"
+        else _chamfer_or_fillet_review_feature(feature)
+        if str(feature.get("type") or "").lower() in {"chamfer", "fillet"}
         else feature
         for feature in _merge_outer_cylinder_review_features(sanitized)
     ]
