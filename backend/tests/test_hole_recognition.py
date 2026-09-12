@@ -115,6 +115,117 @@ def test_outer_cylinder_has_review_skeleton_but_is_not_quoted():
     assert not any(f["type"] == "outer_cylinder" for f in features)
 
 
+def _outer_cylinder(feature_id, diameter, origin, axis, length):
+    return {
+        "type": "outer_cylinder",
+        "feature_id": feature_id,
+        "selected": False,
+        "diameter_mm": diameter,
+        "depth_mm": length,
+        "dimensions": {"diameter_mm": diameter, "depth_mm": length},
+        "pose": {
+            "origin": dict(zip(("x", "y", "z"), origin)),
+            "axis": dict(zip(("x", "y", "z"), axis)),
+            "diameter_mm": diameter,
+            "length_mm": length,
+        },
+    }
+
+
+def test_review_merges_coaxial_same_diameter_outer_cylinders_by_axial_span():
+    feats = [
+        _outer_cylinder("od-10", 40.0004, (0, 0, 20), (0, 0, -1), 12),
+        _outer_cylinder("od-2", 40, (0, 0, 0), (0, 0, 1), 10),
+    ]
+    review, quoted = _review_and_quote_features(
+        feats,
+        ["od-10"],
+        40,
+        40,
+        20,
+    )
+
+    assert quoted == []
+    assert len(review) == 1
+    outer = review[0]
+    assert outer["feature_id"] == "od-2"
+    assert outer["merged_from"] == ["od-2", "od-10"]
+    # H 冻结为 pose 端点的轴向 max-min；重叠的 0~10 / 8~20 得 20，不是求和 22。
+    assert outer["diameter_mm"] == 40
+    assert outer["depth_mm"] == outer["length"] == 20
+    assert outer["dimensions"]["depth_mm"] == 20
+    assert outer["pose"]["length_mm"] == 20
+    assert outer["selected"] is True
+    assert outer["quote_excluded"] is True
+    assert outer["amount_contribution"] == 0
+
+
+def test_review_keeps_coaxial_different_diameter_outer_cylinders_separate():
+    feats = [
+        _outer_cylinder("od-1", 40, (0, 0, 0), (0, 0, 1), 10),
+        _outer_cylinder("od-2", 30, (0, 0, 10), (0, 0, 1), 10),
+    ]
+
+    review, quoted = _review_and_quote_features(feats, None, 40, 40, 20)
+
+    assert quoted == []
+    assert [feature["feature_id"] for feature in review] == ["od-1", "od-2"]
+    assert all("merged_from" not in feature for feature in review)
+
+
+def test_review_keeps_same_diameter_parallel_noncoaxial_outer_cylinders_separate():
+    feats = [
+        _outer_cylinder("od-1", 40, (0, 0, 0), (0, 0, 1), 10),
+        _outer_cylinder("od-2", 40, (2, 0, 10), (0, 0, 1), 10),
+    ]
+
+    review, quoted = _review_and_quote_features(feats, None, 40, 40, 20)
+
+    assert quoted == []
+    assert [feature["feature_id"] for feature in review] == ["od-1", "od-2"]
+
+
+def test_review_merges_step_parser_outer_cylinders_from_axis_and_center():
+    feats = [
+        {
+            "type": "outer_cylinder",
+            "feature_id": feature_id,
+            "diameter_mm": 40,
+            "depth_mm": 10,
+            "location": {"x": 0, "y": 0, "z": center_z},
+            "axis": {"x": 0, "y": 0, "z": 1},
+        }
+        for feature_id, center_z in (("od-1", 5), ("od-2", 15))
+    ]
+
+    review, quoted = _review_and_quote_features(feats, None, 40, 40, 20)
+
+    assert quoted == []
+    assert len(review) == 1
+    assert review[0]["merged_from"] == ["od-1", "od-2"]
+    assert review[0]["depth_mm"] == 20
+
+
+def test_review_does_not_merge_llm_outer_cylinders_without_explicit_pose():
+    feats = [
+        {
+            "type": "outer_cylinder",
+            "feature_id": feature_id,
+            "source": "llm",
+            "diameter_mm": 40,
+            "depth_mm": 10,
+            "location": {"x": 0, "y": 0, "z": 0},
+            "axis": {"x": 0, "y": 0, "z": 1},
+        }
+        for feature_id in ("od-1", "od-2")
+    ]
+
+    review, quoted = _review_and_quote_features(feats, None, 40, 40, 20)
+
+    assert quoted == []
+    assert [feature["feature_id"] for feature in review] == ["od-1", "od-2"]
+
+
 def test_raw_cylinder_candidate_never_reaches_review_or_quote():
     feats = [
         {
