@@ -396,7 +396,11 @@ def _review_and_quote_features(parsed_feats, selected_ids, L, W, H=0):
         feats = apply_quote_default_selection(feats, L, W, H)
     for i, feat in enumerate(feats):
         fid = str(feat.get("feature_id") or feat.get("id") or f"f{i}")
-        on = True if selected is None else fid in selected
+        selected_aliases = {
+            str(value)
+            for value in feat.get("merged_from") or []
+        }
+        on = True if selected is None else bool({fid, *selected_aliases} & selected)
         if selected is None and feat.get("selected") is False:
             on = False
         item = {**feat, "feature_id": fid, "selected": on}
@@ -449,6 +453,192 @@ _OUTER_CYLINDER_GAPS = [
     "缺少车削 Vc/f/ap 参数表",
     "缺少径向余量表",
 ]
+_OUTER_CYLINDER_DIAMETER_TOL_MM = 1e-3
+_OUTER_CYLINDER_AXIS_LINE_TOL_MM = 1e-3
+_OUTER_CYLINDER_AXIS_DIRECTION_TOL = 1e-6
+
+
+def _outer_cylinder_id_key(feature):
+    fid = str(feature.get("feature_id") or feature.get("id") or "")
+    match = re.fullmatch(r"od-(\d+)", fid)
+    return (0, int(match.group(1)), fid) if match else (1, 0, fid)
+
+
+def _finite_xyz(value):
+    if isinstance(value, dict):
+        raw = (value.get("x"), value.get("y"), value.get("z"))
+    elif isinstance(value, (list, tuple)) and len(value) >= 3:
+        raw = value[:3]
+    else:
+        return None
+    try:
+        xyz = tuple(float(component) for component in raw)
+    except (TypeError, ValueError):
+        return None
+    return xyz if all(math.isfinite(component) for component in xyz) else None
+
+
+def _outer_cylinder_geometry(feature):
+    """返回可安全归并的外圆轴线和轴向区间；缺少真实轴线证据时返回 None。"""
+    dimensions = feature.get("dimensions") or {}
+    pose = feature.get("pose") if isinstance(feature.get("pose"), dict) else None
+    try:
+        diameter = float(
+            (pose or {}).get("diameter_mm")
+            or feature.get("diameter_mm")
+            or dimensions.get("diameter_mm")
+        )
+        length = float(
+            (pose or {}).get("length_mm")
+            or feature.get("depth_mm")
+            or feature.get("length")
+            or dimensions.get("depth_mm")
+            or dimensions.get("length")
+        )
+    except (TypeError, ValueError):
+        return None
+    if not all(math.isfinite(value) and value > 0 for value in (diameter, length)):
+        return None
+
+    point = _finite_xyz((pose or {}).get("origin"))
+    axis = _finite_xyz((pose or {}).get("axis"))
+    pose_is_start = point is not None and axis is not None
+    if not pose_is_start:
+        # STEP parser 的 location 是圆柱轴向中心，可与显式 axis 组成轴线证据。
+        # LLM 在缺失坐标时会填默认 location/axis；没有 pose 时不能据此归并。
+        if feature.get("source") == "llm":
+            return None
+        point = _finite_xyz(feature.get("location") or feature.get("origin"))
+        axis = _finite_xyz(feature.get("axis"))
+    if point is None or axis is None:
+        return None
+
+    magnitude = math.sqrt(sum(component * component for component in axis))
+    if magnitude <= 1e-12:
+        return None
+    directed_axis = tuple(component / magnitude for component in axis)
+    canonical_axis = directed_axis
+    for component in canonical_axis:
+        if abs(component) <= 1e-12:
+            continue
+        if component < 0:
+            canonical_axis = tuple(-value for value in canonical_axis)
+        break
+
+    point_t = sum(point[i] * canonical_axis[i] for i in range(3))
+    axis_line = tuple(point[i] - point_t * canonical_axis[i] for i in range(3))
+    if pose_is_start:
+        endpoint = tuple(point[i] + directed_axis[i] * length for i in range(3))
+        endpoint_t = sum(endpoint[i] * canonical_axis[i] for i in range(3))
+        axial_min, axial_max = sorted((point_t, endpoint_t))
+    else:
+        axial_min, axial_max = point_t - length / 2, point_t + length / 2
+    return {
+        "diameter": diameter,
+        "axis": canonical_axis,
+        "axis_line": axis_line,
+        "axial_min": axial_min,
+        "axial_max": axial_max,
+    }
+
+
+def _same_outer_cylinder_geometry(left, right):
+    if abs(left["diameter"] - right["diameter"]) > _OUTER_CYLINDER_DIAMETER_TOL_MM:
+        return False
+    alignment = sum(left["axis"][i] * right["axis"][i] for i in range(3))
+    if alignment < 1 - _OUTER_CYLINDER_AXIS_DIRECTION_TOL:
+        return False
+    line_distance = math.sqrt(sum(
+        (left["axis_line"][i] - right["axis_line"][i]) ** 2
+        for i in range(3)
+    ))
+    return line_distance <= _OUTER_CYLINDER_AXIS_LINE_TOL_MM
+
+
+def _merge_outer_cylinder_review_features(features):
+    groups = []
+    passthrough = []
+    for index, feature in enumerate(features):
+        if str(feature.get("type") or "").lower() != "outer_cylinder":
+            passthrough.append((index, feature))
+            continue
+        geometry = _outer_cylinder_geometry(feature)
+        if geometry is None:
+            passthrough.append((index, feature))
+            continue
+        for group in groups:
+            if _same_outer_cylinder_geometry(group["geometry"], geometry):
+                group["members"].append((index, feature, geometry))
+                break
+        else:
+            groups.append({
+                "geometry": geometry,
+                "members": [(index, feature, geometry)],
+            })
+
+    merged = list(passthrough)
+    for group in groups:
+        members = group["members"]
+        if len(members) == 1:
+            index, feature, _ = members[0]
+            merged.append((index, feature))
+            continue
+        representative = min(
+            (feature for _, feature, _ in members),
+            key=_outer_cylinder_id_key,
+        )
+        item = dict(representative)
+        geometries = [geometry for _, _, geometry in members]
+        axial_min = min(geometry["axial_min"] for geometry in geometries)
+        axial_max = max(geometry["axial_max"] for geometry in geometries)
+        # H 冻结规则：同轴同径片段的 H = 所有片段端点的 max - min 轴向跨度。
+        # 该规则对重叠面不会重复计长，并确定性地包含片段之间的轴向间隔。
+        merged_length = round(axial_max - axial_min, 4)
+        diameter = representative.get("diameter_mm")
+        if diameter is None:
+            diameter = (representative.get("dimensions") or {}).get("diameter_mm")
+        diameter = float(diameter or group["geometry"]["diameter"])
+        axis = group["geometry"]["axis"]
+        axis_line = group["geometry"]["axis_line"]
+        origin = tuple(axis_line[i] + axis[i] * axial_min for i in range(3))
+        midpoint = tuple(
+            axis_line[i] + axis[i] * ((axial_min + axial_max) / 2)
+            for i in range(3)
+        )
+        axis_value = dict(zip(("x", "y", "z"), axis))
+        item.update({
+            "diameter_mm": diameter,
+            "depth_mm": merged_length,
+            "length": merged_length,
+            "dimensions": {
+                **dict(item.get("dimensions") or {}),
+                "diameter_mm": diameter,
+                "depth_mm": merged_length,
+                "length": merged_length,
+            },
+            "location": dict(zip(("x", "y", "z"), midpoint)),
+            "axis": axis_value,
+            "pose": {
+                "origin": dict(zip(("x", "y", "z"), origin)),
+                "axis": axis_value,
+                "length_mm": merged_length,
+                "diameter_mm": diameter,
+            },
+            "occurrences": sum(
+                max(int(feature.get("occurrences") or 1), 1)
+                for _, feature, _ in members
+            ),
+            "selected": any(feature.get("selected") is True for _, feature, _ in members),
+            "merged_from": [
+                str(feature.get("feature_id") or feature.get("id"))
+                for _, feature, _ in sorted(
+                    members,
+                    key=lambda member: _outer_cylinder_id_key(member[1]),
+                )
+            ],
+        })
+        merged.append((min(index for index, _, _ in members), item))
+    return [feature for _, feature in sorted(merged, key=lambda pair: pair[0])]
 
 
 def _outer_cylinder_review_feature(feature):
@@ -501,12 +691,13 @@ def _sanitize_review_features(features):
             or str(feature.get("feature_id") or feature.get("id") or "").startswith("prismatic-region-")
         ):
             continue
-        sanitized.append(
-            _outer_cylinder_review_feature(feature)
-            if str(feature.get("type") or "").lower() == "outer_cylinder"
-            else feature
-        )
-    return sanitized
+        sanitized.append(feature)
+    return [
+        _outer_cylinder_review_feature(feature)
+        if str(feature.get("type") or "").lower() == "outer_cylinder"
+        else feature
+        for feature in _merge_outer_cylinder_review_features(sanitized)
+    ]
 
 
 def _stored_parse_result(conn, part):

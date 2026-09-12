@@ -455,7 +455,7 @@ def _map_od(raw, index):
         raise ValueError("outer_cylinder 缺少正数 diameter_mm / depth_mm")
     loc = _xyz(raw.get("location") or (raw.get("pose") or {}).get("origin"))
     axis = _xyz(raw.get("axis") or (raw.get("pose") or {}).get("axis")) or {"x": 0, "y": 0, "z": 1}
-    return {
+    feat = {
         "feature_id": raw.get("feature_id") or f"od-{index}",
         "type": "outer_cylinder",
         "subtype": "boss_or_od",
@@ -471,6 +471,14 @@ def _map_od(raw, index):
         "warnings": ["外圆/滑轴，不进孔工序链"],
         "source": "llm",
     }
+    if loc:
+        feat["pose"] = {
+            "origin": loc,
+            "axis": axis,
+            "length_mm": round(depth, 4),
+            "diameter_mm": round(diameter, 4),
+        }
+    return feat
 
 
 def _map_thread(raw, index):
