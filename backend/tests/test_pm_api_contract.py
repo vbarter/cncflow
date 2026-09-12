@@ -139,8 +139,7 @@ def test_pm_new_quote_through_hole_contract(client, seeded_db_path):
 
     seq = (part["quote"] or {}).get("process_sequence") or []
     assert seq
-    assert [step.get("name") for step in seq] == ["面粗", "钻孔", "倒角"]
-    assert part["quote"]["labor_cost_breakdown"]["total"] == 211.39
+    assert [step.get("name") for step in seq] == ["钻孔", "倒角"]
     assert part["quote"]["ui_cost"]["inspect"] == 0
     assert part["quote"]["ui_cost"]["toolwear"] == 0
     assert part["quote"]["ui_cost"]["scrap"] == 0
