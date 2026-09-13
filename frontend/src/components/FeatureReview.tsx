@@ -78,6 +78,14 @@ export function featureTypeLabel(feature: Feat): string {
   return FEATURE_LABEL[type] || (feature?.type ? String(feature.type) : "特征")
 }
 
+function featureOccurrences(feature: Feat): number | null {
+  const dim = feature?.dimensions || {}
+  const raw = feature?.occurrences ?? feature?.occurrence ?? feature?.count ?? dim.occurrences ?? dim.occurrence ?? dim.count
+  const value = Number(raw)
+  if (!Number.isFinite(value) || value <= 1) return null
+  return Math.trunc(value)
+}
+
 export function featureTreeTitle(feature: Feat): string {
   const label = featureTypeLabel(feature)
   const type = featType(feature)
@@ -85,6 +93,10 @@ export function featureTreeTitle(feature: Feat): string {
   const dimension = (prefix: string, ...values: any[]) => {
     const value = num(...values)
     return value == null ? "" : `${prefix}${value}`
+  }
+  const withOccurrences = (title: string) => {
+    const occ = featureOccurrences(feature)
+    return occ == null ? title : `${title} · ×${occ}`
   }
   const details = (...values: Array<string | null | undefined>) => {
     const text = values.filter((value) => value && value !== "—").join(" ")
@@ -96,7 +108,7 @@ export function featureTreeTitle(feature: Feat): string {
       dimension("Ø", feature?.pose?.diameter_mm, feature?.diameter_mm, feature?.nominal_d, dim.diameter_mm),
       dimension("H", feature?.pose?.length_mm, feature?.depth_mm, feature?.depth, dim.depth_mm, dim.depth),
     ].filter(Boolean).join("×")
-    return details(size, holeLabel(feature?.hole_type || dim.hole_type))
+    return withOccurrences(details(size, holeLabel(feature?.hole_type || dim.hole_type)))
   }
   if (type === "outer_cylinder") {
     const size = [

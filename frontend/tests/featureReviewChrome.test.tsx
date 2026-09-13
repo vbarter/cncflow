@@ -115,6 +115,20 @@ test("特征树标题以中文类型和关键尺寸为主", () => {
     hole_type: "through",
   }), "孔 · Ø8×H12 通孔")
   assert.equal(featureTreeTitle({
+    type: "hole",
+    diameter_mm: 3.4,
+    depth_mm: 5,
+    hole_type: "through",
+    occurrences: 8,
+  }), "孔 · Ø3.4×H5 通孔 · ×8")
+  assert.equal(featureTreeTitle({
+    type: "hole",
+    diameter_mm: 40,
+    depth_mm: 5,
+    hole_type: "through",
+    occurrences: 1,
+  }), "孔 · Ø40×H5 通孔")
+  assert.equal(featureTreeTitle({
     type: "face",
     length: 80,
     width: 60,
