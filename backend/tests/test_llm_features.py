@@ -27,6 +27,8 @@ def _cylinder_step(axis_positions, radius=1.7, faces_per_axis=2):
     entity_id = 1
     for x, z in axis_positions:
         for face_index in range(faces_per_axis):
+            point_x = x + face_index * 0.2
+            point_z = z - face_index * 0.2
             cylinder_id = entity_id
             placement_id = entity_id + 1
             point_id = entity_id + 2
@@ -39,7 +41,7 @@ def _cylinder_step(axis_positions, radius=1.7, faces_per_axis=2):
                 ),
                 (
                     f"#{point_id}=CARTESIAN_POINT("
-                    f"'',({x},{face_index * 8.0},{z}));"
+                    f"'',({point_x},{face_index * 8.0},{point_z}));"
                 ),
                 f"#{direction_id}=DIRECTION('',(0.,1.,0.));",
             ])
