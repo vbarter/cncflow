@@ -327,7 +327,7 @@ def retry_job(conn, job_id):
     if row is None:
         conn.rollback()
         raise KeyError(job_id)
-    if row["status"] != "failed":
+    if row["status"] not in {"failed", "needs_review"}:
         conn.rollback()
         raise ValueError(f"任务状态 {row['status']} 无需重试")
 
@@ -337,7 +337,7 @@ def retry_job(conn, job_id):
         "UPDATE parse_jobs SET status='queued',stage='queued',progress=0,error=NULL,attempts=0,"
         "worker_id=NULL,started_at=NULL,heartbeat_at=NULL,result_json=NULL,confirmed_json=NULL,"
         "plans_json=NULL,options_json=?,updated_at=datetime('now') "
-        "WHERE job_id=? AND status='failed'",
+        "WHERE job_id=? AND status IN ('failed','needs_review')",
         (json.dumps(options, ensure_ascii=False), job_id),
     )
     part_id = options.get("part_id")

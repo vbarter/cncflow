@@ -1,4 +1,5 @@
 """工程文件上传任务、解析队列与确认接口测试。"""
+import json
 from io import BytesIO
 from pathlib import Path
 
@@ -143,6 +144,30 @@ def test_retry_failed_job_requeues_same_upload(client, seeded_db_path):
     conn.close()
     assert part_status == "parsing"
     assert '"force_reparse": true' in options
+
+
+def test_retry_needs_review_job_forces_reparse(client, seeded_db_path):
+    job_id = upload(client, step_file=(MINIMAL_STEP, "part.step")).get_json()["job_id"]
+    conn = get_conn(seeded_db_path)
+    conn.execute(
+        "UPDATE parse_jobs SET status='needs_review',stage='review',progress=100,"
+        "result_json='{}' WHERE job_id=?",
+        (job_id,),
+    )
+    conn.commit()
+    conn.close()
+
+    response = client.post(f"/api/v1/parse-jobs/{job_id}/retry")
+    assert response.status_code == 202
+    assert response.get_json()["status"] == "queued"
+
+    conn = get_conn(seeded_db_path)
+    options = conn.execute(
+        "SELECT options_json FROM parse_jobs WHERE job_id=?",
+        (job_id,),
+    ).fetchone()["options_json"]
+    conn.close()
+    assert json.loads(options)["force_reparse"] is True
 
 
 def test_retry_rejects_active_job(client):
