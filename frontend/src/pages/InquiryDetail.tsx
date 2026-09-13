@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import React, { useEffect, useState } from "react"
 import { Badge, Button, Card } from "../components/ui"
 import { API, json } from "../api"
 import { hoursLabel, quoteHours } from "../quoteHours"
@@ -17,9 +17,39 @@ function yen(n: any) {
 
 export function InquiryDetail({ id, go }: { id: string; go: (h: string) => void }) {
   const [inq, setInq] = useState<any>(null)
+  const [hasOriginals, setHasOriginals] = useState(false)
   const [err, setErr] = useState("")
   const [hint, setHint] = useState("")
-  useEffect(() => { json<any>("/inquiries/" + id).then(setInq).catch(e => setErr(e.message)) }, [id])
+  useEffect(() => {
+    let active = true
+    setInq(null)
+    setHasOriginals(false)
+    setErr("")
+    json<any>("/inquiries/" + encodeURIComponent(id))
+      .then(async loaded => {
+        if (!active) return
+        setInq(loaded)
+        const parts: Array<{ id: string }> = loaded.parts || []
+        const filesByPart = await Promise.all(
+          parts.map(part => (
+            json<Array<{ role: string; detected_type: string }>>(`/parts/${encodeURIComponent(part.id)}/files`)
+              .catch(() => [])
+          )),
+        )
+        if (active) {
+          setHasOriginals(filesByPart.some(files => files.some(file => (
+            file.role === "step"
+            || file.role === "drawing"
+            || file.detected_type === "step"
+            || file.detected_type === "pdf"
+          ))))
+        }
+      })
+      .catch(e => {
+        if (active) setErr(e.message)
+      })
+    return () => { active = false }
+  }, [id])
   if (!inq) return <div className="text-sm text-slate-500">{err || "加载中…"}</div>
   const parts = inq.parts || []
   const total = parts.reduce((s: number, p: any) => s + (Number(p.quote?.quote?.amount) || 0) * (Number(p.qty) || 1), 0)
@@ -58,6 +88,17 @@ export function InquiryDetail({ id, go }: { id: string; go: (h: string) => void 
     a.remove()
     setHint("正在下载 " + name)
   }
+  function downloadOriginals() {
+    const name = (inq.title || "RFQ") + "-零件原件.zip"
+    const a = document.createElement("a")
+    a.href = `${API}/inquiries/${encodeURIComponent(id)}/originals.zip`
+    a.download = name
+    a.rel = "noopener"
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    setHint("正在下载 " + name)
+  }
   return <div className="space-y-6">
     <button type="button" className="min-h-11 text-sm text-blue-600 md:min-h-0" onClick={() => go("")}>← 返回报价工作台</button>
     <div className="flex flex-col gap-4 rounded bg-slate-900 px-4 py-5 text-white md:flex-row md:items-center md:justify-between md:px-6">
@@ -67,6 +108,7 @@ export function InquiryDetail({ id, go }: { id: string; go: (h: string) => void 
         <div className="mt-1 text-sm text-slate-300">合计 ¥{yen(total)} · 交期 {inq.due_date || "—"} · 建议交期 {suggestedDaysLabel(suggestedDays)}</div>
       </div>
       <div className="flex flex-wrap gap-2">
+        {hasOriginals && <Button type="button" className="min-h-11 md:min-h-10" onClick={downloadOriginals}>下载零件原件</Button>}
         <Button type="button" className="min-h-11 md:min-h-10" onClick={exportPdf}>导出 PDF</Button>
         <Button type="button" className="min-h-11 md:min-h-10" variant="outline" onClick={exportQuote}>导出 JSON</Button>
       </div>
