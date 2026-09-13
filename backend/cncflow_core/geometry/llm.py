@@ -1252,18 +1252,40 @@ def _next_hole_feature_id(features):
     return f"hole-{index}", index
 
 
+def _non_hole_radius_hints(features):
+    radii = []
+    for feature in features or []:
+        feature_type = feature.get("type")
+        if feature_type in {"slot", "pocket"}:
+            radius = _num(feature.get("corner_radius"))
+        elif feature_type == "outer_cylinder":
+            diameter = _num(feature.get("diameter_mm"))
+            radius = diameter / 2 if diameter else None
+        else:
+            continue
+        if radius and radius > 0:
+            radii.append(radius)
+    return radii
+
+
 def _backfill_missing_holes_from_step_axes(
     features,
     step_text,
     geometry=None,
     *,
     diameter_tolerance=0.125,
+    excluded_radii=None,
 ):
     clusters = _step_cylinder_axis_clusters(step_text)
     center = _cluster_center(clusters)
     warnings = []
     for radius, cluster in clusters.items():
         diameter = round(2 * radius, 3)
+        if any(
+            abs(excluded - radius) <= diameter_tolerance / 2
+            for excluded in excluded_radii or []
+        ):
+            continue
         if any(
             feature.get("type") == "hole"
             and (existing := _num(feature.get("diameter_mm")))
@@ -1471,6 +1493,7 @@ def extract_step_features(
         warnings.append(f"STEP 超过 {os.environ.get('TUZI_FEATURE_MAX_STEP_CHARS') or MAX_STEP_CHARS_DEFAULT} 字符，已截断后送模型")
     raw = _tuzi_chat(build_messages(step_text, geometry=geometry, images=images))
     mapped = map_llm_features(raw)
+    excluded_backfill_radii = _non_hole_radius_hints(mapped["features"])
     mapped["features"], window_warning = _drop_suspicious_window_pockets(
         mapped["features"],
         geometry,
@@ -1488,6 +1511,9 @@ def extract_step_features(
             if _has_cavity(retry_mapped["features"]):
                 raw = retry_raw
                 mapped = retry_mapped
+                excluded_backfill_radii.extend(
+                    _non_hole_radius_hints(mapped["features"])
+                )
                 warnings.append("LLM 首次未出槽腔（仅面/曲面/外圆），补询已补 slot/pocket")
             else:
                 warnings.append("LLM 补询仍未出槽腔")
@@ -1497,6 +1523,9 @@ def extract_step_features(
         try:
             retry_raw = _tuzi_chat(_hole_retry_messages(step_text, geometry, raw))
             retry_mapped = map_llm_features(retry_raw)
+            retry_excluded_radii = _non_hole_radius_hints(
+                retry_mapped["features"]
+            )
             retry_mapped["features"], retry_window_warning = _drop_suspicious_window_pockets(
                 retry_mapped["features"],
                 geometry,
@@ -1508,6 +1537,9 @@ def extract_step_features(
             if _hole_occurrences(retry_mapped["features"]) > previous_holes:
                 raw = retry_raw
                 mapped = retry_mapped
+                excluded_backfill_radii.extend(
+                    retry_excluded_radii
+                )
                 if retry_window_warning:
                     warnings.append(retry_window_warning)
                 warnings.append("LLM 首次孔欠检，补询已补 hole")
@@ -1522,6 +1554,7 @@ def extract_step_features(
             mapped["features"],
             step_text,
             geometry,
+            excluded_radii=excluded_backfill_radii,
         )
     )
     warnings.extend(f"LLM 跳过: {err}" for err in mapped["errors"])
