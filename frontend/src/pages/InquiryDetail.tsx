@@ -29,8 +29,9 @@ export function InquiryDetail({ id, go }: { id: string; go: (h: string) => void 
       .then(async loaded => {
         if (!active) return
         setInq(loaded)
+        const parts: Array<{ id: string }> = loaded.parts || []
         const filesByPart = await Promise.all(
-          (loaded.parts || []).map((part: any) => (
+          parts.map(part => (
             json<Array<{ role: string; detected_type: string }>>(`/parts/${encodeURIComponent(part.id)}/files`)
               .catch(() => [])
           )),
