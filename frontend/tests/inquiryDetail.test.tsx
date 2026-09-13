@@ -45,7 +45,7 @@ function mockInquiry(files: Array<{ role: string; detected_type: string }>) {
         parts: [{ id: "part/8", name: "XM8", qty: 1, status: "draft" }],
       }), { status: 200, headers: { "Content-Type": "application/json" } })
     }
-    if (url === "/api/v1/parts/part/8/files") {
+    if (url === "/api/v1/parts/part%2F8/files") {
       return new Response(JSON.stringify(files), {
         status: 200,
         headers: { "Content-Type": "application/json" },
@@ -70,7 +70,7 @@ test("有归档文件时在导出 PDF 左侧显示零件原件下载", async () 
   assert.ok(originals.compareDocumentPosition(pdf) & Node.DOCUMENT_POSITION_FOLLOWING)
   assert.deepEqual(calls, [
     "/api/v1/inquiries/rfq%2F4513",
-    "/api/v1/parts/part/8/files",
+    "/api/v1/parts/part%2F8/files",
   ])
 
   fireEvent.click(originals)

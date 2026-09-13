@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import React, { useEffect, useState } from "react"
 import { Badge, Button, Card } from "../components/ui"
 import { API, json } from "../api"
 import { hoursLabel, quoteHours } from "../quoteHours"
