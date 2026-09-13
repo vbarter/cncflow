@@ -3,6 +3,7 @@ import test, { afterEach } from "node:test"
 import { JSDOM } from "jsdom"
 import React from "react"
 import { PartQuoteDecision } from "../src/components/PartQuoteDecision"
+import { PartFileDownloads } from "../src/pages/PartDetail"
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", {
   url: "http://localhost/",
@@ -90,4 +91,40 @@ test("AI 报价决策栏按冻结顺序堆叠六列，并保留 Ø8 实时 pin",
   const confirmButton = screen.getByRole("button", { name: "确认本零件报价" })
   assert.ok(confirmButton)
   assert.equal(metrics.contains(confirmButton), false)
+})
+
+test("原文件存在时显示 STEP/PDF 下载，不存在时隐藏", () => {
+  const { rerender } = render(
+    <PartFileDownloads partId="part/8" files={[]} />,
+  )
+  assert.equal(screen.queryByRole("link", { name: /下载/ }), null)
+
+  rerender(
+    <PartFileDownloads
+      partId="part/8"
+      files={[
+        {
+          role: "step",
+          original_name: "XM8.step",
+          size_bytes: 123,
+          detected_type: "step",
+          content_type: "model/step",
+        },
+        {
+          role: "drawing",
+          original_name: "XM8 drawing.pdf",
+          size_bytes: 456,
+          detected_type: "pdf",
+          content_type: "application/pdf",
+        },
+      ]}
+    />,
+  )
+
+  const step = screen.getByRole("link", { name: "下载 STEP" })
+  assert.equal(step.getAttribute("href"), "/api/v1/parts/part%2F8/files/step")
+  assert.equal(step.getAttribute("download"), "XM8.step")
+  const drawing = screen.getByRole("link", { name: "下载 PDF" })
+  assert.equal(drawing.getAttribute("href"), "/api/v1/parts/part%2F8/files/drawing")
+  assert.equal(drawing.getAttribute("download"), "XM8 drawing.pdf")
 })
