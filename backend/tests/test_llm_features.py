@@ -670,9 +670,50 @@ def test_extract_clamps_hole_occurrences_to_unique_step_axes(
 
     hole = next(feature for feature in out["features"] if feature["type"] == "hole")
     warning = "LLM 孔 occurrences 超几何轴簇，已按 STEP clamp Ø3.4 8→7"
+    expected_instances = [
+        {"x": -27.5, "y": 0.0, "z": -27.5},
+        {"x": -27.5, "y": 0.0, "z": 27.5},
+        {"x": 27.5, "y": 0.0, "z": -27.5},
+        {"x": 27.5, "y": 0.0, "z": 27.5},
+        {"x": -27.5, "y": 0.0, "z": 0.0},
+        {"x": 0.0, "y": 0.0, "z": 27.5},
+        {"x": 27.5, "y": 0.0, "z": 0.0},
+    ]
     assert hole["occurrences"] == 7
-    assert warning in hole["warnings"]
     assert warning in out["warnings"]
+    assert warning not in (hole.get("warnings") or [])
+    assert not any(
+        "轴簇" in text or "8→7" in text or "LLM" in text
+        for text in hole.get("warnings") or []
+    )
+    assert hole["instances"] == expected_instances
+    assert hole["location"] in expected_instances
+    assert hole["location"] != {"x": 0, "y": 0, "z": 0}
+    assert hole["pose"]["origin"] == hole["location"]
+    assert max(abs(hole["location"][axis]) for axis in ("x", "y", "z")) > 1
+
+
+def test_map_llm_hole_keeps_explicit_instances_and_shop_warnings():
+    mapped = map_llm_features({
+        "features": [{
+            "type": "hole",
+            "diameter_mm": 3.4,
+            "depth_mm": 8,
+            "hole_type": "through",
+            "occurrences": 2,
+            "location": {"x": 0, "y": 0, "z": 0},
+            "instances": [
+                {"x": -27.5, "y": 0, "z": -27.5},
+                {"location": {"x": 27.5, "y": 0, "z": 27.5}},
+            ],
+            "warnings": ["孔径偏小，建议核对"],
+        }],
+    })["features"][0]
+    assert mapped["instances"] == [
+        {"x": -27.5, "y": 0.0, "z": -27.5},
+        {"x": 27.5, "y": 0.0, "z": 27.5},
+    ]
+    assert mapped["warnings"] == ["孔径偏小，建议核对"]
 
 
 @pytest.mark.llm_features
@@ -702,6 +743,9 @@ def test_extract_does_not_raise_hole_occurrences_to_geometry_count(
 
     assert hole["occurrences"] == 6
     assert not any("occurrences 超几何轴簇" in warning for warning in out["warnings"])
+    assert len(hole["instances"]) == 7
+    assert hole["location"] in hole["instances"]
+    assert hole["location"] != {"x": 0, "y": 0, "z": 0}
 
 
 def test_hole_retry_uses_unique_axes_instead_of_cylindrical_faces():
@@ -718,6 +762,10 @@ def test_hole_retry_uses_unique_axes_instead_of_cylindrical_faces():
 
     assert duplicate_faces.count("CYLINDRICAL_SURFACE") == 14
     assert llm_mod._step_cylinder_axis_counts(duplicate_faces) == {1.7: 7}
+    clustered = llm_mod._step_cylinder_axis_clusters(duplicate_faces)
+    assert clustered[1.7]["count"] == 7
+    assert len(clustered[1.7]["origins"]) == 7
+    assert all(set(origin) == {"x", "y", "z"} for origin in clustered[1.7]["origins"])
     assert not llm_mod._hole_retry_needed(
         duplicate_faces,
         [{"type": "hole", "occurrences": 3}],

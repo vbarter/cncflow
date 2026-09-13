@@ -289,6 +289,40 @@ function poseOf(f: Feat): Pose | null {
   return null
 }
 
+function instanceOrigins(feature: Feat): THREE.Vector3[] {
+  const raw = Array.isArray(feature?.instances) ? feature.instances : []
+  const origins: THREE.Vector3[] = []
+  for (const item of raw) {
+    const loc = xyz(item)
+      || xyz(item?.location)
+      || xyz(item?.origin)
+      || xyz(item?.center)
+      || xyz(item?.pose?.origin)
+    if (loc) origins.push(loc)
+  }
+  return origins
+}
+
+function posesOf(feature: Feat): Pose[] {
+  const origins = instanceOrigins(feature)
+  const needsSeed = origins.length > 0
+    && !xyz(feature?.pose?.origin)
+    && !xyz(feature?.location)
+    && !xyz(feature?.center)
+    && !xyz(feature?.position)
+  const seeded = needsSeed
+    ? { ...feature, location: { x: origins[0].x, y: origins[0].y, z: origins[0].z } }
+    : feature
+  const base = poseOf(seeded)
+  if (!base) return []
+  if (origins.length <= 1) return [base]
+  return origins.map((origin) => (
+    base.kind === "cyl"
+      ? { ...base, origin, centered: false }
+      : { ...base, origin }
+  ))
+}
+
 function useGltfScene(url: string) {
   const [scene, setScene] = useState<THREE.Object3D | null>(null)
   useEffect(() => {
@@ -550,26 +584,28 @@ export function pickFeatureAtPoint(
   let snapped: PickCandidate | null = null
   let nearest: PickCandidate | null = null
   for (const feature of features) {
-    const pose = poseOf(feature)
+    const poses = posesOf(feature)
     const id = feature?.feature_id
-    if (!pose || !id) continue
-    const distance = distanceToPose(point, pose)
-    const tolerance = posePickTolerance(pose)
-    const candidate = {
-      id,
-      rank: featurePickRank(feature),
-      distance,
-      normalizedDistance: distance / tolerance,
-      footprint: poseFootprint(pose),
+    if (!poses.length || !id) continue
+    for (const pose of poses) {
+      const distance = distanceToPose(point, pose)
+      const tolerance = posePickTolerance(pose)
+      const candidate = {
+        id,
+        rank: featurePickRank(feature),
+        distance,
+        normalizedDistance: distance / tolerance,
+        footprint: poseFootprint(pose),
+      }
+      if (
+        !nearest
+        || distance < nearest.distance - 1e-6
+        || (Math.abs(distance - nearest.distance) <= 1e-6 && betterPick(candidate, nearest))
+      ) {
+        nearest = candidate
+      }
+      if (distance <= tolerance && betterPick(candidate, snapped)) snapped = candidate
     }
-    if (
-      !nearest
-      || distance < nearest.distance - 1e-6
-      || (Math.abs(distance - nearest.distance) <= 1e-6 && betterPick(candidate, nearest))
-    ) {
-      nearest = candidate
-    }
-    if (distance <= tolerance && betterPick(candidate, snapped)) snapped = candidate
   }
   return snapped?.id || nearest?.id || null
 }
@@ -642,8 +678,9 @@ function poseSignature(pose: Pose) {
 }
 
 export function featureHighlightSignature(feature: Feat) {
-  const pose = poseOf(feature)
-  return pose ? `${String(feature?.feature_id || "")}|${poseSignature(pose)}` : null
+  const poses = posesOf(feature)
+  if (!poses.length) return null
+  return `${String(feature?.feature_id || "")}|${poses.map(poseSignature).join(";")}`
 }
 
 type HighlightResources = {
@@ -725,22 +762,26 @@ const FeatureMark = React.memo(function FeatureMark({
   unitScale,
 }: FeatureMarkProps) {
   const signature = featureHighlightSignature(feat)
-  const pose = useMemo(() => poseOf(feat), [signature])
-  if (!pose || !selected) return null
-  const q = pose.kind === "surface"
-    ? undefined
-    : orientedQuat(pose.axis, "xDir" in pose ? pose.xDir : null)
-  const mid = pose.kind === "cyl"
-    ? (pose.centered ? pose.origin : pose.origin.clone().add(pose.axis.clone().multiplyScalar(pose.length / 2)))
-    : pose.kind === "box" && pose.depthFromOrigin
-      ? pose.origin.clone().add(pose.axis.clone().multiplyScalar(pose.size[1] / 2))
-      : pose.origin
+  const poses = useMemo(() => posesOf(feat), [signature])
+  if (!poses.length || !selected) return null
 
   return (
     <group scale={unitScale}>
-      <group position={mid} quaternion={q}>
-        <FeatureHighlight pose={pose} signature={signature!} />
-      </group>
+      {poses.map((pose, index) => {
+        const q = pose.kind === "surface"
+          ? undefined
+          : orientedQuat(pose.axis, "xDir" in pose ? pose.xDir : null)
+        const mid = pose.kind === "cyl"
+          ? (pose.centered ? pose.origin : pose.origin.clone().add(pose.axis.clone().multiplyScalar(pose.length / 2)))
+          : pose.kind === "box" && pose.depthFromOrigin
+            ? pose.origin.clone().add(pose.axis.clone().multiplyScalar(pose.size[1] / 2))
+            : pose.origin
+        return (
+          <group key={`${signature}:${index}`} position={mid} quaternion={q}>
+            <FeatureHighlight pose={pose} signature={`${signature}:${index}`} />
+          </group>
+        )
+      })}
     </group>
   )
 }, (previous, next) => (
