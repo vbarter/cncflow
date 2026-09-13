@@ -725,7 +725,7 @@ def test_map_llm_hole_keeps_explicit_instances_and_shop_warnings():
 
 
 @pytest.mark.llm_features
-def test_extract_does_not_raise_hole_occurrences_to_geometry_count(
+def test_extract_syncs_hole_occurrences_to_step_instances(
     monkeypatch,
     tmp_path,
 ):
@@ -733,7 +733,7 @@ def test_extract_does_not_raise_hole_occurrences_to_geometry_count(
 
     step = tmp_path / "hole-under-geometry-count.step"
     step.write_text(
-        _cylinder_step([(index * 5.0, 0) for index in range(7)]),
+        _cylinder_step([(index * 5.0, 0) for index in range(3)]),
         encoding="ascii",
     )
     monkeypatch.setattr(llm_mod, "_tuzi_chat", lambda *_args, **_kwargs: {
@@ -742,16 +742,16 @@ def test_extract_does_not_raise_hole_occurrences_to_geometry_count(
             "diameter_mm": 3.4,
             "depth_mm": 8,
             "hole_type": "through",
-            "occurrences": 6,
+            "occurrences": 1,
         }],
     })
 
     out = llm_mod.extract_step_features(str(step))
     hole = next(feature for feature in out["features"] if feature["type"] == "hole")
 
-    assert hole["occurrences"] == 6
+    assert hole["occurrences"] == 3
     assert not any("occurrences 超几何轴簇" in warning for warning in out["warnings"])
-    assert len(hole["instances"]) == 7
+    assert len(hole["instances"]) == 3
     assert hole["location"] in hole["instances"]
     assert hole["location"] != {"x": 0, "y": 0, "z": 0}
 

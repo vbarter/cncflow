@@ -1004,6 +1004,13 @@ def _normalize_instances(value):
     return instances
 
 
+def _sync_hole_occurrences_from_instances(features):
+    for feature in features or []:
+        instances = feature.get("instances")
+        if feature.get("type") == "hole" and isinstance(instances, list) and instances:
+            feature["occurrences"] = len(instances)
+
+
 def _cluster_center(clusters):
     origins = [
         origin
@@ -1557,6 +1564,7 @@ def extract_step_features(
             excluded_radii=excluded_backfill_radii,
         )
     )
+    _sync_hole_occurrences_from_instances(mapped["features"])
     warnings.extend(f"LLM 跳过: {err}" for err in mapped["errors"])
     result = {
         "raw": raw,
