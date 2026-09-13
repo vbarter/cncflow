@@ -266,6 +266,10 @@ def test_read_step_ascii_and_messages_use_text_not_files():
     assert "ISO-10303-21" in blob
     assert "bbox_mm=80×60×12" in blob
     assert "孔" in blob and "滑轴" in blob and "槽腔" in blob
+    assert "强制穷举全部孔族" in blob
+    assert "禁止只报告最大孔" in blob
+    assert "有大中心孔时也不得省略小安装孔" in blob
+    assert "occurrences" in blob
     assert "开口矩形槽" in blob
     assert "贯穿板厚" in blob and "plate window" in blob
     assert "pocket_type=封闭" in blob
@@ -273,6 +277,19 @@ def test_read_step_ascii_and_messages_use_text_not_files():
     open_blob = json.dumps(build_messages(open_text), ensure_ascii=False)
     assert "slot/pocket" in open_blob
     assert "CYLINDRICAL_SURFACE" in open_text or "CIRCLE" in open_text
+
+
+def test_multi_cylinder_cavity_hint_only_rejects_slot_corner_cylinders():
+    step_text = "\n".join(
+        f"#{index}=CYLINDRICAL_SURFACE('',#{index + 20},3.);"
+        for index in range(1, 4)
+    )
+    blob = json.dumps(build_messages(step_text), ensure_ascii=False)
+
+    assert "仅槽角 R 对应的部分圆柱不得报成 hole/outer_cylinder" in blob
+    assert "真实完整圆柱壁构成的通孔或盲孔必须逐族报 hole" in blob
+    assert "绝不能整体跳过孔" in blob
+    assert "不要报成 outer_cylinder 或 hole" not in blob
 
 
 @pytest.mark.llm_features
@@ -516,6 +533,77 @@ def test_extract_retries_thin_miss_as_open_slot(monkeypatch, miss):
     assert any("补询已补" in w for w in out["warnings"])
     retry_blob = json.dumps(calls[1], ensure_ascii=False)
     assert "开口槽必须出" in retry_blob
+
+
+@pytest.mark.llm_features
+def test_extract_retries_when_step_cylinders_far_outnumber_hole_occurrences(
+    monkeypatch,
+    tmp_path,
+):
+    from cncflow_core.geometry import llm as llm_mod
+
+    step = tmp_path / "many-holes.step"
+    cylinders = "\n".join(
+        f"#{index}=CYLINDRICAL_SURFACE('',#{index + 100},2.5);"
+        for index in range(1, 13)
+    )
+    step.write_text(
+        "ISO-10303-21;\nHEADER;\nENDSEC;\nDATA;\n"
+        f"{cylinders}\nENDSEC;\nEND-ISO-10303-21;",
+        encoding="ascii",
+    )
+    first = {
+        "features": [
+            {
+                "type": "hole",
+                "diameter_mm": 40,
+                "depth_mm": 8,
+                "hole_type": "through",
+            },
+            {"type": "face", "length": 200, "width": 120},
+        ],
+    }
+    completed = {
+        "features": [
+            {
+                "type": "hole",
+                "diameter_mm": 40,
+                "depth_mm": 8,
+                "hole_type": "through",
+            },
+            {
+                "type": "hole",
+                "diameter_mm": 5,
+                "depth_mm": 8,
+                "hole_type": "through",
+                "occurrences": 10,
+            },
+            {"type": "face", "length": 200, "width": 120},
+        ],
+    }
+    calls = []
+
+    def chat(messages, model=None):
+        calls.append(messages)
+        return first if len(calls) == 1 else completed
+
+    monkeypatch.delenv("TUZI_FEATURE_HOLE_RETRY", raising=False)
+    monkeypatch.setattr(llm_mod, "_tuzi_chat", chat)
+
+    out = llm_mod.extract_step_features(str(step))
+
+    assert len(calls) == 2
+    assert sum(
+        feat["occurrences"]
+        for feat in out["features"]
+        if feat["type"] == "hole"
+    ) == 11
+    assert "LLM 首次孔欠检，补询已补 hole" in out["warnings"]
+    retry_blob = json.dumps(calls[1], ensure_ascii=False)
+    assert "强制穷举全部孔族" in retry_blob
+    assert "禁止只报告最大孔" in retry_blob
+    assert "小安装孔" in retry_blob
+    assert "occurrences" in retry_blob
 
 
 @pytest.mark.llm_features
