@@ -22,6 +22,37 @@ STEP_NUC_WINDOWS = os.path.join(FIXTURES, "nuc_plate_windows.step")
 SLOT_TREE_FIELDS = ("pocket_type", "length", "width", "depth", "corner_radius")
 
 
+def _cylinder_step(axis_positions, radius=1.7, faces_per_axis=2):
+    entities = []
+    entity_id = 1
+    for x, z in axis_positions:
+        for face_index in range(faces_per_axis):
+            point_x = x + face_index * 0.2
+            point_z = z - face_index * 0.2
+            cylinder_id = entity_id
+            placement_id = entity_id + 1
+            point_id = entity_id + 2
+            direction_id = entity_id + 3
+            entities.extend([
+                f"#{cylinder_id}=CYLINDRICAL_SURFACE('',#{placement_id},{radius});",
+                (
+                    f"#{placement_id}=AXIS2_PLACEMENT_3D("
+                    f"'',#{point_id},#{direction_id},$);"
+                ),
+                (
+                    f"#{point_id}=CARTESIAN_POINT("
+                    f"'',({point_x},{face_index * 8.0},{point_z}));"
+                ),
+                f"#{direction_id}=DIRECTION('',(0.,1.,0.));",
+            ])
+            entity_id += 4
+    return (
+        "ISO-10303-21;\nHEADER;\nENDSEC;\nDATA;\n"
+        + "\n".join(entities)
+        + "\nENDSEC;\nEND-ISO-10303-21;"
+    )
+
+
 def _fixture_payload():
     with open(LLM_D8, encoding="utf-8") as fh:
         return json.load(fh)
@@ -543,13 +574,12 @@ def test_extract_retries_when_step_cylinders_far_outnumber_hole_occurrences(
     from cncflow_core.geometry import llm as llm_mod
 
     step = tmp_path / "many-holes.step"
-    cylinders = "\n".join(
-        f"#{index}=CYLINDRICAL_SURFACE('',#{index + 100},2.5);"
-        for index in range(1, 13)
-    )
     step.write_text(
-        "ISO-10303-21;\nHEADER;\nENDSEC;\nDATA;\n"
-        f"{cylinders}\nENDSEC;\nEND-ISO-10303-21;",
+        _cylinder_step(
+            [(index * 5.0, index * 3.0) for index in range(12)],
+            radius=2.5,
+            faces_per_axis=1,
+        ),
         encoding="ascii",
     )
     first = {
@@ -604,6 +634,98 @@ def test_extract_retries_when_step_cylinders_far_outnumber_hole_occurrences(
     assert "禁止只报告最大孔" in retry_blob
     assert "小安装孔" in retry_blob
     assert "occurrences" in retry_blob
+
+
+@pytest.mark.llm_features
+def test_extract_clamps_hole_occurrences_to_unique_step_axes(
+    monkeypatch,
+    tmp_path,
+):
+    from cncflow_core.geometry import llm as llm_mod
+
+    step = tmp_path / "xm8-axis-clusters.step"
+    step.write_text(
+        _cylinder_step([
+            (-27.5, -27.5),
+            (-27.5, 27.5),
+            (27.5, -27.5),
+            (27.5, 27.5),
+            (-27.5, 0),
+            (0, 27.5),
+            (27.5, 0),
+        ]),
+        encoding="ascii",
+    )
+    monkeypatch.setattr(llm_mod, "_tuzi_chat", lambda *_args, **_kwargs: {
+        "features": [{
+            "type": "hole",
+            "diameter_mm": 3.4,
+            "depth_mm": 8,
+            "hole_type": "through",
+            "occurrences": 8,
+        }],
+    })
+
+    out = llm_mod.extract_step_features(str(step))
+
+    hole = next(feature for feature in out["features"] if feature["type"] == "hole")
+    warning = "LLM 孔 occurrences 超几何轴簇，已按 STEP clamp Ø3.4 8→7"
+    assert hole["occurrences"] == 7
+    assert warning in hole["warnings"]
+    assert warning in out["warnings"]
+
+
+@pytest.mark.llm_features
+def test_extract_does_not_raise_hole_occurrences_to_geometry_count(
+    monkeypatch,
+    tmp_path,
+):
+    from cncflow_core.geometry import llm as llm_mod
+
+    step = tmp_path / "hole-under-geometry-count.step"
+    step.write_text(
+        _cylinder_step([(index * 5.0, 0) for index in range(7)]),
+        encoding="ascii",
+    )
+    monkeypatch.setattr(llm_mod, "_tuzi_chat", lambda *_args, **_kwargs: {
+        "features": [{
+            "type": "hole",
+            "diameter_mm": 3.4,
+            "depth_mm": 8,
+            "hole_type": "through",
+            "occurrences": 6,
+        }],
+    })
+
+    out = llm_mod.extract_step_features(str(step))
+    hole = next(feature for feature in out["features"] if feature["type"] == "hole")
+
+    assert hole["occurrences"] == 6
+    assert not any("occurrences 超几何轴簇" in warning for warning in out["warnings"])
+
+
+def test_hole_retry_uses_unique_axes_instead_of_cylindrical_faces():
+    from cncflow_core.geometry import llm as llm_mod
+
+    duplicate_faces = _cylinder_step(
+        [(index * 5.0, 0) for index in range(7)],
+        faces_per_axis=2,
+    )
+    unique_axes = _cylinder_step(
+        [(index * 5.0, 0) for index in range(12)],
+        faces_per_axis=1,
+    )
+
+    assert duplicate_faces.count("CYLINDRICAL_SURFACE") == 14
+    assert llm_mod._step_cylinder_axis_counts(duplicate_faces) == {1.7: 7}
+    assert not llm_mod._hole_retry_needed(
+        duplicate_faces,
+        [{"type": "hole", "occurrences": 3}],
+    )
+    assert llm_mod._hole_retry_needed(
+        unique_axes,
+        [{"type": "hole", "occurrences": 1}],
+    )
 
 
 @pytest.mark.llm_features

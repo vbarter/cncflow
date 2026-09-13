@@ -915,6 +915,162 @@ def _step_cylinder_radius_counts(step_text):
     return counts
 
 
+_STEP_NUMBER = r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?"
+_STEP_ENTITY_RE = re.compile(
+    r"#(\d+)\s*=\s*([A-Z][A-Z0-9_]*)\s*\((.*?)\)\s*;",
+    re.I | re.S,
+)
+_STEP_XYZ_RE = re.compile(
+    rf"\(\s*({_STEP_NUMBER})\s*,\s*({_STEP_NUMBER})\s*,\s*({_STEP_NUMBER})\s*\)\s*$",
+    re.I | re.S,
+)
+_STEP_CYLINDER_RE = re.compile(
+    rf",\s*#(\d+)\s*,\s*({_STEP_NUMBER})\s*$",
+    re.I | re.S,
+)
+
+
+def _step_xyz(body):
+    match = _STEP_XYZ_RE.search(body or "")
+    if not match:
+        return None
+    return tuple(float(match.group(index)) for index in range(1, 4))
+
+
+def _unit_vector(vector):
+    if vector is None:
+        return None
+    length = sum(value * value for value in vector) ** 0.5
+    if length <= 1e-12:
+        return None
+    return tuple(value / length for value in vector)
+
+
+def _same_cylinder_axis(left, right, tolerance):
+    left_origin, left_direction = left
+    right_origin, right_direction = right
+    delta = tuple(
+        right_origin[index] - left_origin[index]
+        for index in range(3)
+    )
+    direction = left_direction or right_direction
+    if left_direction and right_direction:
+        parallel = abs(sum(
+            left_direction[index] * right_direction[index]
+            for index in range(3)
+        ))
+        if parallel < 0.999:
+            return False
+    if direction is None:
+        distance = sum(value * value for value in delta) ** 0.5
+    else:
+        projected = sum(delta[index] * direction[index] for index in range(3))
+        perpendicular = tuple(
+            delta[index] - projected * direction[index]
+            for index in range(3)
+        )
+        distance = sum(value * value for value in perpendicular) ** 0.5
+    return distance <= tolerance
+
+
+def _step_cylinder_axis_counts(
+    step_text,
+    *,
+    radius_tolerance=0.05,
+    axis_tolerance=0.75,
+):
+    """按半径和共线轴聚类 STEP 圆柱面；同一孔的分段/两侧面只计一根轴。"""
+    entities = {
+        int(entity_id): (entity_type.upper(), body)
+        for entity_id, entity_type, body in _STEP_ENTITY_RE.findall(step_text or "")
+    }
+    cylinders = []
+    for entity_type, body in entities.values():
+        if entity_type != "CYLINDRICAL_SURFACE":
+            continue
+        cylinder = _STEP_CYLINDER_RE.search(body)
+        if not cylinder:
+            continue
+        placement = entities.get(int(cylinder.group(1)))
+        if not placement or placement[0] != "AXIS2_PLACEMENT_3D":
+            continue
+        references = [
+            int(reference)
+            for reference in re.findall(r"#(\d+)", placement[1])
+        ]
+        if not references:
+            continue
+        point = entities.get(references[0])
+        if not point or point[0] != "CARTESIAN_POINT":
+            continue
+        origin = _step_xyz(point[1])
+        if origin is None:
+            continue
+        direction = None
+        if len(references) > 1:
+            axis = entities.get(references[1])
+            if axis and axis[0] == "DIRECTION":
+                direction = _unit_vector(_step_xyz(axis[1]))
+        cylinders.append((float(cylinder.group(2)), (origin, direction)))
+
+    radius_groups = []
+    for radius, axis in sorted(cylinders, key=lambda item: item[0]):
+        group = next(
+            (
+                candidate
+                for candidate in radius_groups
+                if abs(candidate["radius"] - radius) <= radius_tolerance
+            ),
+            None,
+        )
+        if group is None:
+            group = {"radius": radius, "radii": [], "axes": []}
+            radius_groups.append(group)
+        group["radii"].append(radius)
+        group["radius"] = sum(group["radii"]) / len(group["radii"])
+        if not any(
+            _same_cylinder_axis(axis, existing, axis_tolerance)
+            for existing in group["axes"]
+        ):
+            group["axes"].append(axis)
+
+    return {
+        round(group["radius"], 3): len(group["axes"])
+        for group in radius_groups
+    }
+
+
+def _clamp_hole_occurrences_to_step_axes(features, step_text):
+    axis_counts = _step_cylinder_axis_counts(step_text)
+    warnings = []
+    for feature in features or []:
+        if feature.get("type") != "hole":
+            continue
+        diameter = _num(feature.get("diameter_mm"))
+        if not diameter or diameter <= 0:
+            continue
+        target_radius = diameter / 2
+        matching = [
+            (abs(radius - target_radius), count)
+            for radius, count in axis_counts.items()
+            if abs(radius - target_radius) <= max(0.05, target_radius * 0.01)
+        ]
+        if not matching:
+            continue
+        geometry_count = min(matching)[1]
+        llm_count = max(1, int(feature.get("occurrences") or 1))
+        if llm_count <= geometry_count:
+            continue
+        feature["occurrences"] = geometry_count
+        warning = (
+            "LLM 孔 occurrences 超几何轴簇，已按 STEP clamp "
+            f"Ø{diameter:g} {llm_count}→{geometry_count}"
+        )
+        feature.setdefault("warnings", []).append(warning)
+        warnings.append(warning)
+    return warnings
+
+
 def _drop_suspicious_window_pockets(features, geometry, step_text):
     """删掉 NUC 类薄板贯穿窗被 LLM 按半板厚误报的封闭 pocket。"""
     thickness = _thin_plate_thickness(geometry)
@@ -992,7 +1148,7 @@ def _hole_occurrences(features):
 
 
 def _hole_retry_needed(step_text, features):
-    cylinder_count = len(re.findall(r"\bCYLINDRICAL_SURFACE\s*\(", step_text or "", re.I))
+    cylinder_count = sum(_step_cylinder_axis_counts(step_text).values())
     reported_holes = _hole_occurrences(features)
     return cylinder_count >= 8 and cylinder_count > 3 * max(1, reported_holes)
 
@@ -1118,6 +1274,9 @@ def extract_step_features(
             else:
                 warnings.append("LLM 孔欠检补询仍未补出更多 hole")
                 warnings.extend(f"LLM 跳过: {err}" for err in retry_mapped["errors"])
+    warnings.extend(
+        _clamp_hole_occurrences_to_step_axes(mapped["features"], step_text)
+    )
     warnings.extend(f"LLM 跳过: {err}" for err in mapped["errors"])
     result = {
         "raw": raw,
