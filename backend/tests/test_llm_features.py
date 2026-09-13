@@ -631,11 +631,10 @@ def test_extract_retries_when_step_cylinders_far_outnumber_hole_occurrences(
     out = llm_mod.extract_step_features(str(step))
 
     assert len(calls) == 2
-    assert sum(
-        feat["occurrences"]
-        for feat in out["features"]
-        if feat["type"] == "hole"
-    ) == 11
+    holes = [feat for feat in out["features"] if feat["type"] == "hole"]
+    assert sum(feat["occurrences"] for feat in holes) == 13
+    geometry_hole = next(feat for feat in holes if feat["diameter_mm"] == 5)
+    assert geometry_hole["occurrences"] == len(geometry_hole["instances"]) == 12
     assert "LLM 首次孔欠检，补询已补 hole" in out["warnings"]
     retry_blob = json.dumps(calls[1], ensure_ascii=False)
     assert "强制穷举全部孔族" in retry_blob
@@ -725,7 +724,7 @@ def test_map_llm_hole_keeps_explicit_instances_and_shop_warnings():
 
 
 @pytest.mark.llm_features
-def test_extract_does_not_raise_hole_occurrences_to_geometry_count(
+def test_extract_syncs_hole_occurrences_to_step_instances(
     monkeypatch,
     tmp_path,
 ):
@@ -733,7 +732,7 @@ def test_extract_does_not_raise_hole_occurrences_to_geometry_count(
 
     step = tmp_path / "hole-under-geometry-count.step"
     step.write_text(
-        _cylinder_step([(index * 5.0, 0) for index in range(7)]),
+        _cylinder_step([(index * 5.0, 0) for index in range(3)]),
         encoding="ascii",
     )
     monkeypatch.setattr(llm_mod, "_tuzi_chat", lambda *_args, **_kwargs: {
@@ -742,16 +741,16 @@ def test_extract_does_not_raise_hole_occurrences_to_geometry_count(
             "diameter_mm": 3.4,
             "depth_mm": 8,
             "hole_type": "through",
-            "occurrences": 6,
+            "occurrences": 1,
         }],
     })
 
     out = llm_mod.extract_step_features(str(step))
     hole = next(feature for feature in out["features"] if feature["type"] == "hole")
 
-    assert hole["occurrences"] == 6
+    assert hole["occurrences"] == 3
     assert not any("occurrences 超几何轴簇" in warning for warning in out["warnings"])
-    assert len(hole["instances"]) == 7
+    assert len(hole["instances"]) == 3
     assert hole["location"] in hole["instances"]
     assert hole["location"] != {"x": 0, "y": 0, "z": 0}
 
@@ -811,6 +810,62 @@ def test_extract_backfills_missing_step_radius_hole_family(
     assert "STEP axis geometry backfill" in backfilled["evidence"]
     assert backfilled["warnings"] == []
     assert "STEP 轴簇几何回填 hole Ø3.4 ×3" in out["warnings"]
+
+
+@pytest.mark.llm_features
+def test_extract_promotes_xm7_outer_to_hole_without_diameter_drift(
+    monkeypatch,
+    tmp_path,
+):
+    from cncflow_core.geometry import llm as llm_mod
+
+    step = tmp_path / "xm7-outer-hole-collision.step"
+    step.write_text(
+        _cylinder_groups_step([
+            (1.5, [(index * 2.0, 0) for index in range(22)]),
+            (1.7, [(0, 27.5), (23.816, -13.75), (-23.816, -13.75)]),
+            (30.5, [(0, 0)]),
+        ]),
+        encoding="ascii",
+    )
+    monkeypatch.setenv("TUZI_FEATURE_HOLE_RETRY", "0")
+    monkeypatch.setattr(llm_mod, "_tuzi_chat", lambda *_args, **_kwargs: {
+        "features": [
+            {
+                "type": "hole",
+                "diameter_mm": 3,
+                "depth_mm": 22,
+                "hole_type": "through",
+                "occurrences": 1,
+            },
+            {
+                "type": "outer_cylinder",
+                "diameter_mm": 64,
+                "depth_mm": 22,
+            },
+        ],
+    })
+
+    out = llm_mod.extract_step_features(
+        str(step),
+        geometry={"bounding_box_mm": {"x": 64, "y": 22, "z": 64}},
+    )
+
+    assert not [
+        feature
+        for feature in out["features"]
+        if feature["type"] == "outer_cylinder"
+    ]
+    holes = {
+        feature["diameter_mm"]: feature
+        for feature in out["features"]
+        if feature["type"] == "hole"
+    }
+    assert set(holes) == {3, 3.4, 64}
+    assert holes[3]["occurrences"] == len(holes[3]["instances"]) == 22
+    assert holes[3.4]["occurrences"] == len(holes[3.4]["instances"]) == 3
+    assert holes[64]["occurrences"] == len(holes[64]["instances"]) == 1
+    assert not any(abs(diameter - 61) <= 0.125 for diameter in holes)
 
 
 def test_hole_retry_uses_unique_axes_instead_of_cylindrical_faces():
