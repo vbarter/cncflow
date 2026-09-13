@@ -1132,9 +1132,15 @@ def _step_cylinder_axis_clusters(
             for axis in group["axes"]
             if _origin_xyz(axis[0]) is not None
         ]
+        directions = [
+            _origin_xyz(axis[1])
+            for axis in group["axes"]
+            if _origin_xyz(axis[1]) is not None
+        ]
         clusters[round(group["radius"], 3)] = {
             "count": len(group["axes"]),
             "origins": origins,
+            "axis": directions[0] if directions else None,
         }
     return clusters
 
@@ -1187,6 +1193,120 @@ def _clamp_hole_occurrences_to_step_axes(features, step_text):
         warnings.append(
             "LLM 孔 occurrences 超几何轴簇，已按 STEP clamp "
             f"Ø{diameter:g} {llm_count}→{geometry_count}"
+        )
+    return warnings
+
+
+def _geometry_hole_depth(geometry, axis, features):
+    geometry = geometry if isinstance(geometry, dict) else {}
+    dimensions = geometry.get("dimensions") or {}
+    for value in (
+        geometry.get("thickness_mm"),
+        geometry.get("plate_thickness_mm"),
+        dimensions.get("thickness_mm") if isinstance(dimensions, dict) else None,
+    ):
+        depth = _num(value)
+        if depth and depth > 0:
+            return round(depth, 4)
+
+    box = geometry.get("bounding_box_mm") or {}
+    bbox = {
+        name: _num(box.get(name))
+        for name in ("x", "y", "z")
+    }
+    direction = _xyz(axis)
+    if direction and all(value and value > 0 for value in bbox.values()):
+        unit = _unit_vector(tuple(direction[name] for name in ("x", "y", "z")))
+        if unit:
+            span = sum(
+                abs(unit[index]) * bbox[name]
+                for index, name in enumerate(("x", "y", "z"))
+            )
+            if span > 0:
+                return round(span, 4)
+    bbox_depths = [value for value in bbox.values() if value and value > 0]
+    if bbox_depths:
+        return round(min(bbox_depths), 4)
+
+    through_depths = [
+        _num(feature.get("depth_mm"))
+        for feature in features or []
+        if feature.get("type") == "hole"
+        and feature.get("hole_type") == "through"
+    ]
+    through_depths = [depth for depth in through_depths if depth and depth > 0]
+    if through_depths:
+        return round(max(through_depths), 4)
+    return 1.0
+
+
+def _next_hole_feature_id(features):
+    used = {
+        feature.get("feature_id")
+        for feature in features or []
+        if feature.get("feature_id")
+    }
+    index = 0
+    while f"hole-{index}" in used:
+        index += 1
+    return f"hole-{index}", index
+
+
+def _backfill_missing_holes_from_step_axes(
+    features,
+    step_text,
+    geometry=None,
+    *,
+    diameter_tolerance=0.125,
+):
+    clusters = _step_cylinder_axis_clusters(step_text)
+    center = _cluster_center(clusters)
+    warnings = []
+    for radius, cluster in clusters.items():
+        diameter = round(2 * radius, 3)
+        if any(
+            feature.get("type") == "hole"
+            and (existing := _num(feature.get("diameter_mm")))
+            and abs(existing - diameter) <= diameter_tolerance
+            for feature in features or []
+        ):
+            continue
+
+        origins = [dict(origin) for origin in cluster.get("origins") or []]
+        location = _representative_instance(origins, center)
+        axis = cluster.get("axis") or {"x": 0, "y": 0, "z": 1}
+        depth = _geometry_hole_depth(geometry, axis, features)
+        feature_id, index = _next_hole_feature_id(features)
+        feature = _map_hole(
+            {
+                "feature_id": feature_id,
+                "type": "hole",
+                "diameter_mm": diameter,
+                "depth_mm": depth,
+                "hole_type": "through",
+                "position_type": (
+                    "垂直"
+                    if abs(axis.get("z", 0)) >= 0.9
+                    else "侧向"
+                ),
+                "location": location,
+                "axis": axis,
+                "occurrences": cluster["count"],
+                "instances": origins,
+                "confidence": 0.72,
+                "evidence": [
+                    "STEP axis geometry backfill",
+                    f"radius={radius:g}mm",
+                    f"unique_axes={cluster['count']}",
+                ],
+                "warnings": [],
+            },
+            index,
+        )
+        feature["source"] = "geometry"
+        features.append(feature)
+        warnings.append(
+            f"STEP 轴簇几何回填 hole Ø{diameter:g} ×{cluster['count']}"
         )
     return warnings
 
@@ -1396,6 +1516,13 @@ def extract_step_features(
                 warnings.extend(f"LLM 跳过: {err}" for err in retry_mapped["errors"])
     warnings.extend(
         _clamp_hole_occurrences_to_step_axes(mapped["features"], step_text)
+    )
+    warnings.extend(
+        _backfill_missing_holes_from_step_axes(
+            mapped["features"],
+            step_text,
+            geometry,
+        )
     )
     warnings.extend(f"LLM 跳过: {err}" for err in mapped["errors"])
     result = {
