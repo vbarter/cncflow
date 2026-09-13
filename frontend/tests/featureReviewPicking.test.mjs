@@ -180,3 +180,57 @@ test("高亮填充避开共面 depth fighting，几何、边线和材质统一�
   assert.match(source, /resources\.fill\.dispose\(\)/)
   assert.match(source, /resources\.outline\.dispose\(\)/)
 })
+
+test("分组小孔按 instances 多点拾取和高亮，不落到中心大孔", () => {
+  const large = {
+    feature_id: "hole-40",
+    type: "hole",
+    pose: {
+      origin: { x: 0, y: 0, z: 0 },
+      axis: { x: 0, y: 1, z: 0 },
+      length_mm: 8,
+      diameter_mm: 40,
+    },
+  }
+  const grouped = {
+    feature_id: "hole-3.4",
+    type: "hole",
+    occurrences: 7,
+    location: { x: 0, y: 0, z: 0 },
+    axis: { x: 0, y: 1, z: 0 },
+    depth_mm: 8,
+    diameter_mm: 3.4,
+    instances: [
+      { x: -27.5, y: 0, z: -27.5 },
+      { x: -27.5, y: 0, z: 27.5 },
+      { x: 27.5, y: 0, z: -27.5 },
+      { x: 27.5, y: 0, z: 27.5 },
+      { x: -27.5, y: 0, z: 0 },
+      { x: 0, y: 0, z: 27.5 },
+      { x: 27.5, y: 0, z: 0 },
+    ],
+  }
+
+  assert.equal(
+    pickFeatureAtPoint([large, grouped], new THREE.Vector3(-27.5, 0, 27.5)),
+    "hole-3.4",
+  )
+  assert.equal(
+    pickFeatureAtPoint([large, grouped], new THREE.Vector3(27.5, 0, 0)),
+    "hole-3.4",
+  )
+  assert.equal(
+    pickFeatureAtPoint([large, grouped], new THREE.Vector3(0, 0, 0)),
+    "hole-40",
+  )
+
+  const signature = featureHighlightSignature(grouped)
+  assert.ok(signature)
+  assert.match(signature, /-27.5,0,-27.5/)
+  assert.match(signature, /27.5,0,27.5/)
+  assert.equal(signature.split(";").length, 7)
+  assert.doesNotMatch(featureHighlightSignature(large), /-27.5/)
+  assert.match(source, /function posesOf/)
+  assert.match(source, /feature\?\.instances/)
+  assert.match(source, /poses\.map\(\(pose, index\)/)
+})

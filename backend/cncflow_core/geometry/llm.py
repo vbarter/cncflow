@@ -495,6 +495,9 @@ def _map_hole(raw, index):
         "warnings": list(raw.get("warnings") or []),
         "source": "llm",
     }
+    instances = _normalize_instances(raw.get("instances"))
+    if instances:
+        feat["instances"] = instances
     if loc:
         feat["pose"] = {
             "origin": loc,
@@ -973,13 +976,101 @@ def _same_cylinder_axis(left, right, tolerance):
     return distance <= tolerance
 
 
-def _step_cylinder_axis_counts(
+def _origin_xyz(value):
+    if value is None:
+        return None
+    return {"x": round(value[0], 4), "y": round(value[1], 4), "z": round(value[2], 4)}
+
+
+def _is_zero_xyz(value):
+    loc = _xyz(value)
+    if loc is None:
+        return True
+    return loc["x"] == 0 and loc["y"] == 0 and loc["z"] == 0
+
+
+def _normalize_instances(value):
+    if not isinstance(value, list):
+        return []
+    instances = []
+    for item in value:
+        loc = _xyz(item)
+        if loc is None and isinstance(item, dict):
+            loc = _xyz(item.get("location") or item.get("origin") or item.get("center"))
+            if loc is None:
+                loc = _xyz((item.get("pose") or {}).get("origin"))
+        if loc is not None:
+            instances.append(loc)
+    return instances
+
+
+def _cluster_center(clusters):
+    origins = [
+        origin
+        for cluster in clusters.values()
+        for origin in cluster.get("origins") or []
+    ]
+    if not origins:
+        return (0.0, 0.0, 0.0)
+    count = len(origins)
+    return (
+        sum(origin["x"] for origin in origins) / count,
+        sum(origin["y"] for origin in origins) / count,
+        sum(origin["z"] for origin in origins) / count,
+    )
+
+
+def _instance_distance_sq(origin, center):
+    return (
+        (origin["x"] - center[0]) ** 2
+        + (origin["y"] - center[1]) ** 2
+        + (origin["z"] - center[2]) ** 2
+    )
+
+
+def _representative_instance(origins, center):
+    if not origins:
+        return None
+    non_origin = [origin for origin in origins if not _is_zero_xyz(origin)]
+    pool = non_origin or list(origins)
+    away = [
+        origin
+        for origin in pool
+        if _instance_distance_sq(origin, center) > 1e-6
+    ]
+    pick_from = away or pool
+    return max(pick_from, key=lambda origin: _instance_distance_sq(origin, center))
+
+
+def _backfill_hole_location_from_instances(feature, origins, center):
+    current = feature.get("location") or (feature.get("pose") or {}).get("origin")
+    if not _is_zero_xyz(current):
+        return
+    representative = _representative_instance(origins, center)
+    if representative is None or _is_zero_xyz(representative):
+        return
+    location = dict(representative)
+    feature["location"] = location
+    pose = feature.get("pose")
+    if isinstance(pose, dict):
+        pose["origin"] = dict(location)
+        return
+    axis = feature.get("axis") or {"x": 0, "y": 0, "z": 1}
+    feature["pose"] = {
+        "origin": dict(location),
+        "axis": axis,
+        "length_mm": feature.get("depth_mm"),
+        "diameter_mm": feature.get("diameter_mm"),
+    }
+
+
+def _step_cylinder_axis_clusters(
     step_text,
     *,
     radius_tolerance=0.05,
     axis_tolerance=0.75,
 ):
-    """按半径和共线轴聚类 STEP 圆柱面；同一孔的分段/两侧面只计一根轴。"""
+    """按半径和共线轴聚类 STEP 圆柱面，并返回每簇原点。"""
     entities = {
         int(entity_id): (entity_type.upper(), body)
         for entity_id, entity_type, body in _STEP_ENTITY_RE.findall(step_text or "")
@@ -1034,14 +1125,40 @@ def _step_cylinder_axis_counts(
         ):
             group["axes"].append(axis)
 
+    clusters = {}
+    for group in radius_groups:
+        origins = [
+            _origin_xyz(axis[0])
+            for axis in group["axes"]
+            if _origin_xyz(axis[0]) is not None
+        ]
+        clusters[round(group["radius"], 3)] = {
+            "count": len(group["axes"]),
+            "origins": origins,
+        }
+    return clusters
+
+
+def _step_cylinder_axis_counts(
+    step_text,
+    *,
+    radius_tolerance=0.05,
+    axis_tolerance=0.75,
+):
+    """按半径和共线轴聚类 STEP 圆柱面；同一孔的分段/两侧面只计一根轴。"""
     return {
-        round(group["radius"], 3): len(group["axes"])
-        for group in radius_groups
+        radius: cluster["count"]
+        for radius, cluster in _step_cylinder_axis_clusters(
+            step_text,
+            radius_tolerance=radius_tolerance,
+            axis_tolerance=axis_tolerance,
+        ).items()
     }
 
 
 def _clamp_hole_occurrences_to_step_axes(features, step_text):
-    axis_counts = _step_cylinder_axis_counts(step_text)
+    clusters = _step_cylinder_axis_clusters(step_text)
+    center = _cluster_center(clusters)
     warnings = []
     for feature in features or []:
         if feature.get("type") != "hole":
@@ -1051,23 +1168,26 @@ def _clamp_hole_occurrences_to_step_axes(features, step_text):
             continue
         target_radius = diameter / 2
         matching = [
-            (abs(radius - target_radius), count)
-            for radius, count in axis_counts.items()
+            (abs(radius - target_radius), cluster)
+            for radius, cluster in clusters.items()
             if abs(radius - target_radius) <= max(0.05, target_radius * 0.01)
         ]
         if not matching:
             continue
-        geometry_count = min(matching)[1]
+        cluster = min(matching, key=lambda item: item[0])[1]
+        origins = [dict(origin) for origin in cluster.get("origins") or []]
+        if origins:
+            feature["instances"] = origins
+            _backfill_hole_location_from_instances(feature, origins, center)
+        geometry_count = cluster["count"]
         llm_count = max(1, int(feature.get("occurrences") or 1))
         if llm_count <= geometry_count:
             continue
         feature["occurrences"] = geometry_count
-        warning = (
+        warnings.append(
             "LLM 孔 occurrences 超几何轴簇，已按 STEP clamp "
             f"Ø{diameter:g} {llm_count}→{geometry_count}"
         )
-        feature.setdefault("warnings", []).append(warning)
-        warnings.append(warning)
     return warnings
 
 
