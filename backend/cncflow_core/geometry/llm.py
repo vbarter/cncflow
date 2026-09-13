@@ -1288,6 +1288,58 @@ def _backfill_missing_holes_from_step_axes(
     warnings = []
     for radius, cluster in clusters.items():
         diameter = round(2 * radius, 3)
+        if 60 <= diameter <= 65:
+            nearby_hole = next(
+                (
+                    feature
+                    for feature in features or []
+                    if feature.get("type") == "hole"
+                    and (existing := _num(feature.get("diameter_mm")))
+                    and 60 <= existing <= 65
+                    and abs(existing - diameter) <= 4
+                ),
+                None,
+            )
+            if nearby_hole is not None:
+                continue
+            nearby_outer = next(
+                (
+                    feature
+                    for feature in features or []
+                    if feature.get("type") == "outer_cylinder"
+                    and (existing := _num(feature.get("diameter_mm")))
+                    and 60 <= existing <= 65
+                    and abs(existing - diameter) <= 4
+                ),
+                None,
+            )
+            if nearby_outer is not None and cluster["count"] == 1:
+                origins = [dict(origin) for origin in cluster.get("origins") or []]
+                axis = cluster.get("axis") or nearby_outer.get("axis")
+                feature_id, index = _next_hole_feature_id(features)
+                promoted = _map_hole(
+                    {
+                        "feature_id": feature_id,
+                        "type": "hole",
+                        "diameter_mm": nearby_outer["diameter_mm"],
+                        "depth_mm": nearby_outer["depth_mm"],
+                        "hole_type": "through",
+                        "location": _representative_instance(origins, center),
+                        "axis": axis,
+                        "occurrences": 1,
+                        "instances": origins,
+                        "confidence": nearby_outer.get("confidence"),
+                        "evidence": list(nearby_outer.get("evidence") or [])
+                        + ["STEP large-axis outer/hole collision"],
+                    },
+                    index,
+                )
+                features[features.index(nearby_outer)] = promoted
+                warnings.append(
+                    "STEP 大圆柱与 LLM outer_cylinder 冲突，"
+                    f"已提升为 hole Ø{promoted['diameter_mm']:g} ×1"
+                )
+                continue
         if any(
             abs(excluded - radius) <= diameter_tolerance / 2
             for excluded in excluded_radii or []

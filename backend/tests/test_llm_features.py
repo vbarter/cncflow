@@ -812,6 +812,62 @@ def test_extract_backfills_missing_step_radius_hole_family(
     assert "STEP 轴簇几何回填 hole Ø3.4 ×3" in out["warnings"]
 
 
+@pytest.mark.llm_features
+def test_extract_promotes_xm7_outer_to_hole_without_diameter_drift(
+    monkeypatch,
+    tmp_path,
+):
+    from cncflow_core.geometry import llm as llm_mod
+
+    step = tmp_path / "xm7-outer-hole-collision.step"
+    step.write_text(
+        _cylinder_groups_step([
+            (1.5, [(index * 2.0, 0) for index in range(22)]),
+            (1.7, [(0, 27.5), (23.816, -13.75), (-23.816, -13.75)]),
+            (30.5, [(0, 0)]),
+        ]),
+        encoding="ascii",
+    )
+    monkeypatch.setenv("TUZI_FEATURE_HOLE_RETRY", "0")
+    monkeypatch.setattr(llm_mod, "_tuzi_chat", lambda *_args, **_kwargs: {
+        "features": [
+            {
+                "type": "hole",
+                "diameter_mm": 3,
+                "depth_mm": 22,
+                "hole_type": "through",
+                "occurrences": 1,
+            },
+            {
+                "type": "outer_cylinder",
+                "diameter_mm": 64,
+                "depth_mm": 22,
+            },
+        ],
+    })
+
+    out = llm_mod.extract_step_features(
+        str(step),
+        geometry={"bounding_box_mm": {"x": 64, "y": 22, "z": 64}},
+    )
+
+    assert not [
+        feature
+        for feature in out["features"]
+        if feature["type"] == "outer_cylinder"
+    ]
+    holes = {
+        feature["diameter_mm"]: feature
+        for feature in out["features"]
+        if feature["type"] == "hole"
+    }
+    assert set(holes) == {3, 3.4, 64}
+    assert holes[3]["occurrences"] == len(holes[3]["instances"]) == 22
+    assert holes[3.4]["occurrences"] == len(holes[3.4]["instances"]) == 3
+    assert holes[64]["occurrences"] == len(holes[64]["instances"]) == 1
+    assert not any(abs(diameter - 61) <= 0.125 for diameter in holes)
+
+
 def test_hole_retry_uses_unique_axes_instead_of_cylindrical_faces():
     from cncflow_core.geometry import llm as llm_mod
 
