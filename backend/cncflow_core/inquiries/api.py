@@ -4,6 +4,7 @@ import math
 import os
 import re
 from io import BytesIO
+from pathlib import Path
 
 from flask import Blueprint, current_app, jsonify, request, Response, send_file
 
@@ -11,6 +12,7 @@ from ..common.db import get_conn
 from ..geometry import FEATURE_SCHEMA
 from ..geometry.service import apply_quote_default_selection
 from ..ingestion.jobs import get_job
+from ..ingestion.storage import materialize
 from ..ingestion import r2
 from ..common.materials import resolve_material
 from ..quoting.engine import quote
@@ -917,11 +919,38 @@ def _step_path_for_job(conn, job_id):
     ).fetchone()
     if not row:
         return None
-    from ..ingestion.storage import materialize
     try:
         return materialize(row["storage_path"], suffix=".step")
     except FileNotFoundError:
         return None
+
+
+def _uploaded_file_content_type(detected_type):
+    return {
+        "step": "model/step",
+        "pdf": "application/pdf",
+    }.get(str(detected_type or "").lower(), "application/octet-stream")
+
+
+def _part_file_rows(conn, part):
+    job_id = part.get("parse_job_id")
+    if not job_id:
+        return []
+    return conn.execute(
+        "SELECT role,original_name,storage_path,size_bytes,detected_type "
+        "FROM uploaded_files WHERE job_id=? ORDER BY role",
+        (job_id,),
+    ).fetchall()
+
+
+def _public_uploaded_file(row):
+    return {
+        "role": row["role"],
+        "original_name": row["original_name"],
+        "size_bytes": row["size_bytes"],
+        "detected_type": row["detected_type"],
+        "content_type": _uploaded_file_content_type(row["detected_type"]),
+    }
 
 
 def _ensure_part_mesh(conn, part):
@@ -1400,6 +1429,50 @@ def get_part(pid):
         return jsonify(_attach_parsed_features(conn, part))
     except KeyError:
         return jsonify({"error": "零件不存在"}), 404
+    finally:
+        conn.close()
+
+
+@bp.get("/api/v1/parts/<pid>/files")
+def get_part_files(pid):
+    conn = _conn()
+    try:
+        part = store.get_part(conn, pid)
+        return jsonify([
+            _public_uploaded_file(row)
+            for row in _part_file_rows(conn, part)
+        ])
+    except KeyError:
+        return jsonify({"error": "零件不存在"}), 404
+    finally:
+        conn.close()
+
+
+@bp.get("/api/v1/parts/<pid>/files/<role>")
+def download_part_file(pid, role):
+    conn = _conn()
+    try:
+        part = store.get_part(conn, pid)
+        row = next(
+            (item for item in _part_file_rows(conn, part) if item["role"] == role),
+            None,
+        )
+        if row is None:
+            return jsonify({"error": "文件不存在"}), 404
+        path = materialize(
+            row["storage_path"],
+            suffix=Path(row["original_name"]).suffix,
+        )
+        return send_file(
+            path,
+            mimetype=_uploaded_file_content_type(row["detected_type"]),
+            as_attachment=True,
+            download_name=row["original_name"],
+        )
+    except KeyError:
+        return jsonify({"error": "零件不存在"}), 404
+    except FileNotFoundError:
+        return jsonify({"error": "文件不存在"}), 404
     finally:
         conn.close()
 

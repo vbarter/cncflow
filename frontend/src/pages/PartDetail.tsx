@@ -1,11 +1,11 @@
-import { useEffect, useState } from "react"
+import React, { useEffect, useState } from "react"
 import { Button, Card, Input, Select } from "../components/ui"
 import { CostBreakdown } from "../components/CostBreakdown"
 import { FeatureReview, isReviewTreeFeature } from "../components/FeatureReview"
 import { PartQuoteDecision } from "../components/PartQuoteDecision"
 import { PlanQuoteComparison } from "../components/PlanQuoteComparison"
 import { ProcessSequenceEditor } from "../components/ProcessSequenceEditor"
-import { json } from "../api"
+import { API, json } from "../api"
 import { hoursLabel, quoteHours } from "../quoteHours"
 import {
   confidenceColumns,
@@ -26,13 +26,50 @@ function featId(f: any, i: number) {
   return String(f.feature_id || f.id || `f${i}`)
 }
 
+export type ArchivedFile = {
+  role: string
+  original_name: string
+  size_bytes: number
+  detected_type: string
+  content_type: string
+}
+
+export function PartFileDownloads({ partId, files }: { partId: string; files: ArchivedFile[] }) {
+  return files
+    .filter(file => (
+      file.role === "step"
+      || file.role === "drawing"
+      || file.detected_type === "step"
+      || file.detected_type === "pdf"
+    ))
+    .map(file => (
+      <Button key={file.role} asChild size="sm" variant="outline">
+        <a
+          download={file.original_name}
+          href={`${API}/parts/${encodeURIComponent(partId)}/files/${encodeURIComponent(file.role)}`}
+          title={file.original_name}
+        >
+          下载 {file.detected_type === "step" ? "STEP" : file.detected_type === "pdf" ? "PDF" : file.role}
+        </a>
+      </Button>
+    ))
+}
+
 export function PartDetail({ id, go }: { id: string; go: (h: string) => void }) {
   const [part, setPart] = useState<any>(null)
+  const [files, setFiles] = useState<ArchivedFile[]>([])
   const [err, setErr] = useState("")
   const [busy, setBusy] = useState(false)
   const [view, setView] = useState<"engineer" | "boss">("engineer")
   const [fieldEpoch, setFieldEpoch] = useState(0)
-  async function load() { setPart(await json<any>("/parts/" + id)) }
+  async function load() {
+    const [loadedPart, archivedFiles] = await Promise.all([
+      json<any>("/parts/" + id),
+      json<ArchivedFile[]>("/parts/" + id + "/files"),
+    ])
+    setPart(loadedPart)
+    setFiles(archivedFiles)
+  }
   useEffect(() => { load().catch(e => setErr(e.message)) }, [id])
   async function patch(body: object) {
     try {
@@ -118,9 +155,12 @@ export function PartDetail({ id, go }: { id: string; go: (h: string) => void }) 
     <button type="button" className="min-h-11 text-sm text-blue-600 md:min-h-0" onClick={() => go("inquiry/" + part.inquiry_id)}>← 询价单详情</button>
     <div className="flex flex-col gap-3 md:flex-row md:flex-wrap md:items-center md:justify-between">
       <div className="text-xs text-slate-500">{part.name} · {part.material_code || "—"} · {part.qty || 1}件</div>
-      <div className="flex rounded border border-[#e2e8f0] p-0.5">
-        <button type="button" className={`min-h-11 rounded px-3 py-1.5 text-sm md:min-h-0 ${view === "engineer" ? "bg-slate-900 text-white" : "text-slate-600"}`} onClick={() => setView("engineer")}>工程师视图</button>
-        <button type="button" className={`min-h-11 rounded px-3 py-1.5 text-sm md:min-h-0 ${view === "boss" ? "bg-slate-900 text-white" : "text-slate-600"}`} onClick={() => setView("boss")}>老板视图</button>
+      <div className="flex flex-wrap items-center gap-2">
+        <PartFileDownloads partId={id} files={files} />
+        <div className="flex rounded border border-[#e2e8f0] p-0.5">
+          <button type="button" className={`min-h-11 rounded px-3 py-1.5 text-sm md:min-h-0 ${view === "engineer" ? "bg-slate-900 text-white" : "text-slate-600"}`} onClick={() => setView("engineer")}>工程师视图</button>
+          <button type="button" className={`min-h-11 rounded px-3 py-1.5 text-sm md:min-h-0 ${view === "boss" ? "bg-slate-900 text-white" : "text-slate-600"}`} onClick={() => setView("boss")}>老板视图</button>
+        </div>
       </div>
     </div>
 
