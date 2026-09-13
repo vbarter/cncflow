@@ -162,6 +162,9 @@ SYSTEM_PROMPT = """你是 CNC 制造特征识别器。根据 ISO-10303-21 STEP �
    必填: type, diameter_mm, depth_mm, hole_type(through|blind), position_type(垂直|倾斜|曲面|侧向|深腔)
    选填: bottom_shape(cone|flat), location{x,y,z}, axis{x,y,z}
    通孔 cut_depth = depth + 0.3D，由下游算，不必给。
+   强制穷举全部孔族：小孔、大孔、阵列孔、通孔、盲孔都必须列出，禁止只报告最大孔。
+   有大中心孔时也不得省略小安装孔。可按直径/深度/孔型分组并用 occurrences
+   给出该组真实孔数，或逐孔输出；不同直径、深度、孔型不得合并。
    槽腔内角圆柱（D≈2R）不要当孔。螺纹底孔不要单独再出 hole。
 
 2) outer_cylinder 滑轴/外圆/OD — 实体外圆柱。
@@ -361,8 +364,10 @@ def _step_cavity_hint(step_text):
     circ = len(re.findall(r"\bCIRCLE\s*\(", step_text))
     if cyl >= 2 or circ >= 2:
         return (
-            "STEP 含多个圆柱/圆，先检查开口矩形槽的槽角 R（部分圆柱），"
-            "不要报成 outer_cylinder 或 hole；有槽必须输出 slot/pocket。\n"
+            "STEP 含多个圆柱/圆，须区分完整孔壁与开口矩形槽的槽角 R。"
+            "仅槽角 R 对应的部分圆柱不得报成 hole/outer_cylinder；"
+            "真实完整圆柱壁构成的通孔或盲孔必须逐族报 hole，绝不能整体跳过孔。"
+            "有槽同时输出 slot/pocket。\n"
         )
     return ""
 
@@ -974,6 +979,24 @@ def _slot_retry_enabled():
     return (os.environ.get("TUZI_FEATURE_SLOT_RETRY") or "1").strip().lower() not in {"0", "false", "no"}
 
 
+def _hole_retry_enabled():
+    return (os.environ.get("TUZI_FEATURE_HOLE_RETRY") or "1").strip().lower() not in {"0", "false", "no"}
+
+
+def _hole_occurrences(features):
+    return sum(
+        max(1, int(feat.get("occurrences") or 1))
+        for feat in features or []
+        if feat.get("type") == "hole"
+    )
+
+
+def _hole_retry_needed(step_text, features):
+    cylinder_count = len(re.findall(r"\bCYLINDRICAL_SURFACE\s*\(", step_text or "", re.I))
+    reported_holes = _hole_occurrences(features)
+    return cylinder_count >= 8 and cylinder_count > 3 * max(1, reported_holes)
+
+
 SLOT_RETRY_PROMPT = """上次输出没有 slot/pocket。请复查 STEP。
 若存在开口矩形槽/U 形凹槽（一边通到侧面），必须输出 type=slot 或 pocket，
 pocket_type=开放，并给出 length/width/depth/corner_radius。
@@ -995,6 +1018,37 @@ def _slot_retry_messages(step_text, geometry, previous):
     )
     return [
         {"role": "system", "content": "只输出 JSON 对象 {\"features\":[...]}。开口槽必须出 slot/pocket。"},
+        {"role": "user", "content": [{"type": "text", "text": prompt}]},
+    ]
+
+
+HOLE_RETRY_PROMPT = """上次输出的 hole 数量远少于 STEP 中的完整圆柱面，判定为孔欠检。请强制穷举全部孔族。
+逐一扫描所有完整内圆柱壁，列出全部小孔、大孔、阵列孔、通孔和盲孔；禁止只报告最大孔，
+有大中心孔时不得省略小安装孔。可按相同直径/深度/孔型分组并用 occurrences 给出真实孔数，
+或逐孔输出。槽角 R 的部分圆柱仍不得报 hole。仍输出全部其他特征，
+只返回 JSON {\"features\":[...]}。不要报价。
+"""
+
+
+def _hole_retry_messages(step_text, geometry, previous):
+    prev = json.dumps(previous, ensure_ascii=False)[:4000]
+    prompt = (
+        HOLE_RETRY_PROMPT
+        + _geometry_hint(geometry)
+        + _step_cavity_hint(step_text)
+        + "\n上次输出:\n"
+        + prev
+        + "\n\nSTEP:\n"
+        + step_text
+    )
+    return [
+        {
+            "role": "system",
+            "content": (
+                "只输出 JSON 对象 {\"features\":[...]}。"
+                "强制穷举 ALL holes，不得漏掉小孔、阵列孔、通孔或盲孔。"
+            ),
+        },
         {"role": "user", "content": [{"type": "text", "text": prompt}]},
     ]
 
@@ -1041,6 +1095,28 @@ def extract_step_features(
                 warnings.append("LLM 首次未出槽腔（仅面/曲面/外圆），补询已补 slot/pocket")
             else:
                 warnings.append("LLM 补询仍未出槽腔")
+                warnings.extend(f"LLM 跳过: {err}" for err in retry_mapped["errors"])
+    if _hole_retry_enabled() and _hole_retry_needed(step_text, mapped["features"]):
+        previous_holes = _hole_occurrences(mapped["features"])
+        try:
+            retry_raw = _tuzi_chat(_hole_retry_messages(step_text, geometry, raw))
+            retry_mapped = map_llm_features(retry_raw)
+            retry_mapped["features"], retry_window_warning = _drop_suspicious_window_pockets(
+                retry_mapped["features"],
+                geometry,
+                step_text,
+            )
+        except Exception as exc:
+            warnings.append(f"LLM 孔欠检补询失败（保留首次结果）: {exc}")
+        else:
+            if _hole_occurrences(retry_mapped["features"]) > previous_holes:
+                raw = retry_raw
+                mapped = retry_mapped
+                if retry_window_warning:
+                    warnings.append(retry_window_warning)
+                warnings.append("LLM 首次孔欠检，补询已补 hole")
+            else:
+                warnings.append("LLM 孔欠检补询仍未补出更多 hole")
                 warnings.extend(f"LLM 跳过: {err}" for err in retry_mapped["errors"])
     warnings.extend(f"LLM 跳过: {err}" for err in mapped["errors"])
     result = {
