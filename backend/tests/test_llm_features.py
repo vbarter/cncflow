@@ -631,11 +631,10 @@ def test_extract_retries_when_step_cylinders_far_outnumber_hole_occurrences(
     out = llm_mod.extract_step_features(str(step))
 
     assert len(calls) == 2
-    assert sum(
-        feat["occurrences"]
-        for feat in out["features"]
-        if feat["type"] == "hole"
-    ) == 11
+    holes = [feat for feat in out["features"] if feat["type"] == "hole"]
+    assert sum(feat["occurrences"] for feat in holes) == 13
+    geometry_hole = next(feat for feat in holes if feat["diameter_mm"] == 5)
+    assert geometry_hole["occurrences"] == len(geometry_hole["instances"]) == 12
     assert "LLM 首次孔欠检，补询已补 hole" in out["warnings"]
     retry_blob = json.dumps(calls[1], ensure_ascii=False)
     assert "强制穷举全部孔族" in retry_blob
