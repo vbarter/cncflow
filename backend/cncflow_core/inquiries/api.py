@@ -5,6 +5,8 @@ import os
 import re
 from io import BytesIO
 from pathlib import Path
+from tempfile import SpooledTemporaryFile
+from zipfile import ZIP_DEFLATED, ZipFile
 
 from flask import Blueprint, current_app, jsonify, request, Response, send_file
 
@@ -953,6 +955,38 @@ def _public_uploaded_file(row):
     }
 
 
+_UNSAFE_ZIP_COMPONENT = re.compile(r'[\x00-\x1f\x7f<>:"/\\|?*]+')
+
+
+def _safe_zip_component(value, fallback):
+    name = _UNSAFE_ZIP_COMPONENT.sub("_", str(value or "")).strip(" .")
+    return name or fallback
+
+
+def _unique_zip_component(name, used, *, preserve_extension=False):
+    stem, suffix = os.path.splitext(name) if preserve_extension else (name, "")
+    candidate = name
+    index = 2
+    while candidate.casefold() in used:
+        candidate = f"{stem} ({index}){suffix}"
+        index += 1
+    used.add(candidate.casefold())
+    return candidate
+
+
+def _inquiry_file_rows(conn, iid):
+    return conn.execute(
+        "SELECT parts.id AS part_id,parts.name AS part_name,"
+        "uploaded_files.original_name,uploaded_files.storage_path "
+        "FROM parts JOIN uploaded_files "
+        "ON uploaded_files.job_id=parts.parse_job_id "
+        "WHERE parts.inquiry_id=? "
+        "AND uploaded_files.role IN ('step','drawing') "
+        "ORDER BY parts.rowid,uploaded_files.role,uploaded_files.id",
+        (iid,),
+    ).fetchall()
+
+
 def _ensure_part_mesh(conn, part):
     """Serve stored GLB, or build it now from the job STEP (covers stale parses)."""
     result = _parse_result(conn, part)
@@ -1374,6 +1408,57 @@ def get_inquiry_quote_pdf(iid):
             mimetype="application/pdf",
             as_attachment=True,
             download_name=f"{filename_base}-报价单.pdf",
+        )
+    except KeyError:
+        return jsonify({"error": "询价单不存在"}), 404
+    finally:
+        conn.close()
+
+
+@bp.get("/api/v1/inquiries/<iid>/originals.zip")
+def get_inquiry_originals_zip(iid):
+    conn = _conn()
+    try:
+        inquiry = store.get_inquiry(conn, iid)
+        rows = _inquiry_file_rows(conn, iid)
+        if not rows:
+            return jsonify({"error": "询价单暂无零件原件"}), 404
+
+        folders = {}
+        used_folders = set()
+        used_filenames = {}
+        entries = []
+        try:
+            for row in rows:
+                part_id = row["part_id"]
+                if part_id not in folders:
+                    folder = _safe_zip_component(row["part_name"], "零件")
+                    folders[part_id] = _unique_zip_component(folder, used_folders)
+                    used_filenames[part_id] = set()
+                filename = _safe_zip_component(row["original_name"], "原件")
+                filename = _unique_zip_component(
+                    filename,
+                    used_filenames[part_id],
+                    preserve_extension=True,
+                )
+                entries.append((
+                    materialize(row["storage_path"]),
+                    f"{folders[part_id]}/{filename}",
+                ))
+        except FileNotFoundError:
+            return jsonify({"error": "零件原件不存在"}), 404
+
+        archive = SpooledTemporaryFile(max_size=16 * 1024 * 1024, mode="w+b")
+        with ZipFile(archive, "w", compression=ZIP_DEFLATED) as zip_file:
+            for source, archive_name in entries:
+                zip_file.write(source, archive_name)
+        archive.seek(0)
+        filename_base = _safe_zip_component(inquiry.get("title"), iid)
+        return send_file(
+            archive,
+            mimetype="application/zip",
+            as_attachment=True,
+            download_name=f"{filename_base}-零件原件.zip",
         )
     except KeyError:
         return jsonify({"error": "询价单不存在"}), 404
