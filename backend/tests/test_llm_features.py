@@ -22,34 +22,42 @@ STEP_NUC_WINDOWS = os.path.join(FIXTURES, "nuc_plate_windows.step")
 SLOT_TREE_FIELDS = ("pocket_type", "length", "width", "depth", "corner_radius")
 
 
-def _cylinder_step(axis_positions, radius=1.7, faces_per_axis=2):
+def _cylinder_groups_step(groups, faces_per_axis=2):
     entities = []
     entity_id = 1
-    for x, z in axis_positions:
-        for face_index in range(faces_per_axis):
-            point_x = x + face_index * 0.2
-            point_z = z - face_index * 0.2
-            cylinder_id = entity_id
-            placement_id = entity_id + 1
-            point_id = entity_id + 2
-            direction_id = entity_id + 3
-            entities.extend([
-                f"#{cylinder_id}=CYLINDRICAL_SURFACE('',#{placement_id},{radius});",
-                (
-                    f"#{placement_id}=AXIS2_PLACEMENT_3D("
-                    f"'',#{point_id},#{direction_id},$);"
-                ),
-                (
-                    f"#{point_id}=CARTESIAN_POINT("
-                    f"'',({point_x},{face_index * 8.0},{point_z}));"
-                ),
-                f"#{direction_id}=DIRECTION('',(0.,1.,0.));",
-            ])
-            entity_id += 4
+    for radius, axis_positions in groups:
+        for x, z in axis_positions:
+            for face_index in range(faces_per_axis):
+                point_x = x + face_index * 0.2
+                point_z = z - face_index * 0.2
+                cylinder_id = entity_id
+                placement_id = entity_id + 1
+                point_id = entity_id + 2
+                direction_id = entity_id + 3
+                entities.extend([
+                    f"#{cylinder_id}=CYLINDRICAL_SURFACE('',#{placement_id},{radius});",
+                    (
+                        f"#{placement_id}=AXIS2_PLACEMENT_3D("
+                        f"'',#{point_id},#{direction_id},$);"
+                    ),
+                    (
+                        f"#{point_id}=CARTESIAN_POINT("
+                        f"'',({point_x},{face_index * 8.0},{point_z}));"
+                    ),
+                    f"#{direction_id}=DIRECTION('',(0.,1.,0.));",
+                ])
+                entity_id += 4
     return (
         "ISO-10303-21;\nHEADER;\nENDSEC;\nDATA;\n"
         + "\n".join(entities)
         + "\nENDSEC;\nEND-ISO-10303-21;"
+    )
+
+
+def _cylinder_step(axis_positions, radius=1.7, faces_per_axis=2):
+    return _cylinder_groups_step(
+        [(radius, axis_positions)],
+        faces_per_axis=faces_per_axis,
     )
 
 
@@ -746,6 +754,63 @@ def test_extract_does_not_raise_hole_occurrences_to_geometry_count(
     assert len(hole["instances"]) == 7
     assert hole["location"] in hole["instances"]
     assert hole["location"] != {"x": 0, "y": 0, "z": 0}
+
+
+@pytest.mark.llm_features
+def test_extract_backfills_missing_step_radius_hole_family(
+    monkeypatch,
+    tmp_path,
+):
+    from cncflow_core.geometry import llm as llm_mod
+
+    step = tmp_path / "xm7-missing-hole-family.step"
+    missing_instances = [
+        (0, 27.5),
+        (23.816, -13.75),
+        (-23.816, -13.75),
+    ]
+    step.write_text(
+        _cylinder_groups_step([
+            (1.5, [(0, 0)]),
+            (1.7, missing_instances),
+        ]),
+        encoding="ascii",
+    )
+    monkeypatch.setattr(llm_mod, "_tuzi_chat", lambda *_args, **_kwargs: {
+        "features": [{
+            "type": "hole",
+            "diameter_mm": 3,
+            "depth_mm": 22,
+            "hole_type": "through",
+            "occurrences": 1,
+        }],
+    })
+
+    out = llm_mod.extract_step_features(
+        str(step),
+        geometry={"bounding_box_mm": {"x": 64, "y": 22, "z": 64}},
+    )
+
+    holes = [feature for feature in out["features"] if feature["type"] == "hole"]
+    assert [hole["diameter_mm"] for hole in holes] == [3, 3.4]
+    backfilled = holes[1]
+    expected_instances = [
+        {"x": 0.0, "y": 0.0, "z": 27.5},
+        {"x": 23.816, "y": 0.0, "z": -13.75},
+        {"x": -23.816, "y": 0.0, "z": -13.75},
+    ]
+    assert backfilled["occurrences"] == 3
+    assert backfilled["instances"] == expected_instances
+    assert backfilled["location"] in expected_instances
+    assert backfilled["location"] != {"x": 0, "y": 0, "z": 0}
+    assert backfilled["pose"]["origin"] == backfilled["location"]
+    assert backfilled["axis"] == {"x": 0.0, "y": 1.0, "z": 0.0}
+    assert backfilled["depth_mm"] == 22
+    assert backfilled["hole_type"] == "through"
+    assert backfilled["source"] == "geometry"
+    assert "STEP axis geometry backfill" in backfilled["evidence"]
+    assert backfilled["warnings"] == []
+    assert "STEP 轴簇几何回填 hole Ø3.4 ×3" in out["warnings"]
 
 
 def test_hole_retry_uses_unique_axes_instead_of_cylindrical_faces():
