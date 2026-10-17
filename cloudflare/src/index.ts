@@ -18,11 +18,11 @@ interface Env {
 
 /**
  * Flask + CadQuery stay in the Container. Do not rewrite as a Worker.
- * SQLite is single-writer so we pin one instance. Parser polls even without HTTP.
+ * SQLite is single-writer so we pin one instance. Sleeps after 10m HTTP idle.
  */
 export class CncflowContainer extends Container<Env> {
   defaultPort = 5001;
-  sleepAfter = "24h";
+  sleepAfter = "10m";
   enableInternet = true;
 
   constructor(ctx: DurableObjectState, env: Env) {
@@ -65,8 +65,11 @@ export class CncflowContainer extends Container<Env> {
     return super.fetch(request);
   }
 
-  override onActivityExpired(): void {
-    // Parser worker polls SQLite; do not stop when HTTP is idle.
+  override async onActivityExpired(): Promise<void> {
+    // Stop after sleepAfter of HTTP idle so the instance stops billing.
+    // Parse jobs are created by HTTP and time out at 300s (< sleepAfter);
+    // persist.py flushes SQLite to R2 on SIGTERM and restore_db runs on boot.
+    await this.stop();
   }
 }
 
